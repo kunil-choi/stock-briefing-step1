@@ -19,11 +19,13 @@ jobs:
         with:
           python-version: "3.11"
       - run: |
-          pip install openai playwright Pillow pandas matplotlib pykrx requests python-dotenv pyyaml
+          pip install openai playwright Pillow pandas matplotlib pykrx requests python-dotenv pyyaml pydantic
           playwright install chromium
       - env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python pipeline/generate_script.py KO
+      - name: 🧩 scene_plan.json 생성 (개체명 추출 + 비주얼 우선순위)
+        run: python pipeline/generate_scene_plan.py KO
       - uses: actions/upload-artifact@v4
         with:
           name: script
