@@ -1,0 +1,24 @@
+# config/schedule.yml
+# briefing_type/video_format 및 이 레포의 실행 창(window)을 정의한다.
+# pipeline/config_schedule.py가 이 파일을 로드해 상수로 노출한다.
+
+briefing_type: morning_core   # morning_core | report_update
+
+window:
+  start: "07:10"   # 이 시각 이전에 트리거되면 비정상(모니터링 기준)
+  end:   "08:20"   # 이 시각을 넘겨 완료되면 SLA 위반으로 로그에 경고 표시
+
+# stock-briefing-step2에서만 사용 (video_format 결정 기준). morning_core는
+# 애초에 증권사 리포트를 다루지 않으므로 이 섹션이 비어 있다.
+report_decision: {}
+
+duration:
+  longform:
+    min_seconds: 780    # 13분
+    max_seconds: 1200   # 20분
+  shorts:
+    min_seconds: 30
+    max_seconds: 60
+
+# 이 레포는 항상 longform만 생성한다 (조건부 shorts 분기는 step2 전용).
+default_video_format: longform

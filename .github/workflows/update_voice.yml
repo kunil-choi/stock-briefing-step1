@@ -1,0 +1,71 @@
+name: 🎤 Update Voice Clone
+
+on:
+  push:
+    paths:
+      - "voice_sample/**"
+  workflow_dispatch:
+
+jobs:
+  update_voice:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: 📥 코드 체크아웃
+        uses: actions/checkout@v4
+
+      - name: 🐍 Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 📦 패키지 설치
+        run: pip install requests PyNaCl
+
+      - name: 🎤 Voice Clone 업데이트
+        id: update_voice
+        env:
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+        run: python pipeline/update_voice_id.py
+
+      - name: 🔐 GitHub Secret 업데이트
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          # 새 VOICE_ID 읽기
+          NEW_VOICE_ID=$(cat /tmp/new_voice_id.txt)
+          echo "새 Voice ID: $NEW_VOICE_ID"
+
+          # GitHub API로 Public Key 가져오기
+          PUB_KEY_RESP=$(curl -s \
+            -H "Authorization: token $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/secrets/public-key")
+
+          KEY_ID=$(echo "$PUB_KEY_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['key_id'])")
+          PUB_KEY=$(echo "$PUB_KEY_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['key'])")
+
+          # Secret 암호화 (heredoc 대신 python -c 인라인 방식 사용)
+          ENCRYPTED=$(python3 -c "
+          import sys
+          from base64 import b64decode, b64encode
+          from nacl import encoding, public
+
+          pub_key = public.PublicKey(b64decode('$PUB_KEY'))
+          box = public.SealedBox(pub_key)
+          encrypted = box.encrypt(b'$NEW_VOICE_ID')
+          print(b64encode(encrypted).decode())
+          ")
+
+          echo "암호화 완료"
+
+          # Secret 업데이트
+          curl -s -X PUT \
+            -H "Authorization: token $GH_PAT" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/secrets/ELEVENLABS_VOICE_ID" \
+            -d "{\"encrypted_value\":\"$ENCRYPTED\",\"key_id\":\"$KEY_ID\"}"
+
+          echo "✅ ELEVENLABS_VOICE_ID Secret 업데이트 완료"

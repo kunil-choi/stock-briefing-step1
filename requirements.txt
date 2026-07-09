@@ -1,0 +1,10 @@
+pykrx
+matplotlib
+pandas
+mplfinance
+Pillow>=10.0.0
+requests
+openai>=1.0.0
+python-dotenv
+playwright
+pyyaml

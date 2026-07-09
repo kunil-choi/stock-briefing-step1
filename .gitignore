@@ -1,0 +1,19 @@
+# 환경변수 및 인증 파일
+.env
+token.json
+client_secret.json
+credentials.json
+
+# 결과물
+*.mp4
+*.mp3
+*.wav
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,138 @@
+name: 📡 morning_core 영상 생성 (07:10~08:20 KST)
+
+on:
+  # stock-briefing-v3-1이 완료 직후 dispatch로만 시작한다. 자체 cron을 두면
+  # V3_1 데이터가 아직 없을 때 실행돼 날짜 불일치가 생길 수 있어(기존
+  # daily_broadcast.yml과 동일한 설계 원칙) 의도적으로 자동 스케줄을 두지 않는다.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  script:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          pip install openai playwright Pillow pandas matplotlib pykrx requests python-dotenv pyyaml
+          playwright install chromium
+      - env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python pipeline/generate_script.py KO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: script
+          path: output/KO/scripts/
+
+  voice:
+    needs: script
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install openai requests Pillow>=10.0.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: script
+          path: output/KO/scripts/
+      - env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python pipeline/generate_voice.py KO
+      - name: TTS 결과 검증
+        run: |
+          echo "=== 생성된 오디오 파일 목록 ==="
+          ls -lh output/KO/audio/ || echo "audio 폴더 없음"
+          total=$(ls output/KO/audio/*.mp3 2>/dev/null | wc -l)
+          echo "총 MP3 파일 수: $total"
+          if [ "$total" -lt 5 ]; then
+            echo "❌ MP3 파일이 너무 적습니다 ($total개). TTS 실패 가능성."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: voice
+          path: output/KO/audio/
+
+  assets:
+    needs: [script]
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra ffmpeg
+          fc-cache -fv
+          pip install requests Pillow>=10.0.0 pykrx matplotlib pandas mplfinance python-dotenv playwright
+          playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: script
+          path: output/KO/scripts/
+      - run: python pipeline/generate_assets.py KO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: assets
+          path: output/KO/frames/
+
+  video:
+    needs: [script, voice, assets]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra ffmpeg libass-dev libass9
+          fc-cache -fv
+          pip install openai requests Pillow>=10.0.0 pyyaml playwright
+          playwright install --with-deps chromium
+      - uses: actions/download-artifact@v4
+        with:
+          name: script
+          path: output/KO/scripts/
+      - uses: actions/download-artifact@v4
+        with:
+          name: voice
+          path: output/KO/audio/
+      - uses: actions/download-artifact@v4
+        with:
+          name: assets
+          path: output/KO/frames/
+      - name: asset_map.json 생성
+        run: |
+          python - <<'PY'
+          import glob, json, os
+          frames = sorted(glob.glob('output/KO/frames/*.png'))
+          os.makedirs('output/KO', exist_ok=True)
+          json.dump({'frames': frames, 'lang': 'KO'}, open('output/KO/asset_map.json','w',encoding='utf-8'), ensure_ascii=False, indent=2)
+          PY
+      - run: python pipeline/generate_subtitles.py KO
+      - run: python pipeline/generate_video.py KO
+      - name: 📋 YouTube 메타데이터 생성 (제목/설명/태그/썸네일)
+        run: python pipeline/generate_metadata.py KO
+      - name: ✅ 결과물 검증 (영상 길이 + metadata.json)
+        run: python pipeline/quality_gate.py KO
+      - name: 📦 배포 산출물 업로드 (output/YYYY-MM-DD/)
+        run: |
+          DATE_DIR=$(TZ='Asia/Seoul' date +'%Y-%m-%d')
+          echo "DATE_DIR=${DATE_DIR}" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: morning_core-${{ env.DATE_DIR }}
+          path: output/${{ env.DATE_DIR }}/
+          retention-days: 30

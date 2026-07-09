@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>📺 Stock Briefing 대시보드</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #0f1420;
+    --panel: #1a2232;
+    --panel-border: #2a3548;
+    --text: #e7ecf5;
+    --muted: #94a3b8;
+    --accent: #4f8cff;
+    --accent-hover: #6ba0ff;
+    --success: #34d399;
+    --warning: #fbbf24;
+    --error: #f87171;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+  h1 {
+    font-size: 1.5rem;
+    margin-bottom: 4px;
+  }
+  .subtitle {
+    color: var(--muted);
+    margin-top: 0;
+    margin-bottom: 32px;
+    font-size: 0.95rem;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    padding: 24px;
+    margin-bottom: 24px;
+  }
+  .card h2 {
+    margin-top: 0;
+    font-size: 1.1rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  label {
+    display: block;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin-bottom: 6px;
+  }
+  input[type="password"], input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: 1px solid var(--panel-border);
+    background: #0d1420;
+    color: var(--text);
+    font-size: 0.9rem;
+    margin-bottom: 16px;
+  }
+  button {
+    cursor: pointer;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    background: var(--accent);
+    color: #fff;
+    transition: background 0.15s ease;
+  }
+  button:hover:not(:disabled) { background: var(--accent-hover); }
+  button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  button.secondary {
+    background: transparent;
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+  }
+  .status-box {
+    margin-top: 16px;
+    padding: 12px 14px;
+    border-radius: 8px;
+    background: #0d1420;
+    border: 1px solid var(--panel-border);
+    font-size: 0.88rem;
+    display: none;
+  }
+  .status-box.visible { display: block; }
+  .status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    margin-right: 8px;
+  }
+  .badge-queued { background: #3f3320; color: var(--warning); }
+  .badge-in_progress { background: #1e3a5f; color: #7dd3fc; }
+  .badge-completed-success { background: #103d2c; color: var(--success); }
+  .badge-completed-failure { background: #4a1d1d; color: var(--error); }
+  .badge-error { background: #4a1d1d; color: var(--error); }
+  .artifact-list {
+    display: grid;
+    gap: 12px;
+  }
+  .artifact-card {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: #0d1420;
+    border: 1px solid var(--panel-border);
+    border-radius: 8px;
+    padding: 14px 16px;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+  .artifact-info { min-width: 0; }
+  .artifact-name {
+    font-weight: 600;
+    font-size: 0.95rem;
+    word-break: break-all;
+  }
+  .artifact-meta {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-top: 4px;
+  }
+  .empty, .error-text {
+    color: var(--muted);
+    font-size: 0.88rem;
+  }
+  .error-text { color: var(--error); }
+  .top-actions {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+  a.gh-link { color: var(--accent); text-decoration: none; }
+  a.gh-link:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📺 Stock Briefing 대시보드</h1>
+  <p class="subtitle">stock-briefing-video 워크플로우 실행 및 결과 영상 다운로드</p>
+
+  <div class="card">
+    <h2>🔑 GitHub 인증</h2>
+    <label for="tokenInput">GitHub Personal Access Token (repo, workflow 권한 필요)</label>
+    <input type="password" id="tokenInput" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx">
+    <div class="empty">토큰은 이 브라우저의 localStorage에만 저장되며 외부로 전송되지 않습니다.</div>
+  </div>
+
+  <div class="card">
+    <h2>▶️ 워크플로우 실행</h2>
+    <button id="runBtn">오늘의 브리핑 생성</button>
+    <div id="statusBox" class="status-box">
+      <span id="statusBadge" class="status-badge">-</span>
+      <span id="statusText"></span>
+      <div id="statusLinkWrap"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="top-actions">
+      <h2 style="margin:0;">🎞️ 결과물</h2>
+      <button class="secondary" id="refreshBtn">새로고침</button>
+    </div>
+    <div id="artifactList" class="artifact-list">
+      <div class="empty">불러오는 중...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+const OWNER = "kunil-choi";
+const REPO = "stock-briefing-video";
+const WORKFLOW_FILE = "daily_broadcast.yml";
+const API_BASE = "https://api.github.com";
+const TOKEN_STORAGE_KEY = "sbv_gh_token";
+const POLL_INTERVAL_MS = 30000;
+
+const tokenInput = document.getElementById("tokenInput");
+const runBtn = document.getElementById("runBtn");
+const refreshBtn = document.getElementById("refreshBtn");
+const statusBox = document.getElementById("statusBox");
+const statusBadge = document.getElementById("statusBadge");
+const statusText = document.getElementById("statusText");
+const statusLinkWrap = document.getElementById("statusLinkWrap");
+const artifactList = document.getElementById("artifactList");
+
+let pollTimer = null;
+
+function getToken() {
+  return tokenInput.value.trim();
+}
+
+function ghHeaders(extra) {
+  const token = getToken();
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  return Object.assign(headers, extra || {});
+}
+
+tokenInput.addEventListener("input", () => {
+  localStorage.setItem(TOKEN_STORAGE_KEY, tokenInput.value.trim());
+});
+
+function loadToken() {
+  const saved = localStorage.getItem(TOKEN_STORAGE_KEY);
+  if (saved) tokenInput.value = saved;
+}
+
+function setStatus(badgeClass, badgeLabel, text, htmlLink) {
+  statusBox.classList.add("visible");
+  statusBadge.className = "status-badge " + badgeClass;
+  statusBadge.textContent = badgeLabel;
+  statusText.textContent = text;
+  statusLinkWrap.innerHTML = htmlLink
+    ? `<a class="gh-link" href="${htmlLink}" target="_blank" rel="noopener">GitHub Actions에서 보기 →</a>`
+    : "";
+}
+
+function stopPolling() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+async function triggerWorkflow() {
+  const token = getToken();
+  if (!token) {
+    alert("GitHub Personal Access Token을 입력해주세요.");
+    return;
+  }
+
+  runBtn.disabled = true;
+  setStatus("badge-queued", "대기중", "워크플로우 실행을 요청하는 중...");
+
+  const dispatchTime = new Date();
+
+  try {
+    const res = await fetch(
+      `${API_BASE}/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+      {
+        method: "POST",
+        headers: ghHeaders({ "Content-Type": "application/json" }),
+        body: JSON.stringify({ ref: "main" })
+      }
+    );
+
+    if (res.status !== 204) {
+      const body = await res.text();
+      throw new Error(`요청 실패 (HTTP ${res.status}): ${body}`);
+    }
+
+    setStatus("badge-queued", "대기중", "워크플로우가 대기열에 등록되었습니다. 실행 확인 중...");
+    stopPolling();
+    setTimeout(() => pollRunStatus(dispatchTime), 5000);
+    pollTimer = setInterval(() => pollRunStatus(dispatchTime), POLL_INTERVAL_MS);
+  } catch (err) {
+    setStatus("badge-error", "오류", err.message);
+    runBtn.disabled = false;
+  }
+}
+
+async function pollRunStatus(dispatchTime) {
+  try {
+    const res = await fetch(
+      `${API_BASE}/repos/${OWNER}/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?event=workflow_dispatch&per_page=5`,
+      { headers: ghHeaders() }
+    );
+    if (!res.ok) throw new Error(`실행 상태 조회 실패 (HTTP ${res.status})`);
+
+    const data = await res.json();
+    const run = (data.workflow_runs || []).find(
+      (r) => new Date(r.created_at).getTime() >= dispatchTime.getTime() - 20000
+    );
+
+    if (!run) {
+      setStatus("badge-queued", "대기중", "실행이 아직 시작되지 않았습니다. 계속 확인 중...");
+      return;
+    }
+
+    if (run.status === "completed") {
+      const success = run.conclusion === "success";
+      setStatus(
+        success ? "badge-completed-success" : "badge-completed-failure",
+        success ? "완료" : "실패",
+        success ? "브리핑 영상 생성이 완료되었습니다." : `워크플로우가 실패했습니다 (${run.conclusion}).`,
+        run.html_url
+      );
+      stopPolling();
+      runBtn.disabled = false;
+      loadArtifacts();
+    } else {
+      const label = run.status === "in_progress" ? "진행중" : "대기중";
+      const badgeClass = run.status === "in_progress" ? "badge-in_progress" : "badge-queued";
+      setStatus(badgeClass, label, `현재 상태: ${run.status}`, run.html_url);
+    }
+  } catch (err) {
+    setStatus("badge-error", "오류", err.message);
+  }
+}
+
+function formatBytes(bytes) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDate(iso) {
+  const d = new Date(iso);
+  return d.toLocaleString("ko-KR", { hour12: false });
+}
+
+async function loadArtifacts() {
+  artifactList.innerHTML = '<div class="empty">불러오는 중...</div>';
+  try {
+    const res = await fetch(
+      `${API_BASE}/repos/${OWNER}/${REPO}/actions/artifacts?per_page=30`,
+      { headers: ghHeaders() }
+    );
+    if (!res.ok) throw new Error(`아티팩트 조회 실패 (HTTP ${res.status}). 토큰 권한을 확인해주세요.`);
+
+    const data = await res.json();
+    const artifacts = (data.artifacts || [])
+      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+      .slice(0, 5);
+
+    if (artifacts.length === 0) {
+      artifactList.innerHTML = '<div class="empty">표시할 아티팩트가 없습니다.</div>';
+      return;
+    }
+
+    artifactList.innerHTML = "";
+    artifacts.forEach((artifact) => {
+      const card = document.createElement("div");
+      card.className = "artifact-card";
+      card.innerHTML = `
+        <div class="artifact-info">
+          <div class="artifact-name">${artifact.name}${artifact.expired ? " (만료됨)" : ""}</div>
+          <div class="artifact-meta">${formatDate(artifact.created_at)} · ${formatBytes(artifact.size_in_bytes)}</div>
+        </div>
+      `;
+      const downloadBtn = document.createElement("button");
+      downloadBtn.textContent = "다운로드";
+      downloadBtn.disabled = artifact.expired;
+      downloadBtn.addEventListener("click", () => downloadArtifact(artifact, downloadBtn));
+      card.appendChild(downloadBtn);
+      artifactList.appendChild(card);
+    });
+  } catch (err) {
+    artifactList.innerHTML = `<div class="error-text">${err.message}</div>`;
+  }
+}
+
+async function downloadArtifact(artifact, btn) {
+  const token = getToken();
+  if (!token) {
+    alert("GitHub Personal Access Token을 입력해주세요.");
+    return;
+  }
+
+  const originalLabel = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = "다운로드 중...";
+
+  try {
+    const res = await fetch(artifact.archive_download_url, {
+      headers: ghHeaders()
+    });
+    if (!res.ok) throw new Error(`다운로드 실패 (HTTP ${res.status})`);
+
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${artifact.name}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalLabel;
+  }
+}
+
+runBtn.addEventListener("click", triggerWorkflow);
+refreshBtn.addEventListener("click", loadArtifacts);
+
+loadToken();
+loadArtifacts();
+</script>
+</body>
+</html>
