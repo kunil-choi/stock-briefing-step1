@@ -44,14 +44,14 @@ def _kdate_to_iso(date_str: str) -> str:
     return f"{y}-{int(mo):02d}-{int(d):02d}"
 
 
-def _template_key() -> str:
+def _template_key(video_format: str) -> str:
     if BRIEFING_TYPE == "morning_core":
         return "morning_core"
-    return f"report_update_{DEFAULT_VIDEO_FORMAT}"
+    return f"report_update_{video_format}"
 
 
-def build_title(script: dict, date_iso: str) -> str:
-    key = _template_key()
+def build_title(script: dict, date_iso: str, video_format: str) -> str:
+    key = _template_key(video_format)
     template = TITLE_TEMPLATES.get(key, TITLE_TEMPLATES["morning_core"])
     return template.format(date=date_iso)
 
@@ -149,12 +149,17 @@ def run(lang: str = "KO"):
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
 
+    # morning_core는 항상 longform(script.json에 video_format 필드가 없으므로
+    # config의 기본값으로 자연히 폴백). report_update(step2)는 이 필드를
+    # report_decision.decide_video_format()이 채워 넣는다.
+    video_format = script.get("video_format", DEFAULT_VIDEO_FORMAT)
+
     date_iso = _kdate_to_iso(script.get("date", ""))
     out_dir  = os.path.join(root, "output", date_iso)
     os.makedirs(out_dir, exist_ok=True)
 
     warnings = []
-    title       = build_title(script, date_iso)
+    title       = build_title(script, date_iso, video_format)
     description = build_description(script)
     tags        = build_tags(script)
 
@@ -192,7 +197,7 @@ def run(lang: str = "KO"):
     status = "success" if video_dst_rel else "partial"
     meta = {
         "briefing_type":   BRIEFING_TYPE,
-        "video_format":    DEFAULT_VIDEO_FORMAT,
+        "video_format":    video_format,
         "briefing_date":   date_iso,
         "generated_at":    datetime.now(KST).isoformat(),
         "status":          status,
