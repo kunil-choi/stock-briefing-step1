@@ -8,3 +8,4 @@ openai>=1.0.0
 python-dotenv
 playwright
 pyyaml
+pydantic>=2.0.0
