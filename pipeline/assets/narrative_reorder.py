@@ -186,7 +186,25 @@ def _build_checklist_section(ai_strategy_sec: dict, importance_by_id: dict,
 # 최상위 재정렬 함수
 # ─────────────────────────────────────────────────────────────────────────────
 
-def reorder_sections(script_data: dict, top_movers_count: int = 3) -> dict:
+def _trim_to_core_mention(section: dict) -> dict:
+    """짧은 하이라이트(short_form) 포맷용: TOP 종목이라도 channel_summaries를
+    (있다면) 가장 앞의 1개로만 줄여 "핵심만" 다룬다. 원본 section은 그대로
+    두고 복사본만 반환한다."""
+    summaries = section.get("channel_summaries") or []
+    if len(summaries) <= 1:
+        return section
+    return {**section, "channel_summaries": summaries[:1]}
+
+
+def reorder_sections(script_data: dict, top_movers_count: int = 3,
+                      short_form: bool = False) -> dict:
+    """script_data(원본 script.json)를 재정렬한다.
+
+    short_form=False(기본): 8단계 "장전 의사결정형" 전체 구성
+      (훅 → 결론 → TOP3 → 시장배경 → 섹터분석 → 체크포인트 → 리스크 → 체크리스트 → 클로징)
+    short_form=True: 출퇴근길에 빠르게 볼 수 있는 하이라이트 구성만
+      (훅 → 결론 → TOP{top_movers_count}(핵심 멘션 1개로 축소) → 클로징)
+      — 5~8분 목표 길이(config/schedule.yml)에 맞춘 축약판."""
     scene_plan = build_scene_plan(script_data)
     importance_by_id = {s.id: s.priority_score for s in scene_plan.sections}
     entities_by_id = {s.id: [e.model_dump() for e in s.entities] for s in scene_plan.sections}
@@ -199,15 +217,7 @@ def reorder_sections(script_data: dict, top_movers_count: int = 3) -> dict:
     top_movers = stock_candidates[:top_movers_count]
     top_mover_ids = {s.get("id", "") for s in top_movers}
 
-    checkpoint_sections = [
-        s for s in sections
-        if classify_section_type(s.get("id", "")) in ("stock_candidate", "stock_checkpoint")
-        and s.get("id", "") not in top_mover_ids
-    ]
-
     market_sec = by_id.get("market_summary")
-    sector_sec = by_id.get("sectors")
-    ai_strategy_sec = by_id.get("ai_strategy")
     closing_sec = by_id.get("closing")
 
     hook_sources = [s for s in sections if s.get("id") not in ("opening", "closing")]
@@ -217,23 +227,38 @@ def reorder_sections(script_data: dict, top_movers_count: int = 3) -> dict:
         _build_hook_section(hook_sources[:3]),
         _build_conclusion_section(market_sec, importance_by_id, entities_by_id),
     ]
-    ordered += [_annotate(s, "top_mover", importance_by_id, entities_by_id) for s in top_movers]
-    if market_sec:
-        ordered.append(_annotate(market_sec, "market_background", importance_by_id, entities_by_id))
-    if sector_sec:
-        ordered.append(_annotate(sector_sec, "sector_analysis", importance_by_id, entities_by_id))
-    ordered += [_annotate(s, "stock_checkpoint", importance_by_id, entities_by_id) for s in checkpoint_sections]
+    if short_form:
+        ordered += [
+            _annotate(_trim_to_core_mention(s), "top_mover", importance_by_id, entities_by_id)
+            for s in top_movers
+        ]
+    else:
+        ordered += [_annotate(s, "top_mover", importance_by_id, entities_by_id) for s in top_movers]
 
-    risk_section = _build_risk_section(sections, importance_by_id)
-    if risk_section:
-        ordered.append(risk_section)
+        sector_sec = by_id.get("sectors")
+        ai_strategy_sec = by_id.get("ai_strategy")
+        checkpoint_sections = [
+            s for s in sections
+            if classify_section_type(s.get("id", "")) in ("stock_candidate", "stock_checkpoint")
+            and s.get("id", "") not in top_mover_ids
+        ]
 
-    checklist_section = _build_checklist_section(ai_strategy_sec, importance_by_id, entities_by_id)
-    if checklist_section:
-        ordered.append(checklist_section)
+        if market_sec:
+            ordered.append(_annotate(market_sec, "market_background", importance_by_id, entities_by_id))
+        if sector_sec:
+            ordered.append(_annotate(sector_sec, "sector_analysis", importance_by_id, entities_by_id))
+        ordered += [_annotate(s, "stock_checkpoint", importance_by_id, entities_by_id) for s in checkpoint_sections]
+
+        risk_section = _build_risk_section(sections, importance_by_id)
+        if risk_section:
+            ordered.append(risk_section)
+
+        checklist_section = _build_checklist_section(ai_strategy_sec, importance_by_id, entities_by_id)
+        if checklist_section:
+            ordered.append(checklist_section)
 
     # closing(투자 유의사항 고지)은 8단계 구성엔 없지만 컴플라이언스 문구라
-    # 누락 없이 맨 끝에 그대로 유지한다.
+    # short_form 여부와 무관하게 누락 없이 맨 끝에 그대로 유지한다.
     if closing_sec:
         ordered.append(_annotate(closing_sec, "closing", importance_by_id, entities_by_id))
 

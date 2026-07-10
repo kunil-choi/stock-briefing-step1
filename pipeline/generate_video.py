@@ -4,19 +4,9 @@ pipeline/generate_video.py
 KBS 머니올라 — 동영상 합성 모듈
 PNG 프레임 + MP3 오디오 + ASS 자막 → MP4
 
-프레임 → 오디오 매핑 규칙:
-  00_opening.png             → opening.mp3
-  01_market_00.png           → market_summary.mp3
-  02_sector.png              → sectors.mp3
-  NN_종목명_1_summary.png    → stock_종목명_summary.mp3
-  NN_종목명_2_chart.png      → stock_종목명_chart.mp3
-  NN_종목명_3_mention.png    → stock_종목명_mention.mp3
-  NN_종목명_3_mention_MM.png → stock_종목명_mention_MM.mp3
-  90_extra_watchlist.png     → stock_추가관심종목.mp3
-  91_today_pick.png          → stock_오늘의픽.mp3
-  92_brokerage_report.png    → stock_증권사리포트.mp3
-  98_ai_strategy.png         → ai_strategy.mp3
-  99_closing.png             → closing.mp3
+프레임 → 오디오 매핑 규칙은 generate_subtitles.py의
+_frame_stem_to_audio_id() docstring을 참고(중복 구현 방지를 위해 이 모듈이
+그 함수를 그대로 재사용한다).
 
 자막 처리:
   - ASS burn-in 방식: ffmpeg libass 필터로 자막을 영상에 직접 합성
@@ -26,7 +16,6 @@ PNG 프레임 + MP3 오디오 + ASS 자막 → MP4
 import os
 import sys
 import json
-import re
 import subprocess
 import urllib.request
 
@@ -40,11 +29,17 @@ from config_audio import (
     BGM_INTRO_VOLUME, BGM_BODY_VOLUME, BGM_OUTRO_VOLUME,
     BGM_DUCKING_THRESHOLD_DB, BGM_DUCKING_RATIO,
 )
+from config_schedule import duration_for
+from generate_subtitles import _frame_stem_to_audio_id
 
-# 목표 길이 설정
-TARGET_MIN = float(os.environ.get("TARGET_MIN_SECONDS", "870"))   # 14분 30초
-TARGET_MAX = float(os.environ.get("TARGET_MAX_SECONDS", "930"))   # 15분 30초
-TARGET_IDEAL = 900.0  # 15분 정확
+# 목표 길이 설정 — config/schedule.yml의 duration.longform을 그대로 쓴다
+# (예전엔 여기 하드코딩된 15분짜리 값이 schedule.yml과 별개로 존재해서,
+# schedule.yml을 5~8분으로 바꿔도 실제 영상 길이는 그대로 15분이 나오는
+# 불일치가 있었다).
+_DURATION_BOUNDS = duration_for("longform")
+TARGET_MIN = float(os.environ.get("TARGET_MIN_SECONDS", _DURATION_BOUNDS["min_seconds"]))
+TARGET_MAX = float(os.environ.get("TARGET_MAX_SECONDS", _DURATION_BOUNDS["max_seconds"]))
+TARGET_IDEAL = (TARGET_MIN + TARGET_MAX) / 2
 
 # BGM 다운로드 URL. 실제 볼륨/덕킹 파라미터는 config/audio.yml(config_audio.py)에서 관리한다.
 BGM_URL = os.environ.get("BGM_URL", "")
@@ -82,58 +77,6 @@ def get_audio_duration(mp3_path: str) -> float:
         return dur if dur > 0 else 3.0
     except Exception:
         return 3.0
-
-
-# ── 프레임 스템 → 오디오 ID 변환 ─────────────────────────────────────────
-
-def _frame_stem_to_audio_id(stem: str, sections: list) -> str:
-    fixed_patterns = [
-        (r'^00_opening$',           'opening'),
-        (r'^01_market',             'market_summary'),
-        (r'^02_sector',             'sectors'),
-        (r'^90_extra_watchlist$',   'stock_추가관심종목'),
-        (r'^91_today_pick$',        'stock_오늘의픽'),
-        (r'^92_brokerage_report$',  'stock_증권사리포트'),
-        (r'^98_ai_strategy',        'ai_strategy'),
-        (r'^99_closing',            'closing'),
-    ]
-    for pattern, audio_id in fixed_patterns:
-        if re.match(pattern, stem):
-            return audio_id
-
-    m = re.match(r'^\d{2}_(.+)_3_mention_(\d{2})$', stem)
-    if m:
-        stock_name = m.group(1)
-        page_num   = m.group(2)
-        sid = _find_stock_section_id(stock_name, sections)
-        return f"{sid}_mention_{page_num}"
-
-    m = re.match(r'^\d{2}_(.+)_3_mention$', stem)
-    if m:
-        stock_name = m.group(1)
-        sid = _find_stock_section_id(stock_name, sections)
-        return f"{sid}_mention_00"
-
-    m = re.match(r'^\d{2}_(.+)_1_summary$', stem)
-    if m:
-        stock_name = m.group(1)
-        sid = _find_stock_section_id(stock_name, sections)
-        return f"{sid}_summary"
-
-    print(f"  ⚠️ 오디오 ID 매핑 실패 — 스템: {stem}")
-    return stem
-
-
-def _find_stock_section_id(stock_name: str, sections: list) -> str:
-    for sec in sections:
-        sid = sec.get("id", "")
-        if sid in (f"stock_{stock_name}", f"hidden_{stock_name}"):
-            return sid
-    for sec in sections:
-        sid = sec.get("id", "")
-        if stock_name in sid:
-            return sid
-    return f"stock_{stock_name}"
 
 
 # ── 장면 영상 생성 (PNG + MP3 → Ken Burns 클립) + 전환 삽입 ────────────────
@@ -206,14 +149,15 @@ def resolve_merged_duration(measured_duration: float, expected_duration: float,
     return measured_duration
 
 
-# ── 영상 길이 조정 (15분에 맞추기) ───────────────────────────────────────
+# ── 영상 길이 조정 (config/schedule.yml의 목표 길이에 맞추기) ─────────────
 
 def adjust_to_target_duration(input_path: str, output_path: str,
                                current_duration: float) -> float:
     """
-    영상 길이를 목표 시간(15분)에 맞게 조정합니다.
-    - 너무 짧으면 (< 14분30초): 마지막 프레임 반복으로 늘림
-    - 너무 길면 (> 15분30초): 속도 미세 조정으로 줄임
+    영상 길이를 목표 시간(TARGET_MIN~TARGET_MAX, config/schedule.yml에서 로드)에
+    맞게 조정합니다.
+    - 너무 짧으면 (< TARGET_MIN): 마지막 프레임 반복으로 늘림
+    - 너무 길면 (> TARGET_MAX): 속도 미세 조정으로 줄임
     - 범위 내이면: 그대로 유지
 
     반환값: 적용된 배속(speed factor). 1.0이면 배속 조정 없음(패딩만 적용됐거나
@@ -343,7 +287,7 @@ def _auto_generate_subtitles(lang: str, root: str, sections: list, frames: list,
 def run(lang: str = "KO"):
     lang           = lang.upper()
     root           = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
-    script_path    = os.path.join(root, "output", lang, "scripts", "script.json")
+    script_path    = os.path.join(root, "output", lang, "scripts", "reordered_script.json")
     audio_dir      = os.path.join(root, "output", lang, "audio")
     video_dir      = os.path.join(root, "output", lang, "video")
     asset_map_path = os.path.join(root, "output", lang, "asset_map.json")
@@ -352,12 +296,12 @@ def run(lang: str = "KO"):
     os.makedirs(video_dir, exist_ok=True)
 
     if not os.path.isfile(script_path):
-        print("❌ script.json 없음"); sys.exit(1)
+        print("❌ reordered_script.json 없음"); sys.exit(1)
     with open(script_path, encoding="utf-8") as f:
         script = json.load(f)
     sections = script.get("sections", [])
     print(f"📂 섹션 수: {len(sections)}")
-    print(f"🎯 방송 목표 길이: 15분 ({TARGET_MIN:.0f}~{TARGET_MAX:.0f}초)")
+    print(f"🎯 방송 목표 길이: {TARGET_MIN/60:.0f}~{TARGET_MAX/60:.0f}분 ({TARGET_MIN:.0f}~{TARGET_MAX:.0f}초)")
 
     if not os.path.isfile(asset_map_path):
         print("❌ asset_map.json 없음"); sys.exit(1)
@@ -412,7 +356,7 @@ def run(lang: str = "KO"):
     if not concat_videos(section_videos, merged_path):
         sys.exit(1)
 
-    # ── 15분 길이 조정 ─────────────────────────────────────────────────
+    # ── 목표 길이 조정 ─────────────────────────────────────────────────
     print(f"\n⏱ 영상 길이 조정 중...\n")
     merged_duration = get_audio_duration(merged_path)
 
@@ -484,7 +428,7 @@ def run(lang: str = "KO"):
     print(f"✅ 최종 영상 완성!")
     print(f"   파일: {final_path}")
     print(f"   크기: {size_mb:.1f} MB")
-    print(f"   길이: {mins}분 {secs}초 (목표: 15분)")
+    print(f"   길이: {mins}분 {secs}초 (목표: {int(TARGET_MIN//60)}~{int(TARGET_MAX//60)}분)")
     if not (TARGET_MIN <= total_duration <= TARGET_MAX):
         print(f"   ⚠️ 경고: 목표 길이({int(TARGET_MIN//60)}분~{int(TARGET_MAX//60)}분)를 벗어났습니다")
     print(f"{'='*50}\n")

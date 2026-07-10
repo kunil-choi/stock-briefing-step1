@@ -129,6 +129,66 @@ def test_checklist_uses_softened_language():
     print("✅ 체크리스트 문구가 조언체 완화를 거쳤음을 확인")
 
 
+def test_short_form_only_has_hook_conclusion_top_movers_closing():
+    """short_form=True는 하이라이트 구성만 만든다: 훅 → 결론 → TOP3 → 클로징
+    (시장배경/섹터분석/체크포인트/리스크/체크리스트는 빠져야 함)."""
+    script_data = _make_multi_stock_script()
+    reordered = reorder_sections(script_data, top_movers_count=3, short_form=True)
+    types = [s["section_type"] for s in reordered["sections"]]
+
+    assert types[0] == "hook"
+    assert types[1] == "conclusion"
+    assert types[-1] == "closing"
+    assert types.count("top_mover") == 3
+    for excluded in ("market_background", "sector_analysis", "stock_checkpoint", "risks", "checklist"):
+        assert excluded not in types, f"short_form인데 {excluded}가 포함됨: {types}"
+    assert len(types) == 6, f"short_form 섹션 수가 예상(훅+결론+TOP3+클로징=6)과 다름: {types}"
+    print(f"✅ short_form 구성 확인: {types}")
+
+
+def test_short_form_trims_top_mover_channel_summaries_to_one():
+    """short_form=True에서는 TOP 종목이라도 channel_summaries를 1개로
+    줄여야 한다("핵심만" 요구사항). 원본 script_data는 변형되지 않아야 한다."""
+    script_data = _make_multi_stock_script()
+    # 가장 중요한 종목에 channel_summaries 3개를 채운다
+    top_sec = next(s for s in script_data["sections"] if s["id"] == "stock_가장중요종목")
+    top_sec["channel_summaries"] = [
+        {"channel_type": "유튜브", "narration": "유튜브 언급1", "subtitle": "유튜브 언급1"},
+        {"channel_type": "경제방송", "narration": "경제방송 언급1", "subtitle": "경제방송 언급1"},
+        {"channel_type": "증권사", "narration": "증권사 언급1", "subtitle": "증권사 언급1"},
+    ]
+    original_count = len(top_sec["channel_summaries"])
+
+    reordered = reorder_sections(script_data, top_movers_count=3, short_form=True)
+    top_mover = next(s for s in reordered["sections"] if s["id"] == "stock_가장중요종목")
+    assert len(top_mover["channel_summaries"]) == 1, (
+        f"short_form에서 channel_summaries가 1개로 줄어들어야 하는데 "
+        f"{len(top_mover['channel_summaries'])}개: {top_mover['channel_summaries']}"
+    )
+    # 원본 script_data는 그대로 유지되어야 함(읽기 전용 계약)
+    assert len(top_sec["channel_summaries"]) == original_count == 3
+    print("✅ short_form: TOP 종목 channel_summaries를 1개로 축소, 원본은 불변")
+
+
+def test_short_form_stock_with_single_mention_unaffected():
+    """channel_summaries가 이미 1개 이하인 종목은 그대로 유지되어야 한다."""
+    script_data = _make_multi_stock_script()
+    reordered = reorder_sections(script_data, top_movers_count=3, short_form=True)
+    top_movers = [s for s in reordered["sections"] if s["section_type"] == "top_mover"]
+    for tm in top_movers:
+        assert len(tm.get("channel_summaries", [])) <= 1
+    print("✅ short_form: channel_summaries가 원래 1개 이하인 종목은 그대로")
+
+
+def test_long_form_still_default():
+    """short_form 인자를 생략하면 기존 8단계 롱폼 동작(하위 호환)이 그대로다."""
+    script_data = _load_fixture()
+    reordered = reorder_sections(script_data)
+    types = {s["section_type"] for s in reordered["sections"]}
+    assert "hook" in types and "conclusion" in types
+    print("✅ short_form 인자 생략 시 기존 8단계 롱폼과 동일하게 동작")
+
+
 def test_script_json_not_mutated():
     """reorder_sections()가 입력 script_data를 변형하지 않는지 확인한다
     (script.json은 읽기 전용으로 유지되어야 기존 렌더링 파이프라인과 호환)."""
@@ -145,5 +205,9 @@ if __name__ == "__main__":
     test_importance_matches_scene_plan()
     test_soften_advice_language()
     test_checklist_uses_softened_language()
+    test_short_form_only_has_hook_conclusion_top_movers_closing()
+    test_short_form_trims_top_mover_channel_summaries_to_one()
+    test_short_form_stock_with_single_mention_unaffected()
+    test_long_form_still_default()
     test_script_json_not_mutated()
     print("\n✅ narrative_reorder 테스트 전체 통과")

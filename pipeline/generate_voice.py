@@ -118,7 +118,7 @@ def run(lang: str = "KO"):
     print(f"🎙️ TTS provider 우선순위: {[p.name for p in providers]} (사용 가능: {configured})")
     print(f"📁 출력 언어: {lang}")
 
-    script_path = f"output/{lang}/scripts/script.json"
+    script_path = f"output/{lang}/scripts/reordered_script.json"
     with open(script_path, "r", encoding="utf-8") as f:
         script = json.load(f)
 

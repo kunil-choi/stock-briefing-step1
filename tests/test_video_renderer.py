@@ -68,6 +68,66 @@ def test_compose_scene_ken_burns():
         shutil.rmtree(tmp_dir)
 
 
+def test_compose_scene_default_has_no_ken_burns_motion():
+    """사용자 피드백: 이미지가 카드형 텍스트 위주라 확대/팬 중 중요한 내용이
+    화면 밖으로 밀려나는 역효과가 있었다. 기본값(ENABLE_KEN_BURNS=False)에서는
+    zoompan 필터를 전혀 쓰지 않고 정지 화면으로 합성해야 한다."""
+    import assets.video_renderer as vr
+
+    assert vr.ENABLE_KEN_BURNS is False, "기본값은 Ken Burns 비활성화여야 함"
+
+    captured_cmds = []
+    real_run = vr.subprocess.run
+
+    def _spy_run(cmd, *args, **kwargs):
+        captured_cmds.append(cmd)
+        return real_run(cmd, *args, **kwargs)
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame1, _, audio = _make_test_assets(tmp_dir)
+        renderer = vr.FFmpegVideoRenderer(width=640, height=360)
+        out_path = os.path.join(tmp_dir, "scene_static.mp4")
+        vr.subprocess.run = _spy_run
+        result = renderer.compose_scene(frame1, audio, out_path, duration=2.0, scene_index=0)
+        vr.subprocess.run = real_run
+
+        assert result == out_path
+        assert os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+        filter_arg = next(a for cmd in captured_cmds for a in cmd if "scale=" in a)
+        assert "zoompan" not in filter_arg, f"기본값인데 zoompan 필터가 사용됨: {filter_arg}"
+        print("✅ compose_scene: 기본값에서는 zoompan(확대/팬) 없이 정지 화면으로 합성됨")
+    finally:
+        vr.subprocess.run = real_run
+        shutil.rmtree(tmp_dir)
+
+
+def test_compose_scene_ken_burns_when_explicitly_enabled():
+    """향후(연합뉴스/KBS 정식 이미지 확보 시) ENABLE_KEN_BURNS=True로 다시
+    켤 수 있도록 zoompan 경로 자체는 그대로 남아 있어야 한다."""
+    import assets.video_renderer as vr
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame1, _, audio = _make_test_assets(tmp_dir)
+        renderer = vr.FFmpegVideoRenderer(width=640, height=360)
+        out_path = os.path.join(tmp_dir, "scene_kb.mp4")
+
+        vr.ENABLE_KEN_BURNS = True
+        try:
+            result = renderer.compose_scene(frame1, audio, out_path, duration=2.0, scene_index=0)
+        finally:
+            vr.ENABLE_KEN_BURNS = False
+
+        assert result == out_path
+        assert os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+        dur = _probe_duration(out_path)
+        assert abs(dur - 2.0) < 0.2
+        print(f"✅ compose_scene: ENABLE_KEN_BURNS=True로 켜면 Ken Burns 경로가 여전히 동작함 ({dur:.2f}초)")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
 def test_build_transition_duration_is_fixed():
     from assets.video_renderer import FFmpegVideoRenderer, TRANSITION_DURATION
 
@@ -152,6 +212,8 @@ if __name__ == "__main__":
         sys.exit(0)
 
     test_compose_scene_ken_burns()
+    test_compose_scene_default_has_no_ken_burns_motion()
+    test_compose_scene_ken_burns_when_explicitly_enabled()
     test_build_transition_duration_is_fixed()
     test_build_transition_cycles_kind_by_scene_index()
     test_concat_scenes_and_transition()

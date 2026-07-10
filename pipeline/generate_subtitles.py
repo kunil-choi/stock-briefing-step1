@@ -9,17 +9,17 @@ ASS(Advanced SubStation Alpha) 자막 파일 생성 모듈
 - 긴 자막은 적절한 길이로 자동 분할합니다.
 
 프레임 파일명 → 오디오 ID 매핑 규칙:
-  00_opening.png             → opening.mp3
-  01_market_00.png           → market_summary.mp3
-  02_sector.png              → sectors.mp3
+  00_hook.png                → hook.mp3
+  01_conclusion.png          → conclusion.mp3
   10_삼성전자_1_summary.png  → stock_삼성전자_summary.mp3
   10_삼성전자_3_mention.png  → stock_삼성전자_mention.mp3
   10_삼성전자_3_mention_00.png → stock_삼성전자_mention_00.mp3
-  90_extra_watchlist.png     → stock_추가관심종목.mp3
-  91_today_pick.png          → stock_오늘의픽.mp3
-  92_brokerage_report.png    → stock_증권사리포트.mp3
-  98_ai_strategy.png         → ai_strategy.mp3
   99_closing.png             → closing.mp3
+
+(구 8단계/롱폼 구성에서만 쓰이던 00_opening/01_market_00/02_sector/
+90_extra_watchlist/91_today_pick/92_brokerage_report/98_ai_strategy 패턴도
+하위 호환을 위해 계속 지원한다 — narrative_reorder.reorder_sections()의
+short_form=False 경로를 다시 쓰게 되면 그대로 동작한다.)
 """
 import os
 import sys
@@ -98,18 +98,22 @@ def _frame_stem_to_audio_id(stem: str, sections: list) -> str:
     프레임 파일 스템(확장자 없는 파일명)을 오디오 ID로 변환합니다.
 
     매핑 규칙:
-      00_opening             → opening
-      01_market_00           → market_summary
-      02_sector              → sectors
+      00_hook                → hook
+      01_conclusion          → conclusion
       NN_종목명_1_summary    → stock_종목명_summary
       NN_종목명_2_chart      → stock_종목명_chart
       NN_종목명_3_mention    → stock_종목명_mention
       NN_종목명_3_mention_MM → stock_종목명_mention_MM
-      98_ai_strategy         → ai_strategy
       99_closing             → closing
+
+      (하위 호환) 00_opening/01_market_00/02_sector/90_extra_watchlist/
+      91_today_pick/92_brokerage_report/98_ai_strategy — short_form=False
+      (구 8단계 롱폼) 구성에서만 나타남.
     """
     # 고정 패턴 (정확한 매핑)
     fixed_patterns = [
+        (r'^00_hook$',              'hook'),
+        (r'^01_conclusion$',        'conclusion'),
         (r'^00_opening$',           'opening'),
         (r'^01_market',             'market_summary'),
         (r'^02_sector',             'sectors'),
@@ -472,12 +476,12 @@ def generate_ass(sections: list, lang: str, out_path: str,
 def run(lang: str = "KO"):
     lang = lang.upper()
 
-    script_path    = f"output/{lang}/scripts/script.json"
+    script_path    = f"output/{lang}/scripts/reordered_script.json"
     asset_map_path = f"output/{lang}/asset_map.json"
     out_path       = f"output/{lang}/subtitles/subtitle.ass"
 
     if not os.path.isfile(script_path):
-        print(f"❌ script.json 없음: {script_path}")
+        print(f"❌ reordered_script.json 없음: {script_path}")
         sys.exit(1)
 
     with open(script_path, encoding="utf-8") as f:
