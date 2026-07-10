@@ -32,6 +32,8 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
+from assets.video_renderer import TRANSITION_DURATION
+
 # ── ASS 스타일 정의 ────────────────────────────────────────────────────────
 
 ASS_HEADER = """\
@@ -385,7 +387,8 @@ def _make_dialogue_events(narration_text: str, subtitle_text: str,
 
 
 def generate_ass(sections: list, lang: str, out_path: str,
-                 frame_order: list = None, time_scale: float = 1.0):
+                 frame_order: list = None, time_scale: float = 1.0,
+                 transition_duration: float = 0.0):
     """
     ASS 자막 파일을 생성합니다.
 
@@ -397,6 +400,12 @@ def generate_ass(sections: list, lang: str, out_path: str,
         time_scale:  최종 영상이 배속 조정(atempo/setpts)된 경우의 보정 계수.
                      예) 영상을 1.05배속으로 줄였다면 1/1.05를 전달해 자막
                      타임라인도 동일 비율로 줄여야 나레이션과 어긋나지 않습니다.
+        transition_duration: 장면 사이에 삽입되는 crossfade/push 전환 클립의
+                     길이(초, generate_video.py의 video_renderer.TRANSITION_DURATION과
+                     동일한 값을 전달해야 함). video_renderer는 전환을 겹치지
+                     않고 "삽입"하므로(오디오 타임라인 불변), 자막 누적 시간도
+                     장면과 장면 "사이"마다 이 값만큼만 더해주면 정확히 맞는다
+                     (뺄셈 보정이 필요 없다 — video_renderer.py 모듈 docstring 참고).
     """
     subtitle_map = _build_subtitle_map(sections, lang)
     audio_base   = os.path.join("output", lang, "audio")
@@ -410,10 +419,14 @@ def generate_ass(sections: list, lang: str, out_path: str,
     events       = []
     current_time = 0.0
 
+    trans_offset = transition_duration * time_scale
+
     if not frame_order:
         # frame_order 없으면 subtitle_map 순서대로 처리
         print("  [subtitle] ⚠️ frame_order 없음 — subtitle_map 순서로 처리")
-        for audio_id, (narration_text, subtitle_text) in subtitle_map.items():
+        for i, (audio_id, (narration_text, subtitle_text)) in enumerate(subtitle_map.items()):
+            if i > 0:
+                current_time += trans_offset
             mp3_path = os.path.join(audio_base, f"{audio_id}.mp3")
             duration = _get_audio_duration(mp3_path) * time_scale
             style    = "Warning" if "closing" in audio_id else "Default"
@@ -422,7 +435,9 @@ def generate_ass(sections: list, lang: str, out_path: str,
             print(f"    {audio_id}: {duration:.1f}s, {len(slide_events)}개 이벤트")
             current_time += duration
     else:
-        for frame_path in frame_order:
+        for i, frame_path in enumerate(frame_order):
+            if i > 0:
+                current_time += trans_offset
             stem     = os.path.splitext(os.path.basename(frame_path))[0]
             audio_id = _frame_stem_to_audio_id(stem, sections)
             mp3_path = os.path.join(audio_base, f"{audio_id}.mp3")
@@ -479,7 +494,7 @@ def run(lang: str = "KO"):
     else:
         print(f"⚠️ asset_map.json 없음: {asset_map_path} — 섹션 순서로 처리")
 
-    generate_ass(sections, lang, out_path, frame_order)
+    generate_ass(sections, lang, out_path, frame_order, transition_duration=TRANSITION_DURATION)
 
 
 if __name__ == "__main__":

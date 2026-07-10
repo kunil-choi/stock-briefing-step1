@@ -203,25 +203,6 @@ def point_card(num: int, text: str, color: str) -> str:
     )
 
 
-def sector_card(idx: int, name: str, desc: str, momentum: str, color: str) -> str:
-    mom_colors = {"상승": PALETTE["up"], "하락": PALETTE["down"], "보합": "#f2a341"}
-    mcolor = mom_colors.get(momentum, PALETTE["muted"])
-    mom_html = (
-        f'<span class="pill" style="background:{mcolor}1a;color:{mcolor};'
-        f'font-size:20px;padding:6px 16px;margin-left:auto;">{esc(momentum)}</span>'
-        if momentum else ""
-    )
-    return f"""
-<div class="card" style="padding:24px 26px;">
-  <div style="display:flex;align-items:center;gap:14px;margin-bottom:10px;">
-    <div class="badge-num" style="background:{color}22;color:{color};border:2px solid {color};">{idx}</div>
-    <div style="font-size:32px;font-weight:800;">{esc(name)}</div>
-    {mom_html}
-  </div>
-  <div style="font-size:23px;color:{PALETTE['muted']};line-height:1.55;">{esc(desc)}</div>
-</div>"""
-
-
 def bullet_column(title: str, items: list, color: str) -> str:
     lis = "".join(
         f'<li style="margin-bottom:14px;line-height:1.5;">{esc(it)}</li>'
@@ -274,6 +255,149 @@ def page_dots(total: int, current: int) -> str:
     )
     return (f'<div style="display:flex;gap:10px;justify-content:center;'
             f'margin-top:18px;">{dots}</div>')
+
+
+# ── Phase D: 방송형 컴포넌트 (lower-third / headline / report / risk / heatmap) ──
+
+def autofit_text(text: str, base_font_size: int, max_lines: int = 2,
+                  min_font_size: int = 16, extra_style: str = "") -> str:
+    """`data-autofit` 마커가 달린 <div>를 반환합니다. render.py의
+    render_html_to_png()가 스크린샷 직전에 실제 렌더링 높이를 측정해 이 폰트
+    크기를 max_lines줄에 맞을 때까지 자동으로 줄입니다. -webkit-line-clamp을
+    안전망으로 함께 걸어, 자동 축소가 min_font_size에 막혀 완전히 맞지 않더라도
+    화면 밖으로 흘러넘치지 않고 말줄임표로 잘리도록 합니다."""
+    return (
+        f'<div data-autofit="true" data-max-lines="{max_lines}" data-min-font="{min_font_size}" '
+        f'style="font-size:{base_font_size}px;line-height:1.35;display:-webkit-box;'
+        f'-webkit-box-orient:vertical;-webkit-line-clamp:{max_lines};overflow:hidden;'
+        f'{extra_style}">{esc(text)}</div>'
+    )
+
+
+def lower_third(name: str, code: str, change_pct: str, positive: bool,
+                 sector: str = "") -> str:
+    """종목명/코드/등락률/섹터를 표시하는 방송형 하단 자막바(lower-third).
+    한국 증권가 관행대로 상승은 빨강(up), 하락은 파랑(down)을 사용합니다.
+    부모 요소가 position:relative(또는 absolute)여야 하단에 도킹됩니다."""
+    color = PALETTE["up"] if positive else PALETTE["down"]
+    arrow = "▲" if positive else "▼"
+    code_html = (
+        f'<span style="font-size:22px;color:#cfd3da;font-weight:600;margin-left:14px;">'
+        f'{esc(code)}</span>' if code else ""
+    )
+    sector_html = (
+        f'<span class="pill" style="background:{PALETTE["accent_soft"]};color:{PALETTE["accent"]};'
+        f'font-size:20px;margin-left:16px;">{esc(sector)}</span>' if sector else ""
+    )
+    change_html = (
+        f'<span class="pill" style="background:{color}1a;color:{color};font-size:24px;'
+        f'font-weight:800;margin-left:16px;">{arrow} {esc(change_pct)}</span>' if change_pct else ""
+    )
+    return f"""
+<div style="position:absolute;left:0;bottom:0;width:100%;display:flex;align-items:center;
+  background:linear-gradient(90deg,{PALETTE['ink']}ee 0%,{PALETTE['ink']}cc 75%,transparent 100%);
+  padding:18px 32px;border-left:8px solid {color};box-sizing:border-box;">
+  <span style="font-size:32px;font-weight:800;color:#fff;">{esc(name)}</span>
+  {code_html}{sector_html}{change_html}
+</div>"""
+
+
+def headline_card(headline: str, subtext: str = "", color: str = None) -> str:
+    """한 줄 핵심 결론을 강조하는 헤드라인 카드. 기존 corner-summary보다 임팩트
+    있게 보이도록 큰 텍스트 + 왼쪽 액센트 바를 사용합니다."""
+    color = color or PALETTE["accent"]
+    sub_html = (
+        f'<div style="font-size:24px;color:{PALETTE["muted"]};margin-top:10px;font-weight:600;">'
+        f'{esc(subtext)}</div>' if subtext else ""
+    )
+    headline_html = autofit_text(
+        headline, base_font_size=40, max_lines=2, min_font_size=22,
+        extra_style=f"font-weight:800;color:{PALETTE['ink']};",
+    )
+    return f"""
+<div class="card" style="border-left:10px solid {color};padding:26px 32px;margin-bottom:24px;">
+  {headline_html}
+  {sub_html}
+</div>"""
+
+
+def report_card(broker: str, stock_name: str, text: str, opinion: str = "",
+                 target_price: str = "", color: str = None) -> str:
+    """증권사 리포트 카드. opinion/target_price는 값이 있을 때만 표시됩니다
+    (현재 script.json 스키마의 집계 섹션 items는 name/text만 갖고 있어 선택적
+    필드로 설계했습니다 — 스키마가 opinion/target_price를 채우면 자동 표시됩니다)."""
+    color = color or PALETTE["accent"]
+    opinion_html = (
+        f'<span class="pill" style="background:{color}1a;color:{color};font-size:20px;'
+        f'margin-left:12px;">{esc(opinion)}</span>' if opinion else ""
+    )
+    target_html = (
+        f'<span style="font-size:22px;color:{PALETTE["muted"]};font-weight:700;margin-left:12px;">'
+        f'목표주가 {esc(target_price)}</span>' if target_price else ""
+    )
+    text_html = autofit_text(
+        text, base_font_size=25, max_lines=2, min_font_size=18,
+        extra_style="line-height:1.5;font-weight:600;margin-top:10px;",
+    )
+    return f"""
+<div class="card" style="border-left:8px solid {color};padding:22px 28px;">
+  <div style="display:flex;align-items:center;flex-wrap:wrap;">
+    <span class="pill" style="background:{PALETTE['ink']};color:#fff;font-size:20px;">{esc(broker)}</span>
+    <span style="font-size:28px;font-weight:800;margin-left:14px;">{esc(stock_name)}</span>
+    {opinion_html}{target_html}
+  </div>
+  {text_html}
+</div>"""
+
+
+def risk_card(risks: list, title: str = "리스크 요인") -> str:
+    """리스크 요인을 강조 스타일로 보여주는 카드. bullet_column의 리스크 전용
+    변형이며, 하락=파랑 규칙에 맞춰 down 색상을 사용합니다."""
+    color = PALETTE["down"]
+    lis = "".join(
+        f'<li style="margin-bottom:12px;line-height:1.5;">{esc(r)}</li>'
+        for r in risks
+    )
+    return f"""
+<div class="card" style="border:2px solid {color}55;background:#f4f8ff;padding:24px 28px;">
+  <div class="pill" style="background:{color};color:#fff;font-size:22px;margin-bottom:14px;">
+    ⚠ {esc(title)}
+  </div>
+  <ul style="list-style:none;font-size:24px;color:{PALETTE['ink']};">{lis}</ul>
+</div>"""
+
+
+def sector_heatmap(sector_list: list) -> str:
+    """섹터 리스트를 히트맵 타일 그리드로 표시합니다. script.json의 sector_list는
+    숫자 등락폭이 아니라 momentum 문자열(상승/하락/보합)만 갖고 있는 경우가
+    많아, 타일 색은 momentum 3단계로 근사합니다. 상승=빨강/하락=파랑 한국
+    증권가 관행을 그대로 따릅니다."""
+    mom_colors = {"상승": PALETTE["up"], "하락": PALETTE["down"], "보합": "#f2a341"}
+    mom_arrows = {"상승": "▲", "하락": "▼", "보합": "―"}
+    tiles = ""
+    for sector in sector_list:
+        if isinstance(sector, dict):
+            name     = sector.get("name", "")
+            desc     = sector.get("desc", sector.get("description", ""))
+            momentum = sector.get("momentum", "")
+        else:
+            name, desc, momentum = str(sector), "", ""
+        color = mom_colors.get(momentum, PALETTE["muted"])
+        arrow = mom_arrows.get(momentum, "")
+        desc_html = autofit_text(
+            desc, base_font_size=20, max_lines=2, min_font_size=14,
+            extra_style="color:#fff;opacity:.92;margin-top:8px;line-height:1.4;",
+        )
+        tiles += f"""
+<div style="background:{color};border-radius:16px;padding:22px 24px;min-height:170px;
+  display:flex;flex-direction:column;justify-content:space-between;">
+  <div style="display:flex;justify-content:space-between;align-items:center;">
+    <span style="font-size:28px;font-weight:800;color:#fff;">{esc(name)}</span>
+    <span style="font-size:26px;font-weight:800;color:#fff;">{arrow}</span>
+  </div>
+  {desc_html}
+</div>"""
+    return f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">{tiles}</div>'
 
 
 def numbered_bullets_from_text(text: str, max_items: int = 6) -> list:

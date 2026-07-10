@@ -30,6 +30,12 @@ import re
 import subprocess
 import urllib.request
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
+from assets.video_renderer import FFmpegVideoRenderer, TRANSITION_DURATION
+
 # 목표 길이 설정
 TARGET_MIN = float(os.environ.get("TARGET_MIN_SECONDS", "870"))   # 14분 30초
 TARGET_MAX = float(os.environ.get("TARGET_MAX_SECONDS", "930"))   # 15분 30초
@@ -126,55 +132,53 @@ def _find_stock_section_id(stock_name: str, sections: list) -> str:
     return f"stock_{stock_name}"
 
 
-# ── 섹션 영상 생성 (PNG + MP3 → MP4) ─────────────────────────────────────
+# ── 장면 영상 생성 (PNG + MP3 → Ken Burns 클립) + 전환 삽입 ────────────────
+#
+# ★ 방송형 렌더링(Phase D): 정지 이미지를 그대로 -loop 1로 홀드하던 예전 방식
+# 대신, FFmpegVideoRenderer.compose_scene()으로 Ken Burns(서서히 확대/이동)
+# 효과를 적용한다. 장면 사이에는 build_transition()으로 만든 짧은(기본 0.4초)
+# crossfade/push 전환 클립을 삽입한다 — 겹쳐서(overlap) 이어붙이는 대신 별도
+# 세그먼트로 "삽입"하므로 각 장면의 오디오 길이는 전혀 바뀌지 않고, 자막
+# 타임라인은 전환 구간만큼 더하기만 하면 된다(video_renderer.py 모듈 docstring
+# 참고). concat()은 이미 같은 코덱으로 인코딩된 클립들을 스트림 복사로
+# 이어붙인다(예전 concat_videos()와 동일한 방식).
 
-def build_section_video(png_path: str, mp3_path: str, out_path: str) -> bool:
-    duration = get_audio_duration(mp3_path)
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-loop", "1", "-i", png_path,
-        "-i",    mp3_path,
-        "-c:v",  "libx264", "-tune", "stillimage",
-        "-c:a",  "aac", "-b:a", "192k",
-        "-pix_fmt", "yuv420p",
-        "-shortest",
-        "-t", f"{duration:.3f}",
-        out_path
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print(f"  ❌ 실패: {os.path.basename(out_path)}")
-        print(result.stderr[-600:])
-        return False
-
-    print(f"  ✅ {os.path.basename(out_path)} ({duration:.1f}초)")
-    return True
+_renderer = FFmpegVideoRenderer()
 
 
-# ── 영상 합치기 ───────────────────────────────────────────────────────────
+def build_scene_clips(frame_audio_pairs: list, video_dir: str) -> list:
+    """[(frame_path, mp3_path, duration), ...] → Ken Burns 클립과 전환 클립을
+    번갈아 만든 파일 경로 리스트를 반환한다. 장면 합성이 실패하면 그 장면만
+    건너뛰고(기존 build_section_video() 실패 시 동작과 동일하게) 계속 진행한다."""
+    clips = []
+    prev_frame = None
+    for i, (frame_path, mp3_path, duration) in enumerate(frame_audio_pairs):
+        frame_stem = os.path.splitext(os.path.basename(frame_path))[0]
+
+        transition_added = False
+        if prev_frame is not None:
+            trans_path = os.path.join(video_dir, f"trans_{i:03d}.mp4")
+            clips.append(_renderer.build_transition(prev_frame, frame_path, trans_path, scene_index=i))
+            transition_added = True
+
+        scene_path = os.path.join(video_dir, f"{frame_stem}.mp4")
+        clip = _renderer.compose_scene(frame_path, mp3_path, scene_path, duration, scene_index=i)
+        if clip:
+            clips.append(clip)
+            prev_frame = frame_path
+        else:
+            print(f"  ⚠️ 장면 합성 실패 — 건너뜀: {frame_stem}")
+            # 이 장면으로 들어가는 전환은 어차피 갈 곳을 잃었으므로 되돌린다
+            # (prev_frame은 그대로 두어, 다음 성공 장면과의 전환이 마지막
+            # 성공 장면을 기준으로 다시 만들어지게 한다).
+            if transition_added:
+                clips.pop()
+
+    return clips
+
 
 def concat_videos(video_list: list, out_path: str) -> bool:
-    list_file = out_path.replace(".mp4", "_list.txt")
-    with open(list_file, "w", encoding="utf-8") as f:
-        for v in video_list:
-            f.write(f"file '{os.path.abspath(v)}'\n")
-    cmd = [
-        "ffmpeg", "-y",
-        "-f", "concat", "-safe", "0",
-        "-i", list_file,
-        "-c", "copy",
-        out_path
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    os.remove(list_file)
-    if result.returncode != 0:
-        print("  ❌ 영상 합치기 실패")
-        print(result.stderr[-400:])
-        return False
-    print("  ✅ 합치기 완료")
-    return True
+    return _renderer.concat(video_list, out_path)
 
 
 # ── 영상 길이 조정 (15분에 맞추기) ───────────────────────────────────────
@@ -308,7 +312,8 @@ def _auto_generate_subtitles(lang: str, root: str, sections: list, frames: list,
     try:
         sys.path.insert(0, os.path.join(root, "pipeline"))
         from generate_subtitles import generate_ass
-        generate_ass(sections, lang, ass_path, frames, time_scale=time_scale)
+        generate_ass(sections, lang, ass_path, frames, time_scale=time_scale,
+                     transition_duration=TRANSITION_DURATION)
         return ass_path
     except Exception as e:
         print(f"  [subtitle] 자막 생성 실패: {e}")
@@ -348,12 +353,12 @@ def run(lang: str = "KO"):
     os.makedirs(os.path.dirname(bgm_path), exist_ok=True)
     download_bgm(bgm_path)
 
-    # ── 섹션 영상 생성 ─────────────────────────────────────────────────
-    section_videos = []
-    print(f"\n🎬 섹션 영상 생성 시작\n")
+    # ── 장면 영상 생성 (Ken Burns + 전환) ─────────────────────────────────
+    print(f"\n🎬 장면 영상 생성 시작 (Ken Burns + crossfade/push 전환)\n")
 
     missing_audio = []
     total_audio_duration = 0.0
+    frame_audio_pairs = []
 
     for frame_path in frames:
         frame_name = os.path.basename(frame_path)
@@ -369,11 +374,9 @@ def run(lang: str = "KO"):
 
         dur = get_audio_duration(mp3_path)
         total_audio_duration += dur
+        frame_audio_pairs.append((frame_path, mp3_path, dur))
 
-        out_video = os.path.join(video_dir, f"{frame_stem}.mp4")
-        ok = build_section_video(frame_path, mp3_path, out_video)
-        if ok:
-            section_videos.append(out_video)
+    section_videos = build_scene_clips(frame_audio_pairs, video_dir)
 
     if missing_audio:
         print("\n⚠️  누락된 오디오가 있어 해당 섹션을 건너뜁니다.")
