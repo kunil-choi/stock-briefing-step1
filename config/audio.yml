@@ -1,0 +1,49 @@
+# config/audio.yml
+# 프리미엄 TTS 파이프라인(Phase H) 설정. pipeline/config_audio.py가 이 파일을
+# 로드해 상수로 노출한다.
+
+# 시도할 순서. is_configured()가 false인(API 키 없는) provider는 자동으로
+# 건너뛴다. 이 레포는 아직 azure/elevenlabs 키가 없어 실제로는 항상 openai로
+# 동작하지만, 키가 등록되면 그 즉시 우선순위대로 켜진다.
+provider_priority: [azure, elevenlabs, openai]
+
+providers:
+  openai:
+    voice: nova              # nova(여성) / onyx(남성) / alloy / echo / fable / shimmer
+    model: tts-1-hd           # tts-1(빠름) / tts-1-hd(고품질)
+    speaking_rate: 1.0
+
+  azure:
+    voice_id: ko-KR-SunHiNeural
+    speaking_rate: 1.0        # 0.5~2.0
+    pitch: 0                  # -50~+50 (%)
+
+  elevenlabs:
+    # voice_id를 비워두면 voice_config.py의 get_voice_id()(환경변수
+    # ELEVENLABS_VOICE_ID → 프리셋 → 기본값 순)를 그대로 사용한다.
+    voice_id: ""
+    model_id: eleven_multilingual_v2
+    stability: 0.72
+    similarity_boost: 0.88
+    output_format: mp3_44100_128
+
+# TTS 합성 후 최종 영상 나레이션 속도를 맞추는 ffmpeg atempo 배속의 허용 범위.
+# generate_video.py의 adjust_to_target_duration()이 이미 계산한 speed factor를
+# 여기 범위로 한 번 더 clamp한다.
+atempo:
+  min_speed: 0.85
+  max_speed: 1.15
+
+# ffmpeg loudnorm 목표 음량(방송 표준 -16 LUFS 근방).
+loudness:
+  target_lufs: -16.0
+  true_peak: -1.5
+  loudness_range: 11.0
+
+# BGM 사이드체인 덕킹(나레이션이 나올 때 BGM 볼륨을 자동으로 낮춤) + 구간별 볼륨.
+bgm:
+  intro_volume: 0.08
+  body_volume: 0.045
+  outro_volume: 0.08
+  ducking_threshold_db: -25
+  ducking_ratio: 8

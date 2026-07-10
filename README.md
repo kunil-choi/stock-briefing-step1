@@ -45,9 +45,13 @@ stock-briefing-v3-1 완료 → workflow_dispatch → morning_core.yml
 | `pipeline/generate_video.py` / `generate_subtitles.py` | 정지 프레임 홀드 → Ken Burns/전환 클립으로 교체, 전환 구간만큼 자막 타임라인 보정 (Phase D, 변경) |
 | `pipeline/assets/narrative_reorder.py` / `pipeline/generate_reordered_script.py` | "장전 의사결정형" 플롯으로 섹션 재정렬 + `reordered_script.json` 생성 (Phase E, 아래 참고) |
 | `pipeline/assets/ranking.py` / `ranking_builders.py` / `shorts_export.py` / `pipeline/generate_ranking.py` | "주도주 랭킹형" 플롯 — TOP5 산정 + 카드 + TOP1~3 쇼츠 export (Phase F, 아래 참고) |
+| `pipeline/assets/tts_providers.py` / `config/audio.yml` / `config/pronunciation_ko.yml` / `pipeline/config_audio.py` | 프리미엄 TTS provider 폴백 체인(Azure→ElevenLabs→OpenAI) + 발음 교정 사전 (Phase H, 아래 참고) |
+| `pipeline/assets/audio_post.py` | atempo/loudnorm 후처리 + BGM 사이드체인 덕킹 + 과장 표현 탐지 (Phase H, 아래 참고) |
+| `pipeline/generate_voice.py` | OpenAI 단일 호출 → provider 폴백 체인 + loudnorm 후처리 + `audio_report.json` 생성으로 교체 (Phase H, 변경) |
+| `pipeline/generate_video.py`의 `compute_bgm_bounds()` / BGM 믹싱 단계 | 상수 볼륨 `amix` → intro/body/outro 구간별 볼륨 + 사이드체인 덕킹으로 교체 (Phase H, 변경) |
 
-그 외 `generate_voice.py`/`generate_assets.py`/`build_asset_map.py`/
-`pipeline/assets/{chart,image_fetch}.py`/`voice_config.py`/`update_voice_id.py`는
+그 외 `generate_assets.py`/`build_asset_map.py`/
+`pipeline/assets/{chart,image_fetch}.py`/`update_voice_id.py`는
 `stock-briefing-video`에서 무수정 복사했습니다.
 
 ## scene_plan.json (개체명 추출 + 비주얼 우선순위)
@@ -223,12 +227,73 @@ TOP5 선정 + 집계 섹션 제외, 쇼츠 45초 상한 적용을 검증 — OHL
 `fetch_ohlcv_fn` 의존성 주입으로 네트워크 없이 테스트. 쇼츠 테스트는 ffmpeg
 필요, 없으면 스킵. `python tests/test_ranking.py`).
 
+## 프리미엄 TTS 파이프라인 (provider 폴백 + 후처리)
+
+`generate_voice.py`가 더 이상 OpenAI TTS를 직접 호출하지 않고,
+`config/audio.yml`의 `provider_priority`(기본 `azure → elevenlabs → openai`)
+순서로 provider를 시도합니다. Azure/ElevenLabs Secret이 없으면 자동으로
+건너뛰어 결국 OpenAI로 폴백하므로, 이 레포는 현재 실제로는 항상 OpenAI로
+동작합니다 — Secret이 등록되는 순간 코드 변경 없이 우선순위대로 켜집니다
+(Phase C의 `YonhapProvider`/`KbsProvider`와 동일한 설계 패턴).
+
+- **TTSProvider 인터페이스** (`pipeline/assets/tts_providers.py`):
+  `is_configured()`/`synthesize()`만 있는 추상클래스. `OpenAITTSProvider`(기존
+  `text_to_speech()` 로직 이관), `AzureTTSProvider`(Speech REST API, SSML로
+  `speaking_rate`/`pitch` 조절), `ElevenLabsProvider`(REST API, 이 레포에
+  이미 있었지만 쓰이지 않던 `voice_config.py`의 `MODEL_ID`/`VOICE_SETTINGS`/
+  `get_voice_id()`를 재사용)가 구현체입니다. `synthesize_with_fallback()`이
+  우선순위 순서대로 시도해 첫 성공 provider를 사용합니다.
+- **발음 교정 사전 데이터 파일화**: 기존 `voice_config.py`에 파이썬 리스트로
+  하드코딩돼 있던 62개 발음 교정 규칙을 `config/pronunciation_ko.yml`로
+  옮겼습니다(개발자가 아니어도 이 파일만 고치면 발음이 바뀌도록). `voice_config.
+  apply_phoneme_rules()`는 하위 호환을 위해 남겨두고 `config_audio.
+  apply_pronunciation_rules()`에 위임합니다 — 두 함수는 바이트 단위로 동일하게
+  동작함을 테스트로 확인했습니다. subtitle(화면 자막)에는 절대 적용하지
+  않습니다.
+- **후처리** (`pipeline/assets/audio_post.py`): 합성된 mp3마다 ffmpeg
+  `loudnorm`으로 방송 표준 음량(기본 -16 LUFS, `config/audio.yml`의
+  `loudness`)에 맞춥니다. `apply_post_processing()`은 `speed` 인자도 받아
+  ffmpeg `atempo`(0.5~2.0배 범위 제한을 체인으로 우회)를 함께 적용할 수 있게
+  만들어져 있지만, 현재 `generate_voice.py`는 `speed=1.0`(loudnorm만)으로
+  호출합니다 — 영상 전체 배속 조정은 지금까지처럼
+  `generate_video.adjust_to_target_duration()`이 최종 병합 영상 단위로
+  담당합니다(개별 나레이션 단위로 옮기면 15분 타겟을 계산하기 전에 배속을
+  정해야 하는 순환 의존성이 생김).
+- **BGM 사이드체인 덕킹**: `mix_bgm_with_ducking()`이 ffmpeg
+  `sidechaincompress`로 나레이션이 나올 때 BGM 볼륨을 자동으로 낮추고,
+  intro/body/outro 구간별로 기본 볼륨을 다르게 적용합니다(`config/audio.yml`의
+  `bgm`). `generate_video.py`의 `compute_bgm_bounds()`가 첫 장면(intro)이
+  끝나는 시점과 마지막 장면(outro)이 시작하는 시점을 `frame_audio_pairs`의
+  실제 오디오 길이 + 전환 클립 수로 계산하고, 배속 조정이 적용됐다면 자막과
+  동일한 `time_scale`(`1/speed_factor`)로 축소해 최종 타임라인 기준 시각을
+  맞춥니다. 기존 상수 볼륨 `amix` 방식은 제거했습니다.
+- **과장 투자 권유 표현 탐지**: `detect_advice_language()`가 Phase E의
+  `narrative_reorder._ADVICE_PATTERNS`(치환용 패턴)를 재사용하되, 여기서는
+  원문을 바꾸지 않고 매치된 문구를 경고 목록으로만 남깁니다(요구사항: "과장
+  표현은 바꾸지 말고 별도 warnings 로그에 표시" — Phase E가 새로 합성하는
+  훅/결론/체크리스트 문구를 치환하는 것과는 다른 처리).
+- **`output/KO/audio_report.json`**: 섹션별 `id`/`provider`/
+  `duration_seconds`/`speed`/`loudness_lufs`/`warnings`(과장 표현 목록)와
+  전체 `providers_used`/`total_advice_language_warnings`를 기록합니다.
+  `generate_metadata.py`가 Phase D의 `scene_plan.json`과 동일한 방식으로
+  `output/YYYY-MM-DD/audio_report.json`에 사본을 남기고 `metadata.json`의
+  `audio_report_path` 필드에 경로를 채웁니다.
+
+설정: `config/audio.yml`(provider 우선순위/설정, atempo 허용 범위, loudness
+목표, BGM 구간별 볼륨/덕킹 파라미터), `config/pronunciation_ko.yml`(발음
+교정 규칙).
+샘플: `tests/test_audio_post.py`(atempo+loudnorm 실측치 검증, BGM 덕킹 믹싱
+결과물 검증, 과장 표현 탐지, `audio_report.json` 구조 — 실제 ffmpeg 호출,
+없으면 순수 로직 테스트만 실행), `tests/test_generate_video.py`의
+`compute_bgm_bounds()` 테스트(순수 계산, ffmpeg 불필요).
+
 ## 산출물
 
 ```
 output/KO/scripts/scene_plan.json   # Phase B: 개체명/priority_score/visual_type/visual_keywords
 output/KO/scripts/reordered_script.json  # Phase E: 장전 의사결정형 8단계 재정렬 결과
 output/KO/media/media_map.json      # Phase C: 섹션별 선택 이미지 경로/출처/사용권
+output/KO/audio_report.json         # Phase H: TTS provider/실측 음량/과장 표현 경고 리포트
 output/KO/...                 # 기존과 동일한 중간 산출물(scripts/audio/frames/subtitles/video)
 data/media/license_log.csv    # Phase C: 이미지 사용 이력(7일 중복 감지용, 레포에 커밋 유지)
 output/YYYY-MM-DD/
@@ -237,6 +302,7 @@ output/YYYY-MM-DD/
   thumbnail.png
   script.json                  # output/KO/scripts/script.json 사본
   scene_plan.json              # Phase D: output/KO/scripts/scene_plan.json 사본(렌더링 결과물과 함께 보관)
+  audio_report.json            # Phase H: output/KO/audio_report.json 사본
   ranking/                     # Phase F: 주도주 랭킹형 플롯
     ranking.json                #   TOP5 companies/themes/volume·news·report_score/ranking_score
     00_ranking_top5.png         #   TOP5 overview 카드
@@ -259,6 +325,7 @@ output/YYYY-MM-DD/
   "video_path": "final.mp4",
   "script_path": "script.json",
   "scene_plan_path": "scene_plan.json",
+  "audio_report_path": "audio_report.json",
   "duration_seconds": 905.2,
   "core_stock_count": 5
 }
@@ -284,15 +351,29 @@ output/YYYY-MM-DD/
 
 | Secret | 용도 | 필수 여부 |
 |---|---|---|
-| `OPENAI_API_KEY` | 스크립트/TTS 생성 | 필수 |
+| `OPENAI_API_KEY` | 스크립트 생성 + TTS 폴백(다른 provider가 없거나 실패하면 최종적으로 사용) | 필수 |
 | `YONHAP_API_KEY` | 연합뉴스 이미지 검색 인증(정식 계약 API 연결 시) | 선택 — 없으면 공개 검색 경로로 자동 폴백 |
 | `KBS_API_KEY` | KBS 뉴스 이미지 검색 인증(정식 계약 API 연결 시) | 선택 — 없으면 공개 검색 경로로 자동 폴백 |
+| `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION` | Azure TTS(`config/audio.yml`의 `provider_priority` 1순위) | 선택 — 없으면 다음 provider로 자동 폴백 |
+| `ELEVENLABS_API_KEY` / `ELEVENLABS_VOICE_ID` | ElevenLabs TTS(2순위, `VOICE_ID`가 없으면 `voice_config.py`의 프리셋/기본값 사용) | 선택 — 없으면 다음 provider로 자동 폴백 |
 
 ## 환경변수 (.env, 로컬 실행용)
 
-`YONHAP_API_KEY`/`KBS_API_KEY`는 로컬에서는 `.env`(`python-dotenv`로 로드하거나
-`export`)로 넣을 수 있습니다. `MEDIA_MOCK=1`을 설정하면 `generate_media.py`가
-네트워크 요청 없이 `MockProvider`만 사용합니다(오프라인 테스트/CI 드라이런용).
+`YONHAP_API_KEY`/`KBS_API_KEY`/`AZURE_SPEECH_KEY`/`AZURE_SPEECH_REGION`/
+`ELEVENLABS_API_KEY`/`ELEVENLABS_VOICE_ID`는 로컬에서는 `.env`
+(`python-dotenv`로 로드하거나 `export`)로 넣을 수 있습니다. `MEDIA_MOCK=1`을
+설정하면 `generate_media.py`가 네트워크 요청 없이 `MockProvider`만
+사용합니다(오프라인 테스트/CI 드라이런용). TTS는 Azure/ElevenLabs 키가 없으면
+자동으로 OpenAI로 폴백하므로 별도 mock 플래그가 필요 없습니다.
+
+실행 예시(Azure TTS를 우선 사용하고 싶을 때):
+
+```bash
+export OPENAI_API_KEY=sk-...
+export AZURE_SPEECH_KEY=...
+export AZURE_SPEECH_REGION=koreacentral
+python pipeline/generate_voice.py KO   # config/audio.yml의 provider_priority 순서(기본 azure 1순위)대로 자동 선택
+```
 
 ## 로컬 실행
 
@@ -312,8 +393,8 @@ python pipeline/generate_metadata.py KO
 python pipeline/quality_gate.py KO
 ```
 
-테스트(모두 네트워크 없이 실행 가능. `test_video_renderer.py`/`test_ranking.py`의
-쇼츠 관련 테스트는 ffmpeg 필요, 없으면 스킵):
+테스트(모두 네트워크 없이 실행 가능. `test_video_renderer.py`/`test_ranking.py`/
+`test_audio_post.py`의 ffmpeg 관련 테스트는 ffmpeg 필요, 없으면 스킵):
 
 ```bash
 python tests/test_scene_plan.py
@@ -322,6 +403,7 @@ python tests/test_video_renderer.py
 python tests/test_narrative_reorder.py
 python tests/test_ranking.py
 python tests/test_generate_video.py
+python tests/test_audio_post.py
 ```
 
 ## 다음 단계 (이번 범위 아님)
@@ -332,6 +414,10 @@ python tests/test_generate_video.py
   (현재는 별도 산출물로만 생성되며 기존 영상 제작 경로는 바뀌지 않음)
 - TOP1~3 쇼츠의 30~45초 트리밍을 LLM 요약 기반으로 개선(현재는 원본 나레이션의
   도입부만 잘라 써서 문장이 중간에 끊길 수 있음)
-- 프리미엄 TTS(Azure/ElevenLabs) + 발음사전 + BGM ducking + loudness normalization
+- 실제 BGM 음원 파일(`assets/music/bgm.mp3`)이 아직 placeholder라 `BGM_URL`
+  Secret 없이는 BGM 없이 진행됨(사이드체인 덕킹 코드 자체는 완성돼 있고
+  합성 오디오로 검증됨 — 실제 음원만 채우면 바로 동작)
+- Phase H(프리미엄 TTS 파이프라인)를 `stock-briefing-step2`(report_update)에도
+  동일하게 적용하는 작업(이 레포에서 먼저 구현 후 이식 예정)
 
 각각은 별도 계획 수립 후 후속 작업으로 진행합니다.

@@ -199,6 +199,16 @@ def run(lang: str = "KO"):
     else:
         warnings.append(f"{scene_plan_path} 없음 — scene_plan.json 없이 진행")
 
+    # audio_report.json 사본 (Phase H 요구사항: TTS provider/음량/과장 표현
+    # 경고 리포트를 렌더링 결과물과 함께 output 폴더에 저장).
+    audio_report_path = os.path.join(root, "output", lang, "audio_report.json")
+    audio_report_dst_rel = None
+    if os.path.exists(audio_report_path):
+        shutil.copy2(audio_report_path, os.path.join(out_dir, "audio_report.json"))
+        audio_report_dst_rel = "audio_report.json"
+    else:
+        warnings.append(f"{audio_report_path} 없음 — audio_report.json 없이 진행")
+
     core_stock_count = sum(
         1 for s in script.get("sections", [])
         if s.get("id", "").startswith(("stock_", "hidden_"))
@@ -220,6 +230,7 @@ def run(lang: str = "KO"):
         "video_path":      video_dst_rel,
         "script_path":     "script.json",
         "scene_plan_path": scene_plan_dst_rel,
+        "audio_report_path": audio_report_dst_rel,
         "duration_seconds": round(duration_seconds, 1),
         "core_stock_count": core_stock_count,
     }
