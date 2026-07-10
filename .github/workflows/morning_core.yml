@@ -26,6 +26,8 @@ jobs:
         run: python pipeline/generate_script.py KO
       - name: 🧩 scene_plan.json 생성 (개체명 추출 + 비주얼 우선순위)
         run: python pipeline/generate_scene_plan.py KO
+      - name: 🧭 reordered_script.json 생성 (장전 의사결정형 플롯)
+        run: python pipeline/generate_reordered_script.py KO
       - uses: actions/upload-artifact@v4
         with:
           name: script
