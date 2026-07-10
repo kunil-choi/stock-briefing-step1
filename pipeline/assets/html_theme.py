@@ -400,6 +400,63 @@ def sector_heatmap(sector_list: list) -> str:
     return f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">{tiles}</div>'
 
 
+# ── Phase F: 주도주 랭킹 카드 ─────────────────────────────────────────────────
+
+def _score_bar(label: str, value: float, bar_color: str) -> str:
+    pct = max(0, min(100, round(value * 100)))
+    return f"""
+<div style="margin-top:8px;">
+  <div style="display:flex;justify-content:space-between;font-size:16px;color:{PALETTE['muted']};">
+    <span>{esc(label)}</span><span>{pct}</span>
+  </div>
+  <div style="background:{PALETTE['border']};border-radius:6px;height:10px;overflow:hidden;">
+    <div style="width:{pct}%;background:{bar_color};height:100%;"></div>
+  </div>
+</div>"""
+
+
+def ranking_card(rank: int, name: str, code: str, themes: str, ranking_score: float,
+                  volume_score: float, news_score: float, report_score: float,
+                  change_pct: str = "", positive: bool = True) -> str:
+    """주도주 랭킹 카드. 순위 배지 + 종목명/코드/테마(섹터) + 종합 점수 +
+    거래량/뉴스·방송/증권사 점수 breakdown 바를 표시합니다."""
+    color = PALETTE["up"] if positive else PALETTE["down"]
+    arrow = "▲" if positive else "▼"
+    change_html = (
+        f'<span class="pill" style="background:{color}1a;color:{color};font-size:22px;'
+        f'margin-left:12px;">{arrow} {esc(change_pct)}</span>' if change_pct else ""
+    )
+    theme_html = (
+        f'<span class="pill" style="background:{PALETTE["accent_soft"]};color:{PALETTE["accent"]};'
+        f'font-size:18px;margin-left:10px;">{esc(themes)}</span>' if themes else ""
+    )
+    bars = (
+        _score_bar("거래량", volume_score, PALETTE["accent"])
+        + _score_bar("뉴스/방송", news_score, "#f2a341")
+        + _score_bar("증권사", report_score, "#a05bd6")
+    )
+    code_html = (
+        f'<span style="font-size:20px;color:{PALETTE["muted"]};font-weight:600;">{esc(code)}</span>'
+        if code else ""
+    )
+    return f"""
+<div class="card" style="padding:24px 26px;">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <div class="badge-num" style="width:64px;height:64px;font-size:30px;
+      background:{color}22;color:{color};border:3px solid {color};">{rank}</div>
+    <div>
+      <div style="font-size:32px;font-weight:800;">{esc(name)} {code_html}</div>
+      <div style="margin-top:4px;">{theme_html}{change_html}</div>
+    </div>
+    <div style="margin-left:auto;text-align:right;">
+      <div style="font-size:18px;color:{PALETTE['muted']};">종합 점수</div>
+      <div style="font-size:34px;font-weight:800;color:{PALETTE['accent']};">{ranking_score:.2f}</div>
+    </div>
+  </div>
+  {bars}
+</div>"""
+
+
 def numbered_bullets_from_text(text: str, max_items: int = 6) -> list:
     """긴 문단 텍스트를 문장 단위로 쪼개 불릿 리스트처럼 보여주기 위한 헬퍼."""
     if not text:
