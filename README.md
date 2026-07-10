@@ -44,6 +44,7 @@ stock-briefing-v3-1 완료 → workflow_dispatch → morning_core.yml
 | `pipeline/assets/render.py`의 autofit 스크린샷 전처리 | `data-autofit` 요소를 실측해 폰트 크기 자동 축소 (Phase D, 추가된 로직) |
 | `pipeline/generate_video.py` / `generate_subtitles.py` | 정지 프레임 홀드 → Ken Burns/전환 클립으로 교체, 전환 구간만큼 자막 타임라인 보정 (Phase D, 변경) |
 | `pipeline/assets/narrative_reorder.py` / `pipeline/generate_reordered_script.py` | "장전 의사결정형" 플롯으로 섹션 재정렬 + `reordered_script.json` 생성 (Phase E, 아래 참고) |
+| `pipeline/assets/ranking.py` / `ranking_builders.py` / `shorts_export.py` / `pipeline/generate_ranking.py` | "주도주 랭킹형" 플롯 — TOP5 산정 + 카드 + TOP1~3 쇼츠 export (Phase F, 아래 참고) |
 
 그 외 `generate_voice.py`/`generate_assets.py`/`build_asset_map.py`/
 `pipeline/assets/{chart,image_fetch}.py`/`voice_config.py`/`update_voice_id.py`는
@@ -175,6 +176,44 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 샘플: `tests/test_narrative_reorder.py`(8단계 순서, TOP3 선정, importance
 일치, 조언체 완화, 원본 불변을 검증. `python tests/test_narrative_reorder.py`).
 
+## 주도주 랭킹형 플롯 (TOP5 + 쇼츠)
+
+`generate_ranking.py`가 script.json에서 오늘의 주도주 TOP5를 선정해
+`output/YYYY-MM-DD/ranking/`에 저장합니다: 1) 오늘의 주도주 TOP5 공개
+2) 5→1위 빠른 요약(TOP5 overview 카드) 3~6) 순위별 상세(종목 이슈/섹터/
+거래대금·수급·뉴스 근거/추격 매수 리스크) 7) 관심종목 체크리스트(각 상세
+카드에 이미 포함).
+
+- **companies/themes/volume_score/news_score/report_score**: script.json에는
+  이 값들을 직접 나타내는 숫자 필드가 없어 기존 데이터로 근사합니다.
+  - `companies`: 종목명(정규화), `themes`: Phase B의 `get_stock_sector()`가
+    반환하는 섹터명을 그대로 사용
+  - `volume_score`: `chart.py`의 `fetch_ohlcv()`(pykrx→네이버 폴백, 이미
+    검증된 소스)로 가져온 최근 OHLCV의 거래량 추세(최근 절반 vs 이전 절반
+    평균 비율)를 0~1로 정규화. 데이터가 없으면 중립값 0.5
+  - `news_score`/`report_score`: 종목 섹션의 `channel_summaries`에서
+    유튜브·경제방송/증권사 카테고리 등장 횟수와 출처 수를 0~1로 정규화
+- **ranking_score 산식**: `ranking.compute_ranking_score(volume_score,
+  news_score, report_score, weights=(0.4, 0.3, 0.3))`로 별도 함수 분리(요구사항).
+  가중치를 인자로 받으므로 산식 자체를 건드리지 않고도 조정/테스트 가능합니다.
+- **TOP5 카드**: `ranking_card()`(순위 배지 + 종목명/코드/테마 + 점수
+  breakdown 바)로 overview 슬라이드 1장 + 상세 슬라이드 5장을 렌더링합니다
+  (`ranking_builders.py`).
+- **TOP1~3 쇼츠(30~45초)**: `shorts_export.export_shorts_clip()`이 Phase D의
+  `FFmpegVideoRenderer.compose_scene()`(Ken Burns 포함)을 그대로 재사용해,
+  해당 종목의 요약 카드 이미지 + 요약 나레이션 오디오로 클립을 만듭니다.
+  오디오가 45초보다 길면 앞부분만 잘라 쓰고(별도 요약 없이 도입부만 사용 —
+  문장이 중간에 끊길 수 있는 한계가 있음), 45초 이하면 그대로 사용합니다.
+  이 스텝은 `voice`/`assets` 잡 산출물(mp3/png)이 이미 있어야 쇼츠를 만들
+  수 있으므로, 아직 없으면 경고만 남기고 건너뜁니다(`ranking.json`/카드는
+  정상 생성).
+
+설정 필요 없음(가중치는 `compute_ranking_score()` 호출 시 인자로 전달).
+샘플: `tests/test_ranking.py`(ranking_score 산식, volume/news/report 점수,
+TOP5 선정 + 집계 섹션 제외, 쇼츠 45초 상한 적용을 검증 — OHLCV는
+`fetch_ohlcv_fn` 의존성 주입으로 네트워크 없이 테스트. 쇼츠 테스트는 ffmpeg
+필요, 없으면 스킵. `python tests/test_ranking.py`).
+
 ## 산출물
 
 ```
@@ -189,6 +228,11 @@ output/YYYY-MM-DD/
   thumbnail.png
   script.json                  # output/KO/scripts/script.json 사본
   scene_plan.json              # Phase D: output/KO/scripts/scene_plan.json 사본(렌더링 결과물과 함께 보관)
+  ranking/                     # Phase F: 주도주 랭킹형 플롯
+    ranking.json                #   TOP5 companies/themes/volume·news·report_score/ranking_score
+    00_ranking_top5.png         #   TOP5 overview 카드
+    0N_rank_종목명.png          #   순위별 상세 카드(N=1~5)
+    shorts/topN_종목명.mp4      #   TOP1~3, 30~45초 쇼츠(voice/assets 산출물 있을 때만 생성)
 ```
 
 `metadata.json` 스키마:
@@ -252,29 +296,32 @@ python pipeline/generate_reordered_script.py KO   # scene_plan.json을 재정렬
 python pipeline/generate_voice.py KO
 python pipeline/generate_assets.py KO
 MEDIA_MOCK=1 python pipeline/generate_media.py KO   # 실제 검색은 MEDIA_MOCK 없이 실행
+python pipeline/generate_ranking.py KO   # TOP1~3 쇼츠는 voice/assets 산출물이 있어야 생성됨
 python pipeline/generate_subtitles.py KO
 python pipeline/generate_video.py KO
 python pipeline/generate_metadata.py KO
 python pipeline/quality_gate.py KO
 ```
 
-테스트(모두 네트워크 없이 실행 가능. `test_video_renderer.py`는 ffmpeg 필요,
-없으면 스킵):
+테스트(모두 네트워크 없이 실행 가능. `test_video_renderer.py`/`test_ranking.py`의
+쇼츠 관련 테스트는 ffmpeg 필요, 없으면 스킵):
 
 ```bash
 python tests/test_scene_plan.py
 python tests/test_media_pipeline.py
 python tests/test_video_renderer.py
 python tests/test_narrative_reorder.py
+python tests/test_ranking.py
 ```
 
 ## 다음 단계 (이번 범위 아님)
 
 아래는 설계만 논의됐고 이 레포에는 아직 구현되지 않았습니다:
 
-- "주도주 랭킹형" 내러티브 플롯 알고리즘(`ranking_score`, TOP5 카드, 쇼츠 export)
 - `reordered_script.json`을 실제 음성 생성/프레임 렌더링 순서에 반영하는 통합 작업
   (현재는 별도 산출물로만 생성되며 기존 영상 제작 경로는 바뀌지 않음)
+- TOP1~3 쇼츠의 30~45초 트리밍을 LLM 요약 기반으로 개선(현재는 원본 나레이션의
+  도입부만 잘라 써서 문장이 중간에 끊길 수 있음)
 - 프리미엄 TTS(Azure/ElevenLabs) + 발음사전 + BGM ducking + loudness normalization
 
 각각은 별도 계획 수립 후 후속 작업으로 진행합니다.
