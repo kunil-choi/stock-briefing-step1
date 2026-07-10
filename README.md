@@ -43,6 +43,7 @@ stock-briefing-v3-1 완료 → workflow_dispatch → morning_core.yml
 | `pipeline/assets/html_theme.py`의 `lower_third()`/`headline_card()`/`report_card()`/`risk_card()`/`sector_heatmap()`/`autofit_text()` | 방송형 컴포넌트 + 2줄 자동 축소 텍스트 (Phase D, 추가된 함수) |
 | `pipeline/assets/render.py`의 autofit 스크린샷 전처리 | `data-autofit` 요소를 실측해 폰트 크기 자동 축소 (Phase D, 추가된 로직) |
 | `pipeline/generate_video.py` / `generate_subtitles.py` | 정지 프레임 홀드 → Ken Burns/전환 클립으로 교체, 전환 구간만큼 자막 타임라인 보정 (Phase D, 변경) |
+| `pipeline/assets/narrative_reorder.py` / `pipeline/generate_reordered_script.py` | "장전 의사결정형" 플롯으로 섹션 재정렬 + `reordered_script.json` 생성 (Phase E, 아래 참고) |
 
 그 외 `generate_voice.py`/`generate_assets.py`/`build_asset_map.py`/
 `pipeline/assets/{chart,image_fetch}.py`/`voice_config.py`/`update_voice_id.py`는
@@ -139,10 +140,46 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 샘플: `tests/test_video_renderer.py`(실제 ffmpeg로 Ken Burns/전환/이어붙이기
 검증, `python tests/test_video_renderer.py`. ffmpeg가 PATH에 없으면 스킵).
 
+## 장전 의사결정형 플롯 (섹션 재정렬)
+
+`generate_reordered_script.py`가 `script.json`을 읽어 아래 8단계 구성 +
+컴플라이언스 클로징으로 재정렬한 `reordered_script.json`을 만듭니다.
+
+1. 15초 훅(전체 브리핑에서 importance가 가장 높은 2~3개 이슈 요약)
+2. 오늘의 한 줄 결론(시장 요약 헤드라인)
+3. 주도주 후보 TOP3(importance 상위 3개 종목)
+4. 시장 배경 5. 섹터별 분석 6. 종목별 체크포인트(TOP3에 들지 못한 나머지 종목 + 집계 섹션)
+7. 리스크(모든 종목의 risks를 모아 중복 제거) 8. 오늘 장 체크리스트(AI 전략을 조언체 완화해 재구성)
+9. 클로징(투자 유의사항 — 8단계엔 없지만 컴플라이언스 문구라 그대로 유지)
+
+- **importance/entities**: 새로 만들지 않고 Phase B의
+  `scene_plan.build_scene_plan()`을 그대로 재사용합니다(`priority_score`를
+  `importance`로 사용). 이 결과로 `scene_plan.json`도 재정렬된 구조 기준으로
+  다시 계산해 덮어씁니다.
+- **투자 조언체 완화**: `narrative_reorder.soften_advice_language()`가
+  "~확대하세요"/"~매수를 추천합니다" 같은 표현을 "~확인할 필요가 있다"/
+  "~관전 포인트다" 식으로 치환합니다. 알려진 패턴 기반 치환이라(완전한 자연어
+  재작성에는 LLM이 필요해 이 모듈 스코프 밖) 모든 조언체 표현을 잡아내지는
+  못할 수 있습니다. 새로 합성하는 훅/결론/리스크/체크리스트 문구에만
+  적용하고, 종목 섹션 원문(narration/subtitle)은 손대지 않습니다 — TTS
+  음성이 이미 그 원문 기준으로 생성될 것을 전제하는 narration/subtitle
+  문장 수 일치 규칙을 깨지 않기 위해서입니다.
+- **기존 렌더링 파이프라인과의 호환성**: 이 모듈은 `script.json`을 읽기만
+  하고 절대 수정하지 않습니다(`tests/test_narrative_reorder.py`가 원본
+  불변을 검증). `generate_assets.py`/`generate_video.py`는 지금까지와
+  동일하게 `script.json`을 그대로 소비하므로 기존 영상 제작 경로는 전혀
+  바뀌지 않습니다. `reordered_script.json`을 실제 영상 제작 순서(음성 생성
+  ID, 프레임 파일명 규칙 등)에 반영하는 것은 더 큰 범위의 후속 통합
+  작업입니다.
+
+샘플: `tests/test_narrative_reorder.py`(8단계 순서, TOP3 선정, importance
+일치, 조언체 완화, 원본 불변을 검증. `python tests/test_narrative_reorder.py`).
+
 ## 산출물
 
 ```
 output/KO/scripts/scene_plan.json   # Phase B: 개체명/priority_score/visual_type/visual_keywords
+output/KO/scripts/reordered_script.json  # Phase E: 장전 의사결정형 8단계 재정렬 결과
 output/KO/media/media_map.json      # Phase C: 섹션별 선택 이미지 경로/출처/사용권
 output/KO/...                 # 기존과 동일한 중간 산출물(scripts/audio/frames/subtitles/video)
 data/media/license_log.csv    # Phase C: 이미지 사용 이력(7일 중복 감지용, 레포에 커밋 유지)
@@ -211,6 +248,7 @@ pip install -r requirements.txt
 export OPENAI_API_KEY=...
 python pipeline/generate_script.py KO
 python pipeline/generate_scene_plan.py KO
+python pipeline/generate_reordered_script.py KO   # scene_plan.json을 재정렬 구조 기준으로 재계산
 python pipeline/generate_voice.py KO
 python pipeline/generate_assets.py KO
 MEDIA_MOCK=1 python pipeline/generate_media.py KO   # 실제 검색은 MEDIA_MOCK 없이 실행
@@ -227,14 +265,16 @@ python pipeline/quality_gate.py KO
 python tests/test_scene_plan.py
 python tests/test_media_pipeline.py
 python tests/test_video_renderer.py
+python tests/test_narrative_reorder.py
 ```
 
 ## 다음 단계 (이번 범위 아님)
 
 아래는 설계만 논의됐고 이 레포에는 아직 구현되지 않았습니다:
 
-- "장전 의사결정형"/"주도주 랭킹형" 내러티브 플롯 알고리즘(`reordered_script.json`,
-  `ranking_score`)
+- "주도주 랭킹형" 내러티브 플롯 알고리즘(`ranking_score`, TOP5 카드, 쇼츠 export)
+- `reordered_script.json`을 실제 음성 생성/프레임 렌더링 순서에 반영하는 통합 작업
+  (현재는 별도 산출물로만 생성되며 기존 영상 제작 경로는 바뀌지 않음)
 - 프리미엄 TTS(Azure/ElevenLabs) + 발음사전 + BGM ducking + loudness normalization
 
 각각은 별도 계획 수립 후 후속 작업으로 진행합니다.
