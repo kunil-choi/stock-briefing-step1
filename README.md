@@ -124,6 +124,15 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
   길이는 전혀 바뀌지 않습니다. `build_transition()`은 xfade가 실패해도
   정지 프레임 홀드 → 검정 화면 순으로 폴백해 **항상** 정확히 지정된 길이의
   클립을 반환합니다(호출부의 누적 시간 계산이 조건 분기 없이 단순해지도록).
+- **이어붙이기(concat) 길이 검증**: 여러 Ken Burns/전환 클립을 이어붙인 뒤
+  ffprobe로 측정한 길이가 (ffmpeg 버전/환경에 따라) 실제 콘텐츠 길이와 크게
+  어긋나는 사례가 실제 운영 중 발견됐습니다(755초 분량이 1300초로 잘못
+  측정되어 "영상이 길다"고 오판 → 배속을 줄여 오히려 목표(14분30초~15분30초)
+  보다 짧은 영상이 만들어짐). `concat()`을 스트림 카피(`-c copy`) 대신
+  재인코딩(`+genpts`로 타임스탬프 재생성)으로 바꾸고, `generate_video.py`의
+  `resolve_merged_duration()`이 이미 아는 입력값(오디오 총합 + 전환 클립
+  수 × 전환 길이)으로 계산한 기대 길이와 ffprobe 측정값을 대조해 20% 넘게
+  어긋나면 계산값으로 대체하는 안전장치를 추가했습니다.
 - **lower-third**: `html_theme.lower_third()`가 종목명/코드/등락률/섹터를
   하단 바로 표시합니다(`builders._build_stock_summary()`에 통합, 코드는
   `STOCK_CODES`, 섹터는 Phase B의 `get_stock_sector()`를 재사용). 상승=빨강,
@@ -312,6 +321,7 @@ python tests/test_media_pipeline.py
 python tests/test_video_renderer.py
 python tests/test_narrative_reorder.py
 python tests/test_ranking.py
+python tests/test_generate_video.py
 ```
 
 ## 다음 단계 (이번 범위 아님)

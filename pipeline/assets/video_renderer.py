@@ -166,11 +166,28 @@ class FFmpegVideoRenderer(VideoRenderer):
         return out_path
 
     def concat(self, clip_paths: List[str], out_path: str) -> bool:
+        # ★ 스트림 카피(-c copy)로 이어붙이지 않는다: zoompan/xfade로 각각 독립
+        # 인코딩된 클립을 -c copy로 이어붙이면 컨테이너의 PTS/DTS가 깨끗하게
+        # 이어지지 않아 ffprobe가 읽는 전체 길이가 실제 콘텐츠 길이와 크게
+        # 어긋나는 문제가 있었다(실측: 여러 Ken Burns+전환 클립 63초 분량을
+        # 이어붙였는데 32초로 잘못 측정됨 — 반대로 실제 운영에서는 755초가
+        # 1300초로 부풀려 측정되기도 함). 이 잘못된 길이 때문에
+        # generate_video.py의 adjust_to_target_duration()이 "영상이 길다"고
+        # 오판해 배속을 줄여, 원래는 패딩돼야 할 짧은 영상이 오히려 더
+        # 짧아지는 사고로 이어졌다. 재인코딩(+genpts로 타임스탬프 재생성)하면
+        # 이 클래스의 버그 자체가 사라진다.
         list_file = out_path.replace(".mp4", "_list.txt")
         with open(list_file, "w", encoding="utf-8") as f:
             for v in clip_paths:
                 f.write(f"file '{os.path.abspath(v)}'\n")
-        cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", list_file, "-c", "copy", out_path]
+        cmd = [
+            "ffmpeg", "-y", "-fflags", "+genpts",
+            "-f", "concat", "-safe", "0", "-i", list_file,
+            "-c:v", "libx264", "-crf", "20", "-preset", "fast",
+            "-c:a", "aac", "-b:a", "192k",
+            "-pix_fmt", "yuv420p", "-r", str(self.fps),
+            out_path,
+        ]
         ok = _run(cmd, "장면 이어붙이기")
         try:
             os.remove(list_file)
