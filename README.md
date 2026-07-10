@@ -39,10 +39,13 @@ stock-briefing-v3-1 완료 → workflow_dispatch → morning_core.yml
 | `.github/workflows/morning_core.yml` | `daily_broadcast.yml` 대체, `workflow_dispatch`만 사용 |
 | `pipeline/assets/scene_plan.py` / `pipeline/generate_scene_plan.py` | 개체명 추출 + `scene_plan.json` 생성 (Phase B, 아래 참고) |
 | `pipeline/assets/media_providers.py` / `media_pipeline.py` / `generate_media.py` / `config/media.yml` | 연합뉴스/KBS 이미지 검색 + `media_map.json` 생성 (Phase C, 아래 참고) |
+| `pipeline/assets/video_renderer.py` | Ken Burns 합성 + crossfade/push 전환 `VideoRenderer` 인터페이스/구현체 (Phase D, 아래 참고) |
+| `pipeline/assets/html_theme.py`의 `lower_third()`/`headline_card()`/`report_card()`/`risk_card()`/`sector_heatmap()`/`autofit_text()` | 방송형 컴포넌트 + 2줄 자동 축소 텍스트 (Phase D, 추가된 함수) |
+| `pipeline/assets/render.py`의 autofit 스크린샷 전처리 | `data-autofit` 요소를 실측해 폰트 크기 자동 축소 (Phase D, 추가된 로직) |
+| `pipeline/generate_video.py` / `generate_subtitles.py` | 정지 프레임 홀드 → Ken Burns/전환 클립으로 교체, 전환 구간만큼 자막 타임라인 보정 (Phase D, 변경) |
 
-그 외 `generate_voice.py`/`generate_assets.py`/`generate_subtitles.py`/
-`generate_video.py`/`build_asset_map.py`/`pipeline/assets/{chart,html_theme,
-image_fetch,render,config}.py`/`voice_config.py`/`update_voice_id.py`는
+그 외 `generate_voice.py`/`generate_assets.py`/`build_asset_map.py`/
+`pipeline/assets/{chart,image_fetch}.py`/`voice_config.py`/`update_voice_id.py`는
 `stock-briefing-video`에서 무수정 복사했습니다.
 
 ## scene_plan.json (개체명 추출 + 비주얼 우선순위)
@@ -94,6 +97,48 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 샘플: `tests/test_media_pipeline.py`(`MockProvider`만 사용, 네트워크 없이 실행,
 `python tests/test_media_pipeline.py`).
 
+## 방송형 렌더링 (Ken Burns / 전환 / lower-third / 자동 텍스트 축소)
+
+기존 `generate_video.py`는 PNG 슬라이드를 `-loop 1`로 그대로 정지 홀드해
+"PPT를 넘기는" 느낌이었습니다. Phase D는 이를 방송 그래픽처럼 항상 미세하게
+움직이는 화면으로 바꿉니다.
+
+- **renderer interface 분리**: `pipeline/assets/video_renderer.py`의
+  `VideoRenderer`(추상클래스, `compose_scene`/`build_transition`/`concat`)를
+  `FFmpegVideoRenderer`가 구현합니다. 추후 Remotion 등으로 교체하려면 이
+  인터페이스를 만족하는 새 클래스만 추가하면 되고, `generate_video.py` 등
+  호출부는 그대로 둘 수 있습니다.
+- **Ken Burns**: `compose_scene()`이 ffmpeg `zoompan` 필터로 각 장면을 서서히
+  확대(최대 1.08배)합니다. 팬(pan) 중심은 장면 인덱스에 따라 4가지 패턴을
+  순환해 매번 같은 방식으로 확대되는 단조로움을 피합니다.
+- **crossfade/push 전환**: `build_transition()`이 ffmpeg `xfade` 필터로
+  `fade`(crossfade)와 `slideleft`/`slideright`(push)를 번갈아 적용한
+  0.4초짜리 짧은 전환 클립을 만들어 장면 사이에 **삽입**합니다. 실제로
+  겹쳐서(overlap) 이어붙이면 오디오 타임라인이 전환 길이만큼 줄어들어
+  자막 동기화 로직(`generate_subtitles.py`)이 촘촘히 튜닝된 누적-합산 방식과
+  충돌하기 때문에, 대신 오디오 없는 짧은 세그먼트를 별도로 끼워 넣는 방식을
+  택했습니다 — 그 결과 자막 타임라인은 전환 구간만큼 "더하기"만 하면 되고
+  (`generate_ass()`의 `transition_duration` 인자), 각 장면 자체의 오디오
+  길이는 전혀 바뀌지 않습니다. `build_transition()`은 xfade가 실패해도
+  정지 프레임 홀드 → 검정 화면 순으로 폴백해 **항상** 정확히 지정된 길이의
+  클립을 반환합니다(호출부의 누적 시간 계산이 조건 분기 없이 단순해지도록).
+- **lower-third**: `html_theme.lower_third()`가 종목명/코드/등락률/섹터를
+  하단 바로 표시합니다(`builders._build_stock_summary()`에 통합, 코드는
+  `STOCK_CODES`, 섹터는 Phase B의 `get_stock_sector()`를 재사용). 상승=빨강,
+  하락=파랑 한국 증권가 관행은 기존 `PALETTE["up"]`/`PALETTE["down"]`을 그대로
+  사용합니다.
+- **신규 템플릿**: `headline_card()`(시장 요약 헤드라인), `sector_heatmap()`
+  (업종 슬라이드, momentum 3단계를 타일 색으로 표현), `report_card()`(증권사
+  리포트 카드 — `opinion`/`target_price` 필드는 있을 때만 표시, 없으면
+  `BROKERAGE_FIRMS` 사전으로 본문에서 증권사명을 역추출), `risk_card()`
+  (리스크 강조 카드).
+- **2줄 자동 축소**: `html_theme.autofit_text()`로 만든 요소는 `render.py`가
+  스크린샷 직전 Playwright로 실제 렌더링 높이를 측정해 2줄에 맞을 때까지
+  폰트 크기를 줄입니다(`-webkit-line-clamp`을 안전망으로 병행 적용).
+
+샘플: `tests/test_video_renderer.py`(실제 ffmpeg로 Ken Burns/전환/이어붙이기
+검증, `python tests/test_video_renderer.py`. ffmpeg가 PATH에 없으면 스킵).
+
 ## 산출물
 
 ```
@@ -106,6 +151,7 @@ output/YYYY-MM-DD/
   final.mp4                    # output/KO/video/final.mp4 사본
   thumbnail.png
   script.json                  # output/KO/scripts/script.json 사본
+  scene_plan.json              # Phase D: output/KO/scripts/scene_plan.json 사본(렌더링 결과물과 함께 보관)
 ```
 
 `metadata.json` 스키마:
@@ -122,6 +168,7 @@ output/YYYY-MM-DD/
   "thumbnail_path": "thumbnail.png",
   "video_path": "final.mp4",
   "script_path": "script.json",
+  "scene_plan_path": "scene_plan.json",
   "duration_seconds": 905.2,
   "core_stock_count": 5
 }
@@ -173,19 +220,19 @@ python pipeline/generate_metadata.py KO
 python pipeline/quality_gate.py KO
 ```
 
-테스트(둘 다 네트워크 없이 실행 가능):
+테스트(모두 네트워크 없이 실행 가능. `test_video_renderer.py`는 ffmpeg 필요,
+없으면 스킵):
 
 ```bash
 python tests/test_scene_plan.py
 python tests/test_media_pipeline.py
+python tests/test_video_renderer.py
 ```
 
 ## 다음 단계 (이번 범위 아님)
 
 아래는 설계만 논의됐고 이 레포에는 아직 구현되지 않았습니다:
 
-- 방송형 렌더러 고도화(Ken Burns, crossfade/push transition, lower-third, renderer
-  interface 분리)
 - "장전 의사결정형"/"주도주 랭킹형" 내러티브 플롯 알고리즘(`reordered_script.json`,
   `ranking_score`)
 - 프리미엄 TTS(Azure/ElevenLabs) + 발음사전 + BGM ducking + loudness normalization

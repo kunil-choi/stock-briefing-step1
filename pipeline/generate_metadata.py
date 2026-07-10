@@ -188,6 +188,17 @@ def run(lang: str = "KO"):
     script_dst = os.path.join(out_dir, "script.json")
     shutil.copy2(script_path, script_dst)
 
+    # scene_plan.json 사본 (Phase D 요구사항: 렌더링 결과물과 scene_plan을
+    # output 폴더에 함께 저장). 없어도(예: 구버전 실행) 치명적이지 않으므로
+    # 경고만 남기고 계속 진행한다.
+    scene_plan_path = os.path.join(root, "output", lang, "scripts", "scene_plan.json")
+    scene_plan_dst_rel = None
+    if os.path.exists(scene_plan_path):
+        shutil.copy2(scene_plan_path, os.path.join(out_dir, "scene_plan.json"))
+        scene_plan_dst_rel = "scene_plan.json"
+    else:
+        warnings.append(f"{scene_plan_path} 없음 — scene_plan.json 없이 진행")
+
     core_stock_count = sum(
         1 for s in script.get("sections", [])
         if s.get("id", "").startswith(("stock_", "hidden_"))
@@ -208,6 +219,7 @@ def run(lang: str = "KO"):
         "thumbnail_path":  "thumbnail.png" if thumbnail_path else None,
         "video_path":      video_dst_rel,
         "script_path":     "script.json",
+        "scene_plan_path": scene_plan_dst_rel,
         "duration_seconds": round(duration_seconds, 1),
         "core_stock_count": core_stock_count,
     }
