@@ -181,6 +181,27 @@ def concat_videos(video_list: list, out_path: str) -> bool:
     return _renderer.concat(video_list, out_path)
 
 
+def resolve_merged_duration(measured_duration: float, expected_duration: float,
+                             tolerance: float = 0.2) -> float:
+    """이어붙인 영상의 ffprobe 측정 길이(measured_duration)가 이미 알고 있는
+    입력값으로 계산한 기대 길이(expected_duration)와 tolerance 비율 이상
+    어긋나면 기대 길이로 대체한다.
+
+    여러 Ken Burns/전환 클립을 이어붙인 뒤 ffprobe가 읽는 길이가 (ffmpeg
+    버전/환경에 따라) 실제 콘텐츠 길이와 크게 어긋나는 사례가 있었다(예: 실측
+    755초 분량이 1300초로 잘못 측정돼 adjust_to_target_duration()이 "영상이
+    길다"고 오판 → 배속을 줄여 오히려 목표보다 짧은 영상을 만든 사고). 이
+    안전장치는 그 오판을 막는다."""
+    if expected_duration <= 0:
+        return measured_duration
+    if abs(measured_duration - expected_duration) > expected_duration * tolerance:
+        print(f"  ⚠️ 이어붙인 영상 측정 길이({measured_duration:.1f}초)가 예상 길이"
+              f"({expected_duration:.1f}초)와 크게 다릅니다 — ffprobe 측정을 신뢰할 수 없다고 "
+              f"판단해 예상 길이로 대체합니다.")
+        return expected_duration
+    return measured_duration
+
+
 # ── 영상 길이 조정 (15분에 맞추기) ───────────────────────────────────────
 
 def adjust_to_target_duration(input_path: str, output_path: str,
@@ -399,6 +420,10 @@ def run(lang: str = "KO"):
     # ── 15분 길이 조정 ─────────────────────────────────────────────────
     print(f"\n⏱ 영상 길이 조정 중...\n")
     merged_duration = get_audio_duration(merged_path)
+
+    transition_count = sum(1 for p in section_videos if os.path.basename(p).startswith("trans_"))
+    expected_duration = total_audio_duration + transition_count * TRANSITION_DURATION
+    merged_duration = resolve_merged_duration(merged_duration, expected_duration)
     adjusted_path = os.path.join(video_dir, "adjusted.mp4")
     speed_factor = adjust_to_target_duration(merged_path, adjusted_path, merged_duration)
     if os.path.isfile(adjusted_path):

@@ -114,9 +114,11 @@ def test_concat_scenes_and_transition():
         assert os.path.isfile(final_path)
 
         dur = _probe_duration(final_path)
-        # 2.0(scene0) + ~0.4(전환) + 2.0(scene1) ≈ 4.4초. 스트림 복사 이어붙이기의
-        # 컨테이너 오버헤드를 감안해 넉넉한 허용 오차를 둔다.
-        assert 3.9 <= dur <= 4.9, f"이어붙인 영상 길이가 예상 범위를 벗어남: {dur}"
+        # 2.0(scene0) + ~0.4(전환) + 2.0(scene1) ≈ 4.4초. concat()이 재인코딩
+        # 방식(요구사항: 여러 클립을 이어붙일 때 ffprobe 측정 길이가 실제
+        # 콘텐츠와 크게 어긋나는 사고를 막기 위해 -c copy 대신 재인코딩함)이라
+        # 오차는 작아야 하지만, 인코딩 반올림을 감안해 약간의 허용 오차를 둔다.
+        assert 4.1 <= dur <= 4.7, f"이어붙인 영상 길이가 예상 범위를 벗어남: {dur}"
         print(f"✅ concat: 장면+전환+장면 이어붙이기 길이 확인 ({dur:.2f}초)")
     finally:
         shutil.rmtree(tmp_dir)
