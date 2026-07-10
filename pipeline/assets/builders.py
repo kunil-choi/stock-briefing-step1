@@ -13,6 +13,7 @@ from .html_theme import (
     point_card, bullet_column, quote_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
     lower_third, headline_card, report_card, risk_card, sector_heatmap,
+    autofit_text,
 )
 from .chart import build_chart_with_insight
 from .image_fetch import fetch_news_image
@@ -56,6 +57,43 @@ def build_opening(data, out_dir):
 """
     html = centered_shell(content)
     return render_html_to_png(html, os.path.join(out_dir, "00_opening.png"))
+
+
+# ── 훅 (Phase E/짧은 하이라이트 포맷: 브랜드 인트로를 대체하는 15초 훅) ────────
+#
+# narrative_reorder._build_hook_section()이 만드는 합성 섹션(id="hook")을
+# 렌더링한다. 기존 build_opening()의 브랜드 배경(원형 그라디언트)은 재사용해
+# 채널 아이덴티티는 유지하되, 느린 타이틀 카드 대신 오늘 장 시작 전 가장
+# 중요한 이슈 요약을 바로 보여준다 — 출퇴근길에 클릭하자마자 핵심이 나오도록.
+def build_hook(sec, out_dir):
+    headline = sec.get("subtitle") or sec.get("narration", "")
+
+    headline_html = autofit_text(
+        headline, base_font_size=54, max_lines=5, min_font_size=30,
+        extra_style=f"font-weight:800;color:{PALETTE['ink']};max-width:1560px;text-align:left;",
+    )
+    content = f"""
+<div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
+  background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
+  top:-260px;left:50%;transform:translateX(-50%);"></div>
+{kbs_badge()}
+<div class="pill" style="background:{PALETTE['highlight']};color:{PALETTE['ink']};
+  font-size:32px;font-weight:800;padding:14px 34px;">장 시작 전, 이건 꼭 보세요</div>
+{headline_html}
+"""
+    html = centered_shell(content)
+    return render_html_to_png(html, os.path.join(out_dir, "00_hook.png"))
+
+
+# ── 오늘의 한 줄 결론 ───────────────────────────────────────────────────────
+#
+# narrative_reorder._build_conclusion_section()이 만드는 합성 섹션
+# (id="conclusion")을 렌더링한다. headline_card()를 그대로 재사용한다.
+def build_conclusion(sec, out_dir):
+    headline = sec.get("subtitle") or sec.get("narration", "")
+    content = headline_card(headline, subtext="오늘의 한 줄 결론")
+    html = shell("오늘의 한 줄 결론", content)
+    return render_html_to_png(html, os.path.join(out_dir, "01_conclusion.png"))
 
 
 # ── 시장 요약 ───────────────────────────────────────────────────────────────

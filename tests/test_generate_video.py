@@ -13,7 +13,8 @@ _PIPELINE = os.path.join(_HERE, "..", "pipeline")
 if _PIPELINE not in sys.path:
     sys.path.insert(0, _PIPELINE)
 
-from generate_video import resolve_merged_duration, compute_bgm_bounds  # noqa: E402
+from generate_video import resolve_merged_duration, compute_bgm_bounds, TARGET_MIN, TARGET_MAX, TARGET_IDEAL  # noqa: E402
+from config_schedule import duration_for  # noqa: E402
 
 
 def test_trusts_measurement_when_close_to_expected():
@@ -89,6 +90,26 @@ def test_compute_bgm_bounds_single_scene_outro_not_before_intro():
     print("✅ compute_bgm_bounds: 장면이 1개뿐이어도 outro_start < intro_end가 되지 않음")
 
 
+def test_target_duration_reads_from_config_schedule():
+    """TARGET_MIN/MAX가 하드코딩된 15분이 아니라 config/schedule.yml의
+    duration.longform을 실제로 읽는지 확인한다 — 예전에는 이 값이
+    schedule.yml과 무관하게 870/930으로 고정돼 있어서, schedule.yml을
+    5~8분으로 바꿔도 실제 영상 길이는 그대로 15분이 나오는 불일치가 있었다
+    (사용자가 실제로 겪은 버그)."""
+    bounds = duration_for("longform")
+    assert TARGET_MIN == bounds["min_seconds"], (
+        f"TARGET_MIN({TARGET_MIN})이 config/schedule.yml의 "
+        f"duration.longform.min_seconds({bounds['min_seconds']})와 다름"
+    )
+    assert TARGET_MAX == bounds["max_seconds"]
+    assert TARGET_MIN == 300.0 and TARGET_MAX == 480.0, (
+        f"짧은 하이라이트 포맷(5~8분) 목표값이 아님: {TARGET_MIN}~{TARGET_MAX}"
+    )
+    assert TARGET_IDEAL == (TARGET_MIN + TARGET_MAX) / 2
+    print(f"✅ TARGET_MIN/MAX/IDEAL이 config/schedule.yml을 그대로 반영함: "
+          f"{TARGET_MIN}~{TARGET_MAX}s (IDEAL={TARGET_IDEAL})")
+
+
 if __name__ == "__main__":
     test_trusts_measurement_when_close_to_expected()
     test_falls_back_to_expected_when_measurement_is_way_off()
@@ -99,4 +120,5 @@ if __name__ == "__main__":
     test_compute_bgm_bounds_scales_with_time_scale()
     test_compute_bgm_bounds_empty_pairs()
     test_compute_bgm_bounds_single_scene_outro_not_before_intro()
+    test_target_duration_reads_from_config_schedule()
     print("\n✅ generate_video 테스트 전체 통과")

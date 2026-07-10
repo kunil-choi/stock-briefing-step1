@@ -2,6 +2,13 @@
 """
 AI 주식 브리핑 — 에셋 생성 진입점
 사용법: python pipeline/generate_assets.py [KO|ko|en]
+
+reordered_script.json(짧은 하이라이트 구성: 훅 → 결론 → TOP3(핵심 멘션) →
+클로징)을 입력으로 받아, 각 섹션의 id/section_type에 따라 알맞은 빌더로
+프레임을 렌더링한다. 예전처럼 정해진 순서로 고정 섹션들을 호출하는 대신
+reordered_script.json의 실제 순서를 그대로 따라간다 — Phase E의 재정렬
+결과(훅 오프닝 등)가 실제 영상에 반영되려면 이 파일이 reordered_script.json을
+읽어야 한다(예전에는 script.json만 읽어서 재정렬이 무시됐었다).
 """
 import os, re, sys, json
 
@@ -10,14 +17,9 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from assets.builders import (
-    build_opening,
-    build_market_summary,
-    build_sector,
+    build_hook,
+    build_conclusion,
     build_stock_cards,
-    build_extra_watchlist,
-    build_today_pick,
-    build_brokerage_report,
-    build_ai_strategy,
     build_closing,
 )
 from assets.render import close_renderer
@@ -32,15 +34,12 @@ def _kdate_to_dotted(date_str: str) -> str:
     y, mo, d = m.groups()
     return f"{y}.{int(mo):02d}.{int(d):02d}"
 
-# summary+chart+mention 개별 카드가 아니라 단일 슬라이드로 렌더링되는 집계형 종목 섹션
-AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
-
 
 def run(lang: str = "KO"):
     lang = lang.upper()
 
     root = os.path.join(_HERE, "..")
-    script_path = os.path.join(root, "output", lang, "scripts", "script.json")
+    script_path = os.path.join(root, "output", lang, "scripts", "reordered_script.json")
     out_dir = os.path.join(root, "output", lang, "frames")
     img_dir = os.path.join(root, "output", lang, "images")
 
@@ -48,14 +47,14 @@ def run(lang: str = "KO"):
     os.makedirs(img_dir, exist_ok=True)
 
     if not os.path.isfile(script_path):
-        print(f"❌ script.json을 찾을 수 없습니다: {script_path}")
+        print(f"❌ reordered_script.json을 찾을 수 없습니다: {script_path}")
         sys.exit(1)
 
     with open(script_path, encoding="utf-8") as f:
         data = json.load(f)
 
     sections = data.get("sections", [])
-    print(f"📂 script.json 로드 완료 (섹션 수: {len(sections)})")
+    print(f"📂 reordered_script.json 로드 완료 (섹션 수: {len(sections)})")
 
     # 모든 슬라이드 상단바 날짜를 실제 브리핑 날짜로 고정 (렌더링 시점의 시스템
     # 날짜로 폴백하면 워크플로우가 전날 데이터로 실행됐을 때 날짜가 어긋난다)
@@ -67,30 +66,24 @@ def run(lang: str = "KO"):
     asset_map = {"frames": [], "lang": lang}
 
     try:
-        asset_map["frames"].append(build_opening(data, out_dir))
-        asset_map["frames"].extend(build_market_summary(data, out_dir))
-        asset_map["frames"].append(build_sector(data, out_dir))
+        stock_idx = 0
+        for sec in sections:
+            sid = sec.get("id", "")
+            section_type = sec.get("section_type", "")
 
-        stock_secs = [
-            s for s in sections
-            if (s.get("id", "").startswith("stock_") or s.get("id", "").startswith("hidden_"))
-            and s.get("id", "") not in AGGREGATE_STOCK_SECTION_IDS
-        ]
-        for i, sec in enumerate(stock_secs):
-            sec_id = sec.get("id", f"stock_{i}")
-            # ── 수정: data 서브키 없음, id에서 직접 종목명 추출 ──────────────
-            name = sec_id.replace("stock_", "").replace("hidden_", "")
-            prefix = f"{10 + i:02d}_{name}"
-            frames = build_stock_cards(sec, out_dir, img_dir, prefix)
-            asset_map["frames"].extend(frames)
-
-        for builder in (build_extra_watchlist, build_today_pick, build_brokerage_report):
-            frame = builder(data, out_dir)
-            if frame:
-                asset_map["frames"].append(frame)
-
-        asset_map["frames"].append(build_ai_strategy(data, out_dir))
-        asset_map["frames"].append(build_closing(data, out_dir))
+            if sid == "hook":
+                asset_map["frames"].append(build_hook(sec, out_dir))
+            elif sid == "conclusion":
+                asset_map["frames"].append(build_conclusion(sec, out_dir))
+            elif sid == "closing":
+                asset_map["frames"].append(build_closing(data, out_dir))
+            elif section_type == "top_mover" or sid.startswith("stock_") or sid.startswith("hidden_"):
+                name = sid.replace("stock_", "").replace("hidden_", "")
+                prefix = f"{10 + stock_idx:02d}_{name}"
+                stock_idx += 1
+                asset_map["frames"].extend(build_stock_cards(sec, out_dir, img_dir, prefix))
+            else:
+                print(f"  ⚠️ 알 수 없는 섹션 — 건너뜀: id={sid} section_type={section_type}")
     finally:
         close_renderer()
 

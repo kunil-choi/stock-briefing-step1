@@ -31,6 +31,14 @@ KEN_BURNS_ZOOM_MAX = 1.08
 KEN_BURNS_ZOOM_STEP = 0.0015
 TRANSITION_DURATION = 0.4
 
+# Ken Burns(장면 내 확대/팬) 효과 스위치. 현재 이미지 소스가 연합뉴스/KBS
+# 정식 API가 아니라 텍스트 카드 위주(공개 검색 폴백/섹터 대체 이미지)라, 화면
+# 확대·이동 중 카드의 중요한 텍스트가 프레임 밖으로 밀려나는 역효과가
+# 있었다(사용자 피드백). 실제 보도사진처럼 여백이 넉넉한 편집용 이미지를
+# 안정적으로 확보하게 되면(Phase C의 YONHAP_API_KEY/KBS_API_KEY 정식 연동)
+# 다시 켤 수 있도록 코드는 그대로 두고 기본값만 꺼둔다.
+ENABLE_KEN_BURNS = os.environ.get("ENABLE_KEN_BURNS", "false").strip().lower() == "true"
+
 # 장면마다 살짝 다른 팬(pan) 방향을 순환시켜 매번 같은 방식으로 확대되는 단조로움을
 # 피한다. (cx, cy)는 줌 중심을 이미지의 어느 지점(0~1 비율)에 둘지를 뜻한다.
 _PAN_CYCLE = [(0.5, 0.5), (0.3, 0.4), (0.7, 0.4), (0.5, 0.65)]
@@ -84,16 +92,25 @@ class FFmpegVideoRenderer(VideoRenderer):
                        duration: float, scene_index: int = 0) -> Optional[str]:
         if duration <= 0:
             duration = 3.0
-        frames = max(1, int(round(duration * self.fps)))
-        cx, cy = _PAN_CYCLE[scene_index % len(_PAN_CYCLE)]
-        zoom_expr = f"min(zoom+{KEN_BURNS_ZOOM_STEP},{KEN_BURNS_ZOOM_MAX})"
-        x_expr = f"iw*{cx}-(iw/zoom/2)"
-        y_expr = f"ih*{cy}-(ih/zoom/2)"
-        vf = (
-            f"scale=3840:-2,"
-            f"zoompan=z='{zoom_expr}':d={frames}:x='{x_expr}':y='{y_expr}':"
-            f"s={self.width}x{self.height}:fps={self.fps}"
-        )
+
+        if ENABLE_KEN_BURNS:
+            frames = max(1, int(round(duration * self.fps)))
+            cx, cy = _PAN_CYCLE[scene_index % len(_PAN_CYCLE)]
+            zoom_expr = f"min(zoom+{KEN_BURNS_ZOOM_STEP},{KEN_BURNS_ZOOM_MAX})"
+            x_expr = f"iw*{cx}-(iw/zoom/2)"
+            y_expr = f"ih*{cy}-(ih/zoom/2)"
+            vf = (
+                f"scale=3840:-2,"
+                f"zoompan=z='{zoom_expr}':d={frames}:x='{x_expr}':y='{y_expr}':"
+                f"s={self.width}x{self.height}:fps={self.fps}"
+            )
+            label = "Ken Burns"
+        else:
+            # 정지 화면: 카드 텍스트가 확대/팬으로 잘려나가는 문제를 피하기
+            # 위해 원본 비율을 유지한 채 캔버스에 맞추기만 한다.
+            vf = f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={self.fps}"
+            label = "정지 화면"
+
         cmd = [
             "ffmpeg", "-y",
             "-loop", "1", "-i", image_path,
@@ -106,9 +123,9 @@ class FFmpegVideoRenderer(VideoRenderer):
             "-shortest", "-t", f"{duration:.3f}",
             out_path,
         ]
-        if not _run(cmd, f"Ken Burns 합성 ({os.path.basename(out_path)})"):
+        if not _run(cmd, f"장면 합성 ({os.path.basename(out_path)})"):
             return None
-        print(f"  ✅ {os.path.basename(out_path)} ({duration:.1f}초, Ken Burns)")
+        print(f"  ✅ {os.path.basename(out_path)} ({duration:.1f}초, {label})")
         return out_path
 
     def _static_hold(self, frame_path: str, out_path: str, duration: float) -> bool:

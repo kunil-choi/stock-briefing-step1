@@ -9,8 +9,11 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
-TARGET_MIN_SECONDS = int(os.environ.get("TARGET_MIN_SECONDS", "870"))
-TARGET_MAX_SECONDS = int(os.environ.get("TARGET_MAX_SECONDS", "930"))
+from config_schedule import duration_for
+
+_DURATION_BOUNDS = duration_for("longform")
+TARGET_MIN_SECONDS = int(os.environ.get("TARGET_MIN_SECONDS", _DURATION_BOUNDS["min_seconds"]))
+TARGET_MAX_SECONDS = int(os.environ.get("TARGET_MAX_SECONDS", _DURATION_BOUNDS["max_seconds"]))
 
 KST = timezone(timedelta(hours=9))
 REQUIRED_METADATA_FIELDS = [
@@ -65,14 +68,14 @@ def media_duration(path: str) -> float:
 def main(lang: str = "KO"):
     base = os.path.join("output", lang.upper())
     asset_map = os.path.join(base, "asset_map.json")
-    script_path = os.path.join(base, "scripts", "script.json")
+    script_path = os.path.join(base, "scripts", "reordered_script.json")
     audio_dir = os.path.join(base, "audio")
     video_path = os.path.join(base, "video", "final.mp4")
 
     if not os.path.isfile(asset_map):
         raise SystemExit(f"asset_map.json 없음: {asset_map}")
     if not os.path.isfile(script_path):
-        raise SystemExit(f"script.json 없음: {script_path}")
+        raise SystemExit(f"reordered_script.json 없음: {script_path}")
 
     # frame stem → audio_id 매핑은 generate_subtitles.py가 이미 갖고 있는 검증된
     # 로직을 그대로 재사용한다(정규식 기반, hidden_/stock_ 접두어 구분까지

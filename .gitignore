@@ -9,6 +9,9 @@ credentials.json
 *.mp3
 *.wav
 
+# 위 *.mp3 규칙의 예외: 방송에 쓰이는 고정 배경음악 에셋(생성물이 아님)
+!assets/music/*.mp3
+
 # Python
 __pycache__/
 *.pyc

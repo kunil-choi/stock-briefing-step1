@@ -13,9 +13,13 @@ window:
 report_decision: {}
 
 duration:
+  # morning_core는 장 개시 직전 출퇴근길에 빠르게 볼 수 있는 하이라이트
+  # 구성(훅 → 결론 → TOP3 → 클로징)이라 5~8분을 목표로 한다(예전 15분
+  # 롱폼과 달리 훨씬 짧다 — pipeline/generate_video.py가 이 값을 그대로
+  # 읽어 TARGET_MIN/MAX/IDEAL로 쓴다).
   longform:
-    min_seconds: 780    # 13분
-    max_seconds: 1200   # 20분
+    min_seconds: 300    # 5분
+    max_seconds: 480    # 8분
   shorts:
     min_seconds: 30
     max_seconds: 60
