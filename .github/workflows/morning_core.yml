@@ -67,6 +67,11 @@ jobs:
     needs: [script]
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    # media 잡 스텝이 7일 중복 감지용 data/media/license_log.csv를 레포에
+    # 커밋해야 하므로 이 잡에 한해 write 권한이 필요하다(워크플로우 전체
+    # 기본값은 read로 유지).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -76,7 +81,7 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y fonts-noto-cjk fonts-noto-cjk-extra ffmpeg
           fc-cache -fv
-          pip install requests Pillow>=10.0.0 pykrx matplotlib pandas mplfinance python-dotenv playwright
+          pip install requests Pillow>=10.0.0 pykrx matplotlib pandas mplfinance python-dotenv playwright imagehash pyyaml
           playwright install --with-deps chromium
       - uses: actions/download-artifact@v4
         with:
@@ -87,6 +92,27 @@ jobs:
         with:
           name: assets
           path: output/KO/frames/
+      - name: 🖼️ media_map.json 생성 (연합뉴스/KBS 이미지 검색)
+        env:
+          YONHAP_API_KEY: ${{ secrets.YONHAP_API_KEY }}
+          KBS_API_KEY: ${{ secrets.KBS_API_KEY }}
+        run: python pipeline/generate_media.py KO
+      - uses: actions/upload-artifact@v4
+        with:
+          name: media
+          path: output/KO/media/
+      - name: 📇 license_log.csv 커밋 (7일 중복 감지 유지용)
+        run: |
+          if [ -n "$(git status --porcelain data/media/license_log.csv 2>/dev/null)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/media/license_log.csv
+            git commit -m "chore: license_log.csv 업데이트 ($(TZ='Asia/Seoul' date +'%Y-%m-%d'))"
+            git pull --rebase
+            git push
+          else
+            echo "license_log.csv 변경 없음 → 커밋 생략"
+          fi
 
   video:
     needs: [script, voice, assets]

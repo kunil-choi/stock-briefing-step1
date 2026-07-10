@@ -1,0 +1,15 @@
+# config/media.yml
+# 미디어 검색 파이프라인(pipeline/assets/media_pipeline.py) 설정.
+# pipeline/config_media.py가 이 파일을 로드해 상수로 노출한다.
+
+providers: [yonhap, kbs]   # media_providers.py의 provider.name과 일치해야 함
+
+dedup:
+  window_days: 7          # 이 기간 내 사용된 이미지(phash 기준)는 재사용하지 않음
+  hamming_threshold: 6    # phash 해밍 거리가 이 값 이하면 "같은 이미지"로 간주
+
+max_candidates_per_section: 8   # 섹션 1개당 다운로드해 스코어링할 후보 상한
+
+# true거나 환경변수 MEDIA_MOCK=1 이면 실제 네트워크 요청 없이 MockProvider만
+# 사용한다 (오프라인 테스트/로컬 시뮬레이션용).
+mock_mode: false
