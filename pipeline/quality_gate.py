@@ -5,6 +5,10 @@ import subprocess
 import sys
 from datetime import datetime, timezone, timedelta
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:
+    sys.path.insert(0, _HERE)
+
 TARGET_MIN_SECONDS = int(os.environ.get("TARGET_MIN_SECONDS", "870"))
 TARGET_MAX_SECONDS = int(os.environ.get("TARGET_MAX_SECONDS", "930"))
 
@@ -61,43 +65,29 @@ def media_duration(path: str) -> float:
 def main(lang: str = "KO"):
     base = os.path.join("output", lang.upper())
     asset_map = os.path.join(base, "asset_map.json")
+    script_path = os.path.join(base, "scripts", "script.json")
     audio_dir = os.path.join(base, "audio")
     video_path = os.path.join(base, "video", "final.mp4")
 
     if not os.path.isfile(asset_map):
         raise SystemExit(f"asset_map.json 없음: {asset_map}")
+    if not os.path.isfile(script_path):
+        raise SystemExit(f"script.json 없음: {script_path}")
 
+    # frame stem → audio_id 매핑은 generate_subtitles.py가 이미 갖고 있는 검증된
+    # 로직을 그대로 재사용한다(정규식 기반, hidden_/stock_ 접두어 구분까지
+    # 정확히 처리함). 예전에는 이 파일에 독립적으로 재구현한 버전이 있었는데,
+    # mention 페이지처럼 세그먼트 수가 다른 stem에서 슬라이싱 오프셋이 어긋나
+    # (예: "10_삼성전자_3_mention_00" → 잘못된 "stock_삼성전자_3_mention_00")
+    # 실제로 존재하는 mp3와 이름이 달라 "누락 오디오"로 오판하는 버그가 있었다.
+    from generate_subtitles import _frame_stem_to_audio_id
+
+    sections = json.load(open(script_path, encoding="utf-8")).get("sections", [])
     frames = json.load(open(asset_map, encoding="utf-8")).get("frames", [])
     missing = []
     for frame in frames:
         stem = os.path.splitext(os.path.basename(frame))[0]
-        # mapping mirrors generate_video fixed patterns
-        if stem == "00_opening":
-            audio_id = "opening"
-        elif stem.startswith("01_market"):
-            audio_id = "market_summary"
-        elif stem.startswith("02_sector"):
-            audio_id = "sectors"
-        elif stem == "90_extra_watchlist":
-            audio_id = "stock_추가관심종목"
-        elif stem == "91_today_pick":
-            audio_id = "stock_오늘의픽"
-        elif stem == "92_brokerage_report":
-            audio_id = "stock_증권사리포트"
-        elif stem == "98_ai_strategy":
-            audio_id = "ai_strategy"
-        elif stem == "99_closing":
-            audio_id = "closing"
-        else:
-            parts = stem.split("_")
-            if len(parts) >= 4 and parts[-2] == "mention":
-                audio_id = f"stock_{'_'.join(parts[1:-2])}_mention_{parts[-1]}"
-            elif len(parts) >= 4 and parts[-1] == "chart":
-                audio_id = f"stock_{'_'.join(parts[1:-2])}_chart"
-            elif len(parts) >= 4 and parts[-1] == "summary":
-                audio_id = f"stock_{'_'.join(parts[1:-2])}_summary"
-            else:
-                audio_id = stem
+        audio_id = _frame_stem_to_audio_id(stem, sections)
         mp3 = os.path.join(audio_dir, f"{audio_id}.mp3")
         if not os.path.isfile(mp3):
             missing.append(mp3)
