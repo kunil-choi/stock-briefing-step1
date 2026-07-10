@@ -42,13 +42,23 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install openai requests Pillow>=10.0.0
+      - run: |
+          pip install openai requests Pillow>=10.0.0 pyyaml
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg  # atempo/loudnorm 후처리에 필요
       - uses: actions/download-artifact@v4
         with:
           name: script
           path: output/KO/scripts/
       - env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # 아래 두 provider는 Secret이 등록되면 config/audio.yml의
+          # provider_priority 순서대로 자동으로 사용된다(키가 없으면 OpenAI로
+          # 폴백 — 코드 변경 불필요, Phase C의 YONHAP_API_KEY/KBS_API_KEY와
+          # 동일한 패턴).
+          AZURE_SPEECH_KEY: ${{ secrets.AZURE_SPEECH_KEY }}
+          AZURE_SPEECH_REGION: ${{ secrets.AZURE_SPEECH_REGION }}
+          ELEVENLABS_API_KEY: ${{ secrets.ELEVENLABS_API_KEY }}
+          ELEVENLABS_VOICE_ID: ${{ secrets.ELEVENLABS_VOICE_ID }}
         run: python pipeline/generate_voice.py KO
       - name: TTS 결과 검증
         run: |
@@ -64,6 +74,10 @@ jobs:
         with:
           name: voice
           path: output/KO/audio/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: audio_report
+          path: output/KO/audio_report.json
 
   assets:
     needs: [script]
@@ -139,6 +153,10 @@ jobs:
         with:
           name: voice
           path: output/KO/audio/
+      - uses: actions/download-artifact@v4
+        with:
+          name: audio_report
+          path: output/KO/
       - uses: actions/download-artifact@v4
         with:
           name: assets

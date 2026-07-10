@@ -35,15 +35,19 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from assets.video_renderer import FFmpegVideoRenderer, TRANSITION_DURATION
+from assets.audio_post import mix_bgm_with_ducking
+from config_audio import (
+    BGM_INTRO_VOLUME, BGM_BODY_VOLUME, BGM_OUTRO_VOLUME,
+    BGM_DUCKING_THRESHOLD_DB, BGM_DUCKING_RATIO,
+)
 
 # 목표 길이 설정
 TARGET_MIN = float(os.environ.get("TARGET_MIN_SECONDS", "870"))   # 14분 30초
 TARGET_MAX = float(os.environ.get("TARGET_MAX_SECONDS", "930"))   # 15분 30초
 TARGET_IDEAL = 900.0  # 15분 정확
 
-# BGM 볼륨 설정 (0.0~1.0)
-BGM_URL    = os.environ.get("BGM_URL", "")
-BGM_VOLUME = 0.065   # 주 오디오를 방해하지 않는 낮은 볼륨
+# BGM 다운로드 URL. 실제 볼륨/덕킹 파라미터는 config/audio.yml(config_audio.py)에서 관리한다.
+BGM_URL = os.environ.get("BGM_URL", "")
 
 
 # ── BGM 다운로드 ──────────────────────────────────────────────────────────
@@ -288,34 +292,25 @@ def burn_subtitles(video_path: str, ass_path: str, out_path: str) -> bool:
     return True
 
 
-# ── BGM 믹싱 ─────────────────────────────────────────────────────────────
+# ── BGM 믹싱 (Phase H: 사이드체인 덕킹 + intro/body/outro 구간별 볼륨) ────────
 
-def mix_bgm(video_path: str, bgm_path: str, out_path: str) -> bool:
-    if not os.path.isfile(bgm_path):
-        print(f"  ⚠️ BGM 없음 → BGM 없이 진행")
-        import shutil
-        shutil.copy2(video_path, out_path)
-        return True
-
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-stream_loop", "-1", "-i", bgm_path,
-        "-filter_complex",
-        f"[1:a]volume={BGM_VOLUME}[bgm];"
-        f"[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=2[aout]",
-        "-map", "0:v", "-map", "[aout]",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        out_path
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    if result.returncode != 0:
-        print("  ❌ BGM 믹싱 실패")
-        print(result.stderr[-400:])
-        return False
-    print("  ✅ BGM 믹싱 완료")
-    return True
+def compute_bgm_bounds(frame_audio_pairs: list, transition_count: int,
+                        time_scale: float = 1.0) -> tuple:
+    """[(frame_path, mp3_path, duration), ...]에서 첫 장면(intro)이 끝나는
+    시점과 마지막 장면(outro)이 시작하는 시점을 계산한다. 배속 조정
+    (adjust_to_target_duration)이 적용됐다면 자막과 동일한 time_scale
+    (1/speed_factor)로 축소해, 최종(배속 조정 후) 타임라인 기준 시각을
+    반환한다."""
+    if not frame_audio_pairs:
+        return 0.0, 0.0
+    intro_end = frame_audio_pairs[0][2] * time_scale
+    last_duration = frame_audio_pairs[-1][2] * time_scale
+    total = (
+        sum(d for _, _, d in frame_audio_pairs) * time_scale
+        + transition_count * TRANSITION_DURATION * time_scale
+    )
+    outro_start = max(intro_end, total - last_duration)
+    return intro_end, outro_start
 
 
 # ── ASS 자막 자동 생성 ────────────────────────────────────────────────────
@@ -453,10 +448,22 @@ def run(lang: str = "KO"):
         print("  ⚠️ 자막 파일 없음 → 자막 없는 영상으로 진행")
         source_for_bgm = source_for_sub
 
-    # ── BGM 믹싱 ───────────────────────────────────────────────────────
+    # ── BGM 믹싱 (사이드체인 덕킹 + intro/body/outro 구간별 볼륨) ──────────
     print(f"\n🎵 BGM 믹싱 중...\n")
     final_path = os.path.join(video_dir, "final.mp4")
-    if not mix_bgm(source_for_bgm, bgm_path, final_path):
+    # total_duration은 패딩/배속 조정과 자막 burn-in까지 모두 반영된 실제 최종
+    # 길이를 써야 한다(merged_duration은 조정 "이전" 길이라 outro 구간을 짧게
+    # 잘못 계산할 수 있다).
+    bgm_total_duration = get_audio_duration(source_for_bgm)
+    intro_end, outro_start = compute_bgm_bounds(
+        frame_audio_pairs, transition_count, time_scale=subtitle_time_scale
+    )
+    if not mix_bgm_with_ducking(
+        source_for_bgm, bgm_path, final_path,
+        intro_end=intro_end, outro_start=outro_start, total_duration=bgm_total_duration,
+        intro_volume=BGM_INTRO_VOLUME, body_volume=BGM_BODY_VOLUME, outro_volume=BGM_OUTRO_VOLUME,
+        threshold_db=BGM_DUCKING_THRESHOLD_DB, ratio=BGM_DUCKING_RATIO,
+    ):
         sys.exit(1)
 
     # 임시 파일 정리
