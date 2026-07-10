@@ -1,6 +1,7 @@
 # pipeline/assets/config.py
 import os
 import re
+from typing import Optional
 
 W, H = 1920, 1080
 
@@ -254,6 +255,33 @@ STOCK_SECTORS = {
 
 def get_stock_sector(name: str) -> str:
     return STOCK_SECTORS.get(normalize_stock_name(name), "")
+
+
+# ── 섹터별 fallback 이미지 (media_pipeline 최종 폴백용) ──────────────────────
+# 연합뉴스/KBS 검색이 모두 실패했을 때 쓸 이미지. 외부 URL을 임의로 지어내지
+# 않고, 이 레포의 기존 assets/ 디렉토리 관례(fonts/music/character처럼 실제
+# 파일은 나중에 채워 넣는 placeholder 슬롯)를 그대로 따른다. 파일이 아직 없으면
+# media_pipeline이 이 경로를 건너뛰고 NEWS_IMAGE_FALLBACKS → None 순으로
+# 폴백한다.
+_SECTOR_FALLBACK_DIR = os.path.join(_BASE, "..", "assets", "sector_fallback")
+
+SECTOR_FALLBACK_IMAGES = {
+    sector: os.path.join(_SECTOR_FALLBACK_DIR, f"{sector}.jpg")
+    for sector in sorted(set(STOCK_SECTORS.values()))
+}
+SECTOR_FALLBACK_DEFAULT = os.path.join(_SECTOR_FALLBACK_DIR, "default.jpg")
+
+
+def get_sector_fallback_image(sector: str) -> Optional[str]:
+    """섹터명에 해당하는 fallback 이미지 파일 경로를 반환합니다. 파일이 실제로
+    존재할 때만 경로를 반환하고(placeholder 슬롯이 아직 비어 있을 수 있으므로),
+    없으면 default.jpg → None 순으로 폴백합니다."""
+    path = SECTOR_FALLBACK_IMAGES.get(sector)
+    if path and os.path.isfile(path):
+        return path
+    if os.path.isfile(SECTOR_FALLBACK_DEFAULT):
+        return SECTOR_FALLBACK_DEFAULT
+    return None
 
 
 # ── 증권사명 사전 (scene_plan 개체명 추출용) ─────────────────────────────────
