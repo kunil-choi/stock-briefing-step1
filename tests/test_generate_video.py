@@ -102,8 +102,8 @@ def test_target_duration_reads_from_config_schedule():
         f"duration.longform.min_seconds({bounds['min_seconds']})와 다름"
     )
     assert TARGET_MAX == bounds["max_seconds"]
-    assert TARGET_MIN == 300.0 and TARGET_MAX == 480.0, (
-        f"짧은 하이라이트 포맷(5~8분) 목표값이 아님: {TARGET_MIN}~{TARGET_MAX}"
+    assert TARGET_MIN == 540.0 and TARGET_MAX == 660.0, (
+        f"V3와 동등한 전체 콘텐츠(약 10분) 목표값이 아님: {TARGET_MIN}~{TARGET_MAX}"
     )
     assert TARGET_IDEAL == (TARGET_MIN + TARGET_MAX) / 2
     print(f"✅ TARGET_MIN/MAX/IDEAL이 config/schedule.yml을 그대로 반영함: "

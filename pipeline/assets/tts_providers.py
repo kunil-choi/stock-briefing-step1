@@ -37,12 +37,18 @@ class TTSProvider(ABC):
 class OpenAITTSProvider(TTSProvider):
     """기존 generate_voice.py의 text_to_speech() 로직을 그대로 옮긴 provider.
     이 레포에서 현재 실제로 동작하는 유일한 경로(OPENAI_API_KEY는 이미
-    workflow secret으로 설정돼 있음)."""
+    workflow secret으로 설정돼 있음).
+
+    speed는 OpenAI TTS API가 합성 단계에서 자체적으로 낭독 속도를 조절하는
+    파라미터(0.25~4.0)다 — 다 만들어진 오디오를 ffmpeg atempo로 재생속도만
+    올리는 것과 달리, 음높이 왜곡이나 "기계음" 느낌 없이 자연스러운 속도
+    조절이 가능하다(요구사항: 빠르지만 정상적인 목소리)."""
     name = "openai"
 
-    def __init__(self, voice: str = "nova", model: str = "tts-1-hd"):
+    def __init__(self, voice: str = "nova", model: str = "tts-1-hd", speed: float = 1.0):
         self.voice = voice
         self.model = model
+        self.speed = speed
 
     def is_configured(self) -> bool:
         return bool(os.environ.get("OPENAI_API_KEY"))
@@ -63,7 +69,7 @@ class OpenAITTSProvider(TTSProvider):
             client = OpenAI(api_key=api_key)
             response = client.audio.speech.create(
                 model=self.model, voice=self.voice, input=text,
-                response_format="mp3", speed=1.0,
+                response_format="mp3", speed=self.speed,
             )
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
             with open(output_path, "wb") as f:
@@ -164,6 +170,10 @@ class ElevenLabsProvider(TTSProvider):
             return VOICE_SETTINGS
         except Exception:
             return {"stability": 0.72, "similarity_boost": 0.88}
+
+    # NOTE: ElevenLabs v2/turbo 모델은 voice_settings.speed(0.7~1.2)로
+    # 낭독 속도를 조절할 수 있다. config/audio.yml에 speed가 설정돼 있으면
+    # 여기서 채워 넣는다(호출부인 config_audio.build_providers()가 처리).
 
     def is_configured(self) -> bool:
         return bool(os.environ.get("ELEVENLABS_API_KEY")) and bool(self._resolve_voice_id())

@@ -3,12 +3,12 @@
 AI 주식 브리핑 — 에셋 생성 진입점
 사용법: python pipeline/generate_assets.py [KO|ko|en]
 
-reordered_script.json(짧은 하이라이트 구성: 훅 → 결론 → TOP3(핵심 멘션) →
-클로징)을 입력으로 받아, 각 섹션의 id/section_type에 따라 알맞은 빌더로
-프레임을 렌더링한다. 예전처럼 정해진 순서로 고정 섹션들을 호출하는 대신
-reordered_script.json의 실제 순서를 그대로 따라간다 — Phase E의 재정렬
-결과(훅 오프닝 등)가 실제 영상에 반영되려면 이 파일이 reordered_script.json을
-읽어야 한다(예전에는 script.json만 읽어서 재정렬이 무시됐었다).
+reordered_script.json(전체 구성: 훅 → 결론 → 주도주 TOP → 시장배경 →
+섹터분석 → 나머지 종목 체크포인트 → AI 투자 전략 → 클로징)을 입력으로 받아,
+각 섹션의 id/section_type에 따라 알맞은 빌더로 프레임을 렌더링한다. 정해진
+순서로 고정 섹션들을 호출하는 대신 reordered_script.json의 실제 순서를 그대로
+따라간다 — 재정렬 결과(훅 오프닝 등)가 실제 영상에 반영되려면 이 파일이
+reordered_script.json을 읽어야 한다(script.json만 읽으면 재정렬이 무시된다).
 """
 import os, re, sys, json
 
@@ -19,9 +19,25 @@ if _HERE not in sys.path:
 from assets.builders import (
     build_hook,
     build_conclusion,
+    build_market_summary,
+    build_sector,
     build_stock_cards,
+    build_extra_watchlist,
+    build_today_pick,
+    build_brokerage_report,
+    build_ai_strategy,
     build_closing,
 )
+
+# id 기준으로 전용 빌더를 호출해야 하는 집계/코너 섹션 — 제네릭 stock_ 카드
+# 디스패치(build_stock_cards)보다 먼저 걸러야 한다. build_stock_cards는
+# 종목 하나짜리(price/channel_summaries) 구조를 기대하므로, items 리스트
+# 구조인 이 집계 섹션들을 잘못 넘기면 빈 카드가 렌더링된다.
+_AGGREGATE_BUILDERS = {
+    "stock_추가관심종목": build_extra_watchlist,
+    "stock_오늘의픽":     build_today_pick,
+    "stock_증권사리포트": build_brokerage_report,
+}
 from assets.render import close_renderer
 from assets.html_theme import set_briefing_date
 
@@ -77,6 +93,16 @@ def run(lang: str = "KO"):
                 asset_map["frames"].append(build_conclusion(sec, out_dir))
             elif sid == "closing":
                 asset_map["frames"].append(build_closing(data, out_dir))
+            elif sid == "market_summary":
+                asset_map["frames"].extend(build_market_summary(data, out_dir))
+            elif sid == "sectors":
+                asset_map["frames"].append(build_sector(data, out_dir))
+            elif sid == "ai_strategy":
+                asset_map["frames"].append(build_ai_strategy(data, out_dir))
+            elif sid in _AGGREGATE_BUILDERS:
+                frame = _AGGREGATE_BUILDERS[sid](data, out_dir)
+                if frame:
+                    asset_map["frames"].append(frame)
             elif section_type == "top_mover" or sid.startswith("stock_") or sid.startswith("hidden_"):
                 name = sid.replace("stock_", "").replace("hidden_", "")
                 prefix = f"{10 + stock_idx:02d}_{name}"

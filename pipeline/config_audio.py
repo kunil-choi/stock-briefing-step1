@@ -64,6 +64,7 @@ def build_providers():
     registry = {
         "openai": lambda cfg: OpenAITTSProvider(
             voice=cfg.get("voice", "nova"), model=cfg.get("model", "tts-1-hd"),
+            speed=cfg.get("speaking_rate", 1.0),
         ),
         "azure": lambda cfg: AzureTTSProvider(
             voice_id=cfg.get("voice_id", "ko-KR-SunHiNeural"),
@@ -74,6 +75,7 @@ def build_providers():
             voice_settings={
                 "stability": cfg.get("stability", 0.72),
                 "similarity_boost": cfg.get("similarity_boost", 0.88),
+                "speed": cfg.get("speaking_rate", 1.0),
             } if cfg.get("stability") is not None else None,
             output_format=cfg.get("output_format", "mp3_44100_128"),
         ),
