@@ -52,6 +52,36 @@ def check_metadata(root: str = ".") -> None:
 
     print(f"✅ metadata.json 검증 통과 ({meta_path}, status={meta['status']})")
 
+# 스크립트 생성 프롬프트의 예시 스키마 값이 실제 값 대신 그대로 출력에 남는
+# 사고(과거 "₩000,000 ▲+0.00% / 현대차 한줄 요약"가 화면에 그대로 노출된 사례)를
+# 화면에 실리기 전에 걸러낸다.
+_PLACEHOLDER_LITERALS = {"000,000", "+0.00%", "한줄 요약"}
+
+
+def check_no_placeholder_content(script_path: str) -> None:
+    """reordered_script.json의 종목 섹션에 미채움 placeholder 문구가 남아있지
+    않은지 검사한다. 하나라도 발견되면 화면에 그대로 노출되기 전에 파이프라인을
+    중단시킨다."""
+    sections = json.load(open(script_path, encoding="utf-8")).get("sections", [])
+    offenders = []
+    for sec in sections:
+        sid = sec.get("id", "")
+        if not (sid.startswith("stock_") or sid.startswith("hidden_")):
+            continue
+        for field in ("price", "change", "summary", "corner_summary"):
+            value = str(sec.get(field, "")).strip()
+            if value in _PLACEHOLDER_LITERALS or value == f"{sid.split('_', 1)[-1]} 한줄 요약":
+                offenders.append(f"{sid}.{field}={value!r}")
+
+    if offenders:
+        print("❌ placeholder 미채움 콘텐츠 발견:")
+        for o in offenders:
+            print(f"  {o}")
+        raise SystemExit(f"placeholder 콘텐츠가 화면에 노출될 위험 — {len(offenders)}건 ({script_path})")
+
+    print(f"✅ placeholder 미채움 콘텐츠 없음 확인 ({script_path})")
+
+
 def media_duration(path: str) -> float:
     cmd = [
         "ffprobe", "-v", "error",
@@ -76,6 +106,8 @@ def main(lang: str = "KO"):
         raise SystemExit(f"asset_map.json 없음: {asset_map}")
     if not os.path.isfile(script_path):
         raise SystemExit(f"reordered_script.json 없음: {script_path}")
+
+    check_no_placeholder_content(script_path)
 
     # frame stem → audio_id 매핑은 generate_subtitles.py가 이미 갖고 있는 검증된
     # 로직을 그대로 재사용한다(정규식 기반, hidden_/stock_ 접두어 구분까지
