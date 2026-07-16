@@ -189,9 +189,12 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
    해설을 거치지 않으므로 "상승세"류 진행형 표현이 섞일 여지가 없다)
 4. 대형 주도주(`market_leaders`, 보통 2개 — 첫 종목 앞에 고정 전환 멘트
    "우선 시장을 이끌고 있는 대형 주도주 상황 살펴보겠습니다.")
-5. 관심종목(`top_stocks` 개별 상세 + `stock_추가관심종목` 집계 슬라이드 —
+5. 관심종목(`top_stocks` 개별 상세 + `remaining_stocks` 중 상위
+   `DETAILED_WATCHLIST_COUNT`(기본 5)개도 동일하게 개별 상세 섹션으로 —
    첫 항목 앞에 고정 전환 멘트 "인기 유튜브 채널에서 언급된 관심종목에 대해
-   분석해보겠습니다.")
+   분석해보겠습니다.". 나머지는 지금까지처럼 `stock_추가관심종목` 압축
+   집계 슬라이드로 유지합니다 — 전부 개별화하면 종목이 많은 날 영상이
+   07:10~08:20 제작 창을 넘길 만큼 길어질 수 있어 의도적으로 상한을 둡니다)
 6. AI 히든픽(`stock_오늘의픽`이 있을 때만 — 고정 전환 멘트 "AI가 선정한
    오늘의 히든픽 종목은 무엇인지 알아보겠습니다.")
 7. 클로징(투자 유의사항 + `generate_script.py`의 `CLOSING_NARRATION`에 고정된
@@ -200,10 +203,30 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 시장배경 해설(corner_summary/points)·섹터분석·AI 투자전략·리스크 다이제스트는
 이 구성에서 전부 제외됩니다. 대형 주도주/관심종목 그룹 분리는 importance
 재랭킹이 아니라 `generate_script.py`가 종목 섹션마다 심어두는 `stock_tier`
-필드("market_leader"|"top_stock")를 신뢰합니다(예전 TOP3 재랭킹 방식은
-`market_leaders`로 분류된 종목이 재랭킹에서 밀려 "대형 주도주" 그룹에 못
-들어갈 수 있는 문제가 있었습니다). `stock_tier`가 없는 과거 `script.json`은
-원본 순서의 앞 2개를 대형 주도주로 추정하는 폴백이 있습니다.
+필드("market_leader"|"top_stock"|"extra_watchlist")를 신뢰합니다(예전 TOP3
+재랭킹 방식은 `market_leaders`로 분류된 종목이 재랭킹에서 밀려 "대형 주도주"
+그룹에 못 들어갈 수 있는 문제가 있었습니다). `stock_tier`가 없는 과거
+`script.json`은 원본 순서의 앞 2개를 대형 주도주로 추정하는 폴백이 있습니다.
+
+★ `narrative_reorder._prefix_narration()`이 전환 멘트를 붙일 때 개별 종목
+섹션(`stock_.../hidden_...`, 집계 섹션 제외)은 `narration`이 아니라
+`narration_summary`/`subtitle_summary`에 붙입니다 — `generate_voice.py`의
+`_build_jobs()`가 개별 종목 섹션은 이 필드를 TTS 원문으로 읽고 `narration`은
+아예 보지 않기 때문입니다(구현 중 실제로 겪은 조용한 버그 — 전환 멘트가
+`narration`에만 붙어서 실제 음성에는 전혀 반영되지 않았던 사고. 초기 유닛
+테스트도 픽스처가 두 필드를 모두 채워둬서 이 버그를 못 잡았고, `SCRIPT_MOCK=1`
+실데이터 드라이런으로 발견했습니다 — 테스트 픽스처는 실제 스키마와 정확히
+같은 필드만 가져야 한다는 교훈).
+
+**발언자 식별**: `stock-briefing-v3-1`의 Gemini 영상 분석이 식별하는
+`gemini_speaker`(호스트/게스트 애널리스트 등 실제 발언자)를 `channel_mentions`
+의 `speaker_name` 필드로 노출하도록 v3-1도 함께 수정했습니다(이 레포 범위
+밖이라 별도 PR). `generate_script.py`의 `_MENTION_RULES`가 `speaker_name`이
+있으면 "삼프로TV에 출연한 김민수 im증권 연구원은 ~"처럼 채널명 대신/과 함께
+구체적으로 지목하도록 지시하고, 없으면(빈 문자열) 채널명만 쓰도록 해 없는
+인물명을 지어내지 않게 합니다. 기존 `speaker` 필드(config.
+`resolve_channel_identity()`가 "채널명 자체를 복원"하는 별개 용도로 이미
+사용 중)와 이름이 겹치지 않도록 `speaker_name`으로 분리했습니다.
 
 목표 길이는 `config/schedule.yml`의 `duration.longform`(현재 5~9분 —
 시장배경/섹터분석/AI전략이 빠지면서 기존 9~11분보다 짧아질 것으로 예상해

@@ -40,6 +40,12 @@ client = OpenAI(api_key=_api_key or "sk-mock-dry-run")
 # morning_core는 stock-briefing-v3-1(증권사 리포트 제외 이른 스냅샷)을 소비한다.
 UPSTREAM_REPO = "kunil-choi/stock-briefing-v3-1"
 
+# 추가 관심 종목(remaining_stocks) 중 개별 상세 섹션으로 다룰 상위 종목 수.
+# 나머지는 압축 집계 슬라이드(stock_추가관심종목)로 유지한다 — 전부 개별화하면
+# 종목이 많은 날 영상이 07:10~08:20 제작 창을 넘길 만큼 길어질 수 있어
+# 의도적으로 상한을 둔다.
+DETAILED_WATCHLIST_COUNT = 5
+
 TODAY       = datetime.now().strftime("%Y년 %m월 %d일")
 TODAY_MONTH = datetime.now().strftime("%-m")
 TODAY_DAY   = datetime.now().strftime("%-d")
@@ -380,6 +386,12 @@ def build_synthetic_mentions(data: dict, briefing_date_iso: str) -> list:
                     "channel":       cm.get("source_name", ""),
                     "source_type":   cm.get("source_type", ""),
                     "speaker":       "",
+                    # SPEAKER-ID-1: v3-1의 Gemini 영상 분석이 식별한 실제 발언자
+                    # (호스트/게스트 애널리스트 등). 기존 "speaker" 필드는
+                    # resolve_channel_identity()가 "채널명 자체를 복원"하는
+                    # 별개 용도로 이미 쓰이고 있어(이름 충돌 방지 위해) 새 키로
+                    # 분리했다. v3-1이 식별 못 하면 빈 문자열(지어내지 않음).
+                    "speaker_name":  cm.get("speaker_name", ""),
                     "quote":         cm.get("content", ""),
                     "timestamp_url": cm.get("url", ""),
                     "sentiment":     "",
@@ -427,7 +439,8 @@ _SOURCE_TYPE_TO_CHANNEL_TYPE = {
 
 def build_stock_quotes(mentions: list, briefing_date_iso: str) -> dict:
     """
-    종목명을 정규화해 stock_name → [{speaker, channel, channel_type, quote, timestamp_url, sentiment}] 로 그룹핑.
+    종목명을 정규화해 stock_name → [{speaker, speaker_name, channel, channel_type,
+    quote, timestamp_url, sentiment}] 로 그룹핑.
     briefing_date_iso가 있으면 같은 날짜의 발언만 사용 (V3 브리핑과 날짜 어긋남 방지).
     mention 슬라이드는 최대 3슬라이드(슬라이드당 3개)까지 지원하므로 종목당 최대 9개 발언까지 유지해
     출연진의 발언을 최대한 폭넓게 다룬다 (요구사항: 방송/유튜브 전문가 발언 종합이 이 영상의 핵심 목적).
@@ -448,6 +461,7 @@ def build_stock_quotes(mentions: list, briefing_date_iso: str) -> dict:
             channel_type = classify_channel_type(channel)
         grouped.setdefault(name, []).append({
             "speaker":       speaker,
+            "speaker_name":  m.get("speaker_name", ""),
             "channel":       channel,
             "channel_type":  channel_type,
             "quote":         m.get("quote", ""),
@@ -564,6 +578,13 @@ _MENTION_RULES = """
   차이점을 짚고, 목표주가·투자의견·핵심 촉매·리스크 등 구체적 근거를 포함하세요.
 - 채널명/증권사명은 자연스럽게 문장 안에 녹여 언급하세요(예: "삼프로TV와 한국경제TV
   양쪽에서 모두...", "미래에셋증권과 키움증권은 목표주가를...").
+- **발언자 식별**: stock_quotes 각 항목에 speaker_name이 채워져 있으면(실제
+  발언자 이름+직함, 예: "김민수 im증권 연구원") 채널명 대신/채널명과 함께 그
+  사람을 구체적으로 지목하세요(예: "삼프로TV에 출연한 김민수 im증권 연구원은
+  ~라고 분석했습니다"). speaker_name이 빈 문자열이면 채널명만 쓰고, 없는
+  인물명을 절대 지어내지 마세요. 같은 카테고리 안에 speaker_name이 있는
+  발언과 없는 발언이 섞여 있으면, 식별된 사람 발언을 우선 구체적으로
+  다루고 나머지는 채널명으로 종합하세요.
 - 분량: 카테고리별 narration 250~320자 내외(공백 포함). 짧은 headline이 아니라
   완결된 분석 문단으로 작성하세요.
 
@@ -840,7 +861,8 @@ def _generate_stock_section(stock_name: str, briefing_text: str,
                              stock_tier: str = "top_stock") -> dict:
     """종목 하나에 대한 완전한 섹션(summary+channel_summaries)을 생성하는 호출.
     market_leaders/top_stocks 종목마다 별도로 호출해, 근거 데이터가 많아도 토큰
-    상한에 안전하게 들어갑니다. stock_tier("market_leader"|"top_stock")는
+    상한에 안전하게 들어갑니다. stock_tier("market_leader"|"top_stock"|
+    "extra_watchlist")는
     narrative_reorder.build_mention_briefing()이 "대형 주도주"/"관심종목"
     그룹을 importance 재랭킹 없이 정확히 나누기 위해 심어두는 태그입니다."""
     brokerage_mentions = brokerage_mentions or []
@@ -1061,7 +1083,28 @@ def generate_script(
             major_stocks.append(norm)
             tier_by_name[norm] = "top_stock"
 
-    print(f"\n🧩 2/3 — 종목별 상세 섹션 생성 중... ({len(major_stocks)}개)")
+    # 추가 관심 종목(remaining_stocks) 중 상위 DETAILED_WATCHLIST_COUNT개는
+    # 대형 주도주/상위 관심종목과 동일하게 개별 상세 섹션(핵심요약+채널별
+    # 언급 정리)으로 다룬다 — "나머지는 압축 슬라이드 1~2장" 방식이 종목별
+    # 발언 내용을 뭉뚱그려 구체성이 떨어진다는 피드백에 따른 변경. 나머지는
+    # 지금까지처럼 압축 집계 슬라이드로 유지한다(전부 개별화하면 종목 수가
+    # 많은 날 영상이 지나치게 길어지고 07:10~08:20 제작 창 안에 못 끝날 수
+    # 있어, 개수를 의도적으로 제한).
+    remaining_norm = []
+    for n in core["remaining_stocks"]:
+        norm = normalize_stock_name(n)
+        if norm and norm not in seen:
+            seen.add(norm)
+            remaining_norm.append(norm)
+
+    detailed_watchlist = remaining_norm[:DETAILED_WATCHLIST_COUNT]
+    compressed_watchlist = remaining_norm[DETAILED_WATCHLIST_COUNT:]
+    for norm in detailed_watchlist:
+        major_stocks.append(norm)
+        tier_by_name[norm] = "extra_watchlist"
+
+    print(f"\n🧩 2/3 — 종목별 상세 섹션 생성 중... ({len(major_stocks)}개, "
+          f"추가 관심종목 중 {len(detailed_watchlist)}개 개별화 포함)")
     stock_sections = []
     for i, stock_name in enumerate(major_stocks, 1):
         print(f"   [{i}/{len(major_stocks)}] {stock_name}")
@@ -1074,16 +1117,10 @@ def generate_script(
         else:
             print(f"   ⚠️ {stock_name} 섹션 생성 실패 — 건너뜁니다")
 
-    # 개별 섹션에서 다룬 종목은 추가 관심 종목 목록에서 제외
-    covered = set(major_stocks)
-    remaining_stocks = [
-        normalize_stock_name(n) for n in core["remaining_stocks"]
-        if normalize_stock_name(n) not in covered
-    ]
-
-    print(f"\n🧩 3/3 — 집계 섹션(추가 관심종목/오늘의픽/증권사리포트) 생성 중...")
+    print(f"\n🧩 3/3 — 집계 섹션(추가 관심종목/오늘의픽/증권사리포트) 생성 중... "
+          f"(압축 유지: {len(compressed_watchlist)}개)")
     aggregate_sections = _generate_aggregate_sections(
-        remaining_stocks, core["hidden_picks"], brokerage_reports, briefing_text
+        compressed_watchlist, core["hidden_picks"], brokerage_reports, briefing_text
     )
     _warn_cross_stock_contamination(aggregate_sections)
 

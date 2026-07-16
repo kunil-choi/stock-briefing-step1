@@ -24,6 +24,11 @@ from assets.narrative_reorder import (  # noqa: E402
 
 
 def _stock(name, tier):
+    # 실제 script.json 스키마와 동일하게 "narration_summary"/"subtitle_summary"만
+    # 갖는다("narration"/"subtitle" 키는 없음) — generate_voice.py의
+    # _build_jobs()가 개별 종목 섹션은 narration_summary를 TTS 원문으로 읽고
+    # narration은 아예 보지 않으므로, 테스트 픽스처도 이를 정확히 반영해야
+    # 접두어 버그(narration에만 붙어 실제 음성엔 반영 안 되는)를 잡아낼 수 있다.
     return {
         "id": f"stock_{name}",
         "label": f"종목 분석 - {name}",
@@ -31,7 +36,6 @@ def _stock(name, tier):
         "corner_summary": f"{name} 관련 요약",
         "narration_summary": f"{name} 분석입니다.",
         "subtitle_summary": f"{name} 분석입니다.",
-        "narration": f"{name} 분석입니다.", "subtitle": f"{name} 분석입니다.",
         "price": "10,000", "change": "+1.0%", "change_positive": True,
         "catalysts": ["호재1"], "risks": ["리스크1"],
         "channel_summaries": [
@@ -126,16 +130,22 @@ def test_market_indicators_skipped_without_data():
 
 
 def test_leader_and_watchlist_transitions():
+    """개별 종목 섹션은 narration_summary가 실제 TTS 원문이다
+    (generate_voice.py._build_jobs()가 narration_summary를 우선 읽고
+    narration은 안 봄) — 전환 멘트가 narration_summary에 붙는지 검증한다."""
     reordered = build_mention_briefing(_base_script())
     by_id = {s["id"]: s for s in reordered["sections"]}
 
-    assert by_id["stock_대형주1"]["narration"].startswith(_LEADER_TRANSITION)
-    assert not by_id["stock_대형주2"]["narration"].startswith(_LEADER_TRANSITION), (
+    assert by_id["stock_대형주1"]["narration_summary"].startswith(_LEADER_TRANSITION)
+    assert "narration" not in by_id["stock_대형주1"], (
+        "개별 종목 섹션에 narration 키가 생기면 안 됨(실제로 안 읽히는 죽은 필드)"
+    )
+    assert not by_id["stock_대형주2"]["narration_summary"].startswith(_LEADER_TRANSITION), (
         "전환 멘트는 대형 주도주 그룹의 첫 종목에만 붙어야 함"
     )
-    assert by_id["stock_관심종목1"]["narration"].startswith(_WATCHLIST_TRANSITION)
-    assert not by_id["stock_관심종목2"]["narration"].startswith(_WATCHLIST_TRANSITION)
-    print("✅ 대형 주도주/관심종목 전환 멘트가 각 그룹 첫 항목에만 붙음")
+    assert by_id["stock_관심종목1"]["narration_summary"].startswith(_WATCHLIST_TRANSITION)
+    assert not by_id["stock_관심종목2"]["narration_summary"].startswith(_WATCHLIST_TRANSITION)
+    print("✅ 대형 주도주/관심종목 전환 멘트가 각 그룹 첫 항목의 narration_summary에만 붙음")
 
 
 def test_hidden_pick_transition_when_present_and_absent():
@@ -159,7 +169,7 @@ def test_stock_tier_fallback_when_missing():
 
     reordered = build_mention_briefing(script_data)
     by_id = {s["id"]: s for s in reordered["sections"]}
-    assert by_id["stock_대형주1"]["narration"].startswith(_LEADER_TRANSITION)
+    assert by_id["stock_대형주1"]["narration_summary"].startswith(_LEADER_TRANSITION)
     print("✅ stock_tier 없는 과거 데이터도 원본 순서 앞 2개를 대형 주도주로 추정해 동작")
 
 
