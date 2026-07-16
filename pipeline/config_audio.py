@@ -58,8 +58,16 @@ _PROVIDER_CLASS_NAMES = {"openai": "OpenAITTSProvider", "azure": "AzureTTSProvid
 
 
 def build_providers():
-    """provider_priority 순서대로 TTSProvider 인스턴스 목록을 만든다."""
-    from assets.tts_providers import AzureTTSProvider, ElevenLabsProvider, OpenAITTSProvider
+    """provider_priority 순서대로 TTSProvider 인스턴스 목록을 만든다.
+    TTS_MOCK=1이면 실제 provider는 전혀 만들지 않고 MockTTSProvider만 반환한다
+    (SCRIPT_MOCK과 짝을 이루는 드라이런 스위치 — 토큰/TTS 비용 없이 파이프라인
+    전체를 로컬에서 먼저 검증하기 위함)."""
+    from assets.tts_providers import (
+        AzureTTSProvider, ElevenLabsProvider, OpenAITTSProvider, MockTTSProvider,
+    )
+
+    if os.environ.get("TTS_MOCK") == "1":
+        return [MockTTSProvider()]
 
     registry = {
         "openai": lambda cfg: OpenAITTSProvider(

@@ -53,24 +53,46 @@ def check_metadata(root: str = ".") -> None:
     print(f"✅ metadata.json 검증 통과 ({meta_path}, status={meta['status']})")
 
 # 스크립트 생성 프롬프트의 예시 스키마 값이 실제 값 대신 그대로 출력에 남는
-# 사고(과거 "₩000,000 ▲+0.00% / 현대차 한줄 요약"가 화면에 그대로 노출된 사례)를
-# 화면에 실리기 전에 걸러낸다.
-_PLACEHOLDER_LITERALS = {"000,000", "+0.00%", "한줄 요약"}
+# 사고(과거 "₩000,000 / 현대차 한줄 요약"가 화면에 그대로 노출된 사례)를 화면에
+# 실리기 전에 걸러낸다.
+# ★ "+0.00%"는 여기 포함하지 않는다 — generate_script.py가 종목 price/change를
+# V3_1 원본 시세로 채우는데, 장 개시 전(morning_core)에는 전일종가 기준이라
+# change_pct가 실제로 0.00%인 종목이 흔하다. 이걸 placeholder로 취급하면 정상
+# 데이터가 매번 오탐으로 파이프라인을 막는다(실제로 발생한 사고).
+_PLACEHOLDER_LITERALS = {"000,000", "한줄 요약"}
+
+
+# 추가 관심 종목/오늘의 픽/증권사 리포트는 종목 1개짜리 카드가 아니라
+# items:[{name,text}] 리스트 구조라서 price/change/summary/corner_summary
+# 필드 자체가 없다 — id가 "stock_"로 시작한다고 개별 종목 카드와 똑같이
+# 검사하면 정상 섹션이 매번 "빈 값"으로 오탐된다.
+AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
 
 
 def check_no_placeholder_content(script_path: str) -> None:
-    """reordered_script.json의 종목 섹션에 미채움 placeholder 문구가 남아있지
-    않은지 검사한다. 하나라도 발견되면 화면에 그대로 노출되기 전에 파이프라인을
-    중단시킨다."""
+    """reordered_script.json의 종목 섹션에 미채움 placeholder 문구나 빈 값이
+    남아있지 않은지 검사한다. 하나라도 발견되면 화면에 그대로 노출되기 전에
+    파이프라인을 중단시킨다."""
     sections = json.load(open(script_path, encoding="utf-8")).get("sections", [])
     offenders = []
     for sec in sections:
         sid = sec.get("id", "")
+        if sid in AGGREGATE_STOCK_SECTION_IDS:
+            continue
         if not (sid.startswith("stock_") or sid.startswith("hidden_")):
             continue
-        for field in ("price", "change", "summary", "corner_summary"):
+        stock_name = sid.split("_", 1)[-1]
+        # price/change: 실제 값이 있어야 한다(비어있으면 stock_market_data 조회가
+        # 실패했다는 뜻). "000,000"처럼 값 자체가 명백한 placeholder인 경우도 포함.
+        # "+0.00%"는 장 개시 전 정상적으로 나올 수 있는 실제 값이라 걸러내지 않는다.
+        for field in ("price", "change"):
             value = str(sec.get(field, "")).strip()
-            if value in _PLACEHOLDER_LITERALS or value == f"{sid.split('_', 1)[-1]} 한줄 요약":
+            if not value or value in _PLACEHOLDER_LITERALS:
+                offenders.append(f"{sid}.{field}={value!r}")
+        # summary/corner_summary: LLM이 스키마 예시를 그대로 베낀 경우를 잡는다.
+        for field in ("summary", "corner_summary"):
+            value = str(sec.get(field, "")).strip()
+            if not value or value in _PLACEHOLDER_LITERALS or value == f"{stock_name} 한줄 요약":
                 offenders.append(f"{sid}.{field}={value!r}")
 
     if offenders:

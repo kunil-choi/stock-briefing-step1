@@ -206,6 +206,38 @@ class ElevenLabsProvider(TTSProvider):
             return False
 
 
+class MockTTSProvider(TTSProvider):
+    """TTS_MOCK=1 드라이런 전용. 실제 TTS provider를 전혀 호출하지 않고,
+    텍스트 길이에 비례한 길이의 무음에 가까운 저음량 톤 mp3를 ffmpeg로 만든다.
+    실제 음성 품질은 검증할 수 없지만, 후속 단계(loudnorm 후처리/영상 길이
+    계산/BGM 덕킹/자막 타이밍/quality_gate)를 진짜 오디오 파일로 — TTS 비용
+    없이 — 끝까지 실행해볼 수 있게 해준다."""
+    name = "mock"
+
+    def __init__(self, chars_per_second: float = 5.5):
+        self.chars_per_second = chars_per_second
+
+    def is_configured(self) -> bool:
+        return True
+
+    def synthesize(self, text: str, output_path: str) -> bool:
+        import subprocess
+        duration = max(1.0, len(text) / self.chars_per_second)
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        cmd = [
+            "ffmpeg", "-y", "-f", "lavfi",
+            "-i", f"sine=frequency=220:duration={duration:.2f}",
+            "-af", "volume=0.05",
+            "-c:a", "libmp3lame", "-b:a", "128k",
+            output_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  ❌ [tts:mock] 더미 오디오 생성 실패: {result.stderr[-300:]}")
+            return False
+        return True
+
+
 def _xml_escape(text: str) -> str:
     return (
         text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
