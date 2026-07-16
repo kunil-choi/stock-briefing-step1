@@ -110,13 +110,21 @@ def _section_summary_text(section: dict) -> str:
 # 1. 훅 / 2. 결론 / 7. 리스크 / 8. 체크리스트 — 신규 합성 섹션
 # ─────────────────────────────────────────────────────────────────────────────
 
+# 오프닝 시그니처 멘트 — 채널 브랜딩 목적상 매일 동일한 문구를 사용한다(의도적
+# 고정, LLM 재생성 대상 아님). 호기심을 유발하는 질문형으로 시작해 바로 그날의
+# 핵심 이슈(동적 blurbs)로 넘어간다. 문구를 바꾸려면 이 상수만 수정하면 된다.
+OPENING_HOOK_LINE = (
+    "장이 열리기 전, 오늘 당신의 계좌를 흔들 변수는 무엇일까요? "
+    "KBS 머니올라가 지금 가장 중요한 이슈부터 짚어드립니다."
+)
+
+
 def _build_hook_section(hook_sources: list) -> dict:
-    """15초 훅: 전체 브리핑에서 importance가 가장 높은 2~3개 이슈를 요약한다."""
+    """15초 훅: 매일 동일한 시그니처 오프닝(OPENING_HOOK_LINE) 뒤에, 전체
+    브리핑에서 importance가 가장 높은 2~3개 이슈 요약을 이어붙인다."""
     blurbs = [soften_advice_language(_section_summary_text(s)) for s in hook_sources]
     blurbs = [b for b in blurbs if b]
-    narration = (
-        "오늘 장 시작 전 반드시 확인할 이슈들을 짚어드립니다. " + " ".join(blurbs[:3])
-    ).strip()
+    narration = (OPENING_HOOK_LINE + " " + " ".join(blurbs[:3])).strip()
     return {
         "id": "hook", "label": "15초 훅", "section_type": "hook",
         "importance": 1.0, "entities": [],

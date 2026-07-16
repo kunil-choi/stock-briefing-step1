@@ -78,7 +78,7 @@ def build_hook(sec, out_dir):
   top:-260px;left:50%;transform:translateX(-50%);"></div>
 {kbs_badge()}
 <div class="pill" style="background:{PALETTE['highlight']};color:{PALETTE['ink']};
-  font-size:32px;font-weight:800;padding:14px 34px;">장 시작 전, 이건 꼭 보세요</div>
+  font-size:32px;font-weight:800;padding:14px 34px;">오늘, 계좌를 흔들 변수는?</div>
 {headline_html}
 """
     html = centered_shell(content)
