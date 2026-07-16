@@ -43,7 +43,7 @@ stock-briefing-v3-1 완료 → workflow_dispatch → morning_core.yml
 | `pipeline/assets/html_theme.py`의 `lower_third()`/`headline_card()`/`report_card()`/`risk_card()`/`sector_heatmap()`/`autofit_text()` | 방송형 컴포넌트 + 2줄 자동 축소 텍스트 (Phase D, 추가된 함수) |
 | `pipeline/assets/render.py`의 autofit 스크린샷 전처리 | `data-autofit` 요소를 실측해 폰트 크기 자동 축소 (Phase D, 추가된 로직) |
 | `pipeline/generate_video.py` / `generate_subtitles.py` | 정지 프레임 홀드 → 정지 화면/전환 클립으로 교체, 전환 구간만큼 자막 타임라인 보정, `TARGET_MIN/MAX`를 `config/schedule.yml`에서 로드 (Phase D, 변경) |
-| `pipeline/assets/narrative_reorder.py` / `pipeline/generate_reordered_script.py` | "장전 의사결정형" 하이라이트 플롯(훅→결론→TOP3→클로징, 5~8분)으로 섹션 재정렬 + `reordered_script.json` 생성 — **실제 음성/영상 생성 파이프라인의 입력으로 사용됨** (Phase E, 아래 참고) |
+| `pipeline/assets/narrative_reorder.py` / `pipeline/generate_reordered_script.py` | "종목 언급 중심" 플롯(훅→채널언급인트로→주요지표→대형주도주→관심종목→AI히든픽→클로징, 5~9분)으로 섹션 재정렬 + `reordered_script.json` 생성 — **실제 음성/영상 생성 파이프라인의 입력으로 사용됨** (Phase E, 아래 참고) |
 | `pipeline/assets/builders.py`의 `build_hook()`/`build_conclusion()` | 훅/결론 슬라이드 렌더링(추가된 함수) |
 | `pipeline/generate_assets.py` | 고정 순서 렌더링 → `reordered_script.json`의 섹션 순서를 그대로 따라가는 동적 디스패치로 교체 (변경) |
 | `pipeline/assets/ranking.py` / `ranking_builders.py` / `shorts_export.py` / `pipeline/generate_ranking.py` | "주도주 랭킹형" 플롯 — TOP5 산정 + 카드 + TOP1~3 쇼츠 export (Phase F, 아래 참고) |
@@ -162,40 +162,66 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 `ENABLE_KEN_BURNS=true`일 때의 zoompan 경로/전환/이어붙이기 검증,
 `python tests/test_video_renderer.py`. ffmpeg가 PATH에 없으면 스킵).
 
-## 장전 의사결정형 플롯 (섹션 재정렬 — 실제 영상 제작에 반영됨)
+## 종목 언급 중심 플롯 (섹션 재정렬 — 실제 영상 제작에 반영됨)
 
 `generate_reordered_script.py`가 `script.json`을 읽어 재정렬한
 `reordered_script.json`을 만들고, **`generate_voice.py`/`generate_assets.py`/
 `generate_video.py`/`generate_subtitles.py`/`quality_gate.py`가 전부 이
-파일을 실제 입력으로 사용합니다** — 훅 오프닝/재정렬이 최종 영상에 실제로
-반영되는 지점이 여기입니다(과거 버전은 이 파일을 생성만 하고 아무도 읽지
-않아서, 재정렬이 완전히 무시되는 상태였습니다 — 실사용 중 발견된 버그).
+파일을 실제 입력으로 사용합니다** — 재정렬이 최종 영상에 실제로 반영되는
+지점이 여기입니다(과거 버전은 이 파일을 생성만 하고 아무도 읽지 않아서,
+재정렬이 완전히 무시되는 상태였습니다 — 실사용 중 발견된 버그).
 
-`narrative_reorder.reorder_sections(script_data, short_form=True)`(기본값)가
-장 개시 직전 출퇴근길에 빠르게 볼 수 있는 하이라이트 구성만 만듭니다:
+`narrative_reorder.build_mention_briefing()`이 실제 프로덕션 구성을 만듭니다.
+개장 전(07:10~08:20 KST) 방송이라 시장 요약/전망에 쓸 수 있는 데이터가 전부
+전일 종가·오늘 새벽 마감된 미국 시장 자료뿐이라 해석성 "시장 해설"이
+시의성에 안 맞는다는 판단 하에, v3-1의 핵심 데이터인 "지난 24시간 채널
+언급 종목 정리"에 집중합니다:
 
-1. 15초 훅(고정 시그니처 오프닝 멘트 + 전체 브리핑에서 importance가 가장 높은
-   2~3개 이슈 요약 — 시그니처 멘트는 `narrative_reorder.OPENING_HOOK_LINE`에
+1. 15초 훅(고정 시그니처 오프닝 멘트 + 종목 섹션 중 importance가 가장 높은
+   2~3개 요약 — 시그니처 멘트는 `narrative_reorder.OPENING_HOOK_LINE`에
    호기심 유발형 질문으로 고정돼 있어 매일 동일하게 재생된다. 그 뒤에 이어지는
-   이슈 요약만 날마다 달라진다)
-2. 오늘의 한 줄 결론(시장 요약 헤드라인)
-3. 주도주 후보 TOP3(importance 상위 3개 종목 — "핵심만" 다루기 위해
-   `channel_summaries`도 가장 중요한 1개로 줄임)
-4. 클로징(투자 유의사항)
+   요약만 날마다 달라진다)
+2. 채널 언급 인트로(고정 — `narrative_reorder.MENTION_INTRO_LINE`. "오늘의
+   한 줄 결론" 자리를 대체하며, 시장 방향 해설 대신 이 영상의 핵심을 그대로
+   알린다)
+3. 주요 지표(market_data가 있을 때만 — 코스피/코스닥/나스닥/S&P500/환율을
+   해석·전망 없이 코드에서 직접 "~마감했습니다" 문장으로 낭독한다. LLM
+   해설을 거치지 않으므로 "상승세"류 진행형 표현이 섞일 여지가 없다)
+4. 대형 주도주(`market_leaders`, 보통 2개 — 첫 종목 앞에 고정 전환 멘트
+   "우선 시장을 이끌고 있는 대형 주도주 상황 살펴보겠습니다.")
+5. 관심종목(`top_stocks` 개별 상세 + `stock_추가관심종목` 집계 슬라이드 —
+   첫 항목 앞에 고정 전환 멘트 "인기 유튜브 채널에서 언급된 관심종목에 대해
+   분석해보겠습니다.")
+6. AI 히든픽(`stock_오늘의픽`이 있을 때만 — 고정 전환 멘트 "AI가 선정한
+   오늘의 히든픽 종목은 무엇인지 알아보겠습니다.")
+7. 클로징(투자 유의사항 + `generate_script.py`의 `CLOSING_NARRATION`에 고정된
+   "10시 report_update 영상 예고" 프로모 문구)
 
-목표 길이는 `config/schedule.yml`의 `duration.longform`(기본 5~8분)이며,
+시장배경 해설(corner_summary/points)·섹터분석·AI 투자전략·리스크 다이제스트는
+이 구성에서 전부 제외됩니다. 대형 주도주/관심종목 그룹 분리는 importance
+재랭킹이 아니라 `generate_script.py`가 종목 섹션마다 심어두는 `stock_tier`
+필드("market_leader"|"top_stock")를 신뢰합니다(예전 TOP3 재랭킹 방식은
+`market_leaders`로 분류된 종목이 재랭킹에서 밀려 "대형 주도주" 그룹에 못
+들어갈 수 있는 문제가 있었습니다). `stock_tier`가 없는 과거 `script.json`은
+원본 순서의 앞 2개를 대형 주도주로 추정하는 폴백이 있습니다.
+
+목표 길이는 `config/schedule.yml`의 `duration.longform`(현재 5~9분 —
+시장배경/섹터분석/AI전략이 빠지면서 기존 9~11분보다 짧아질 것으로 예상해
+낮춘 잠정치이며, 실제 생성물 길이를 보고 재조정이 필요할 수 있습니다)이며,
 `generate_video.py`의 `TARGET_MIN`/`TARGET_MAX`/`TARGET_IDEAL`이 이 값을
 그대로 읽습니다(예전엔 여기에 하드코딩된 15분짜리 값이 schedule.yml과
 별개로 존재해서, schedule.yml을 바꿔도 실제 영상 길이는 그대로 15분이
 나오는 불일치가 있었습니다 — 역시 실사용 중 발견된 버그).
 
-`short_form=False`를 넘기면 시장배경/섹터분석/종목체크포인트/리스크/
-체크리스트까지 포함한 기존 8단계 롱폼 구성도 그대로 만들 수 있습니다(하위
-호환 — 이 레포에서는 현재 쓰이지 않지만 포맷을 다시 늘리고 싶을 때를 위해
-남겨뒀습니다). 이 경우 `generate_assets.py`가 참조하는 `build_market_summary`/
-`build_sector`/`build_extra_watchlist`/`build_today_pick`/
-`build_brokerage_report`/`build_ai_strategy` 빌더들도 `builders.py`에
-그대로 남아 있습니다(현재는 짧은 하이라이트 포맷만 호출하므로 미사용).
+기존 "장전 의사결정형" 8단계 롱폼/하이라이트 구성(`narrative_reorder.
+reorder_sections()`, `short_form` 인자 포함 — 훅→결론→TOP3→시장배경→
+섹터분석→체크포인트→리스크→체크리스트→클로징)은 코드와 테스트
+(`tests/test_narrative_reorder.py`) 모두 그대로 남아 있습니다. 이 레포의
+실제 진입점(`generate_reordered_script.py`)은 더 이상 이 함수를 호출하지
+않지만, 포맷을 다시 늘리고 싶을 때는 진입점의 호출만 `build_mention_briefing()`
+에서 `reorder_sections()`로 바꾸면 됩니다. `generate_assets.py`가 참조하는
+`build_sector`/`build_ai_strategy` 빌더들도 `builders.py`에 그대로 남아
+있습니다(현재는 미사용).
 
 - **importance/entities**: 새로 만들지 않고 Phase B의
   `scene_plan.build_scene_plan()`을 그대로 재사용합니다(`priority_score`를
@@ -205,27 +231,29 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
   "~확대하세요"/"~매수를 추천합니다" 같은 표현을 "~확인할 필요가 있다"/
   "~관전 포인트다" 식으로 치환합니다. 알려진 패턴 기반 치환이라(완전한 자연어
   재작성에는 LLM이 필요해 이 모듈 스코프 밖) 모든 조언체 표현을 잡아내지는
-  못할 수 있습니다. 새로 합성하는 훅/결론 문구에만 적용하고, 종목 섹션
-  원문(narration/subtitle)은 손대지 않습니다 — TTS 음성이 이미 그 원문
-  기준으로 생성될 것을 전제하는 narration/subtitle 문장 수 일치 규칙을
-  깨지 않기 위해서입니다.
+  못할 수 있습니다. 종목 섹션 원문(narration/subtitle)은 손대지 않습니다 —
+  TTS 음성이 이미 그 원문 기준으로 생성될 것을 전제하는 narration/subtitle
+  문장 수 일치 규칙을 깨지 않기 위해서입니다.
 - **`generate_metadata.py`는 여전히 원본 `script.json`을 읽습니다** —
   YouTube 제목/설명/태그는 그날 전체 시장 내용을 요약해야 하므로, 영상에서
   빠진 종목이 있어도 원본 기준으로 생성합니다.
-- **`script.json` 자체는 절대 수정되지 않습니다**(`tests/test_narrative_reorder.py`가
-  원본 불변을 검증) — `reorder_sections()`는 항상 새 dict를 반환합니다.
+- **`script.json` 자체는 절대 수정되지 않습니다**(`tests/test_mention_briefing.py`가
+  원본 불변을 검증) — `build_mention_briefing()`은 항상 새 dict를 반환합니다.
 - **한계**: `generate_ranking.py`(TOP5 랭킹형 플롯)는 독립적인 산정 기준
   (거래대금/뉴스/리포트 언급)으로 자체 TOP5를 계산하는데, 이 TOP5가 영상의
-  TOP3(importance 기준)와 겹치지 않으면 그 종목의 프레임/오디오가 애초에
-  생성되지 않아 TOP1~3 쇼츠 export가 건너뛰어질 수 있습니다(오류 없이
+  대형 주도주+관심종목(개별 상세 종목)과 겹치지 않으면 그 종목의 프레임/오디오가
+  애초에 생성되지 않아 TOP1~3 쇼츠 export가 건너뛰어질 수 있습니다(오류 없이
   경고 로그만 남김 — `generate_ranking.py`의 `_find_summary_frame()` 참고).
 
-샘플: `tests/test_narrative_reorder.py`(short_form 구성/트림, 8단계
-롱폼 하위 호환, TOP3 선정, importance 일치, 조언체 완화, 원본 불변을 검증),
-`tests/test_generate_subtitles.py`(00_hook/01_conclusion 프레임→오디오ID
-매핑, generate_video.py가 중복 구현 없이 재사용하는지 검증),
-`tests/test_generate_video.py`(TARGET_MIN/MAX가 config/schedule.yml을
-실제로 읽는지 검증). `python tests/test_narrative_reorder.py`.
+샘플: `tests/test_mention_briefing.py`(섹션 구성/제외, 고정 인트로 문구,
+주요 지표 결정적 생성, 대형 주도주/관심종목/히든픽 전환 멘트, stock_tier
+폴백, 원본 불변을 검증), `tests/test_narrative_reorder.py`(기존 8단계
+구성은 계속 정상 동작함을 검증), `tests/test_generate_subtitles.py`
+(00_hook/01_conclusion 프레임→오디오ID 매핑, generate_video.py가 중복
+구현 없이 재사용하는지 검증), `tests/test_generate_video.py`(TARGET_MIN/MAX가
+config/schedule.yml을
+실제로 읽는지 검증). `python tests/test_mention_briefing.py`,
+`python tests/test_narrative_reorder.py`.
 
 ## 주도주 랭킹형 플롯 (TOP5 + 쇼츠)
 
@@ -330,7 +358,7 @@ TOP5 선정 + 집계 섹션 제외, 쇼츠 45초 상한 적용을 검증 — OHL
 
 ```
 output/KO/scripts/scene_plan.json   # Phase B: 개체명/priority_score/visual_type/visual_keywords
-output/KO/scripts/reordered_script.json  # Phase E: 장전 의사결정형 하이라이트 재정렬 결과(훅→결론→TOP3→클로징) — voice/assets/video/subtitles/quality_gate가 실제로 이 파일을 읽음
+output/KO/scripts/reordered_script.json  # Phase E: 종목 언급 중심 재정렬 결과(훅→채널언급인트로→주요지표→대형주도주→관심종목→AI히든픽→클로징) — voice/assets/video/subtitles/quality_gate가 실제로 이 파일을 읽음
 output/KO/media/media_map.json      # Phase C: 섹션별 선택 이미지 경로/출처/사용권
 output/KO/audio_report.json         # Phase H: TTS provider/실측 음량/과장 표현 경고 리포트
 output/KO/...                 # 기존과 동일한 중간 산출물(scripts/audio/frames/subtitles/video)
@@ -462,6 +490,7 @@ python pipeline/quality_gate.py KO
 python tests/test_scene_plan.py
 python tests/test_media_pipeline.py
 python tests/test_video_renderer.py
+python tests/test_mention_briefing.py
 python tests/test_narrative_reorder.py
 python tests/test_generate_subtitles.py
 python tests/test_ranking.py

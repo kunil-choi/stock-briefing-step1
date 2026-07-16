@@ -13,13 +13,17 @@ window:
 report_decision: {}
 
 duration:
-  # morning_core는 V3(증권사 리포트 제외)와 동등한 전체 콘텐츠를 훅 오프닝만
-  # 덧붙여 그대로 영상화한 것이라 약 10분을 목표로 한다(pipeline/generate_video.py가
-  # 이 값을 그대로 읽어 TARGET_MIN/MAX/IDEAL로 쓴다). 빠른 내레이션 속도
-  # (config/audio.yml의 speaking_rate)를 함께 적용해 실제 체감 길이는 더 짧다.
+  # narrative_reorder.build_mention_briefing()("종목 언급 중심" 구성)으로
+  # 바뀌면서 시장배경 해설/섹터분석/AI 투자전략/리스크 다이제스트가 전부
+  # 빠지고 대형 주도주 2개+관심종목 위주로만 구성되므로, 기존 9~11분보다
+  # 짧아질 것으로 예상해 목표를 낮췄다(pipeline/generate_video.py가 이 값을
+  # 그대로 읽어 TARGET_MIN/MAX/IDEAL로 쓴다). 이 범위는 실제 생성물 길이를
+  # 보고 재조정이 필요할 수 있는 잠정치다 — 짧은 스크립트를 억지로 늘리려고
+  # adjust_to_target_duration()이 내레이션 속도를 부자연스럽게 낮추는 걸
+  # 막는 게 목적이라, 실측 후 범위를 좁혀도 된다.
   longform:
-    min_seconds: 540    # 9분
-    max_seconds: 660    # 11분
+    min_seconds: 300    # 5분
+    max_seconds: 540    # 9분
   shorts:
     min_seconds: 30
     max_seconds: 60
