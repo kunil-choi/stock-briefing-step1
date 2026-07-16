@@ -90,10 +90,36 @@ def test_empty_price_detected():
     print("✅ price='' (빈 값) 감지")
 
 
+def test_aggregate_sections_not_flagged():
+    """stock_추가관심종목/stock_오늘의픽/stock_증권사리포트는 items:[{name,text}]
+    구조라 price/change/summary/corner_summary 필드 자체가 없다. id가
+    "stock_"로 시작한다고 개별 종목 카드와 동일하게 검사하면, 실제 운영 중
+    발견된 것처럼 정상 섹션이 매번 "빈 값"으로 오탐된다(SCRIPT_MOCK 드라이런
+    중 재현됨)."""
+    path = "/tmp/test_qg_aggregate.json"
+    sections = [
+        {
+            "id": "stock_추가관심종목",
+            "corner_summary": "추가 관심 종목 한줄 요약",
+            "items": [{"name": "카카오", "text": "더미 설명"}],
+        },
+        {
+            "id": "stock_오늘의픽",
+            "corner_summary": "오늘의 픽 한줄 요약",
+            "items": [{"name": "삼성전기", "text": "더미 설명"}],
+        },
+    ]
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"sections": sections}, f, ensure_ascii=False)
+    check_no_placeholder_content(path)  # SystemExit이 나면 테스트 실패
+    print("✅ 집계 섹션(stock_추가관심종목/stock_오늘의픽)은 price/change/summary 검사에서 제외됨")
+
+
 if __name__ == "__main__":
     test_real_zero_percent_change_not_flagged()
     test_placeholder_price_detected()
     test_placeholder_summary_detected()
     test_placeholder_corner_summary_detected()
     test_empty_price_detected()
+    test_aggregate_sections_not_flagged()
     print("\n✅ quality_gate placeholder 테스트 전체 통과")
