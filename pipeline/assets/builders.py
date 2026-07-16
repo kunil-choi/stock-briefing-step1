@@ -126,7 +126,7 @@ def build_market_summary(data, out_dir):
 </div>
 {points_html}"""
 
-    html = shell("오늘의 시장 요약", content)
+    html = shell("주요 지표", content)
     return [render_html_to_png(html, os.path.join(out_dir, "01_market_00.png"))]
 
 
