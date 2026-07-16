@@ -399,8 +399,21 @@ output/YYYY-MM-DD/
 `ELEVENLABS_API_KEY`/`ELEVENLABS_VOICE_ID`는 로컬에서는 `.env`
 (`python-dotenv`로 로드하거나 `export`)로 넣을 수 있습니다. `MEDIA_MOCK=1`을
 설정하면 `generate_media.py`가 네트워크 요청 없이 `MockProvider`만
-사용합니다(오프라인 테스트/CI 드라이런용). TTS는 Azure/ElevenLabs 키가 없으면
-자동으로 OpenAI로 폴백하므로 별도 mock 플래그가 필요 없습니다.
+사용합니다(오프라인 테스트/CI 드라이런용).
+
+- `SCRIPT_MOCK=1`: `generate_script.py`가 OpenAI를 호출하지 않고, V3_1 원문의
+  실제 종목 분류(대형 주도주/관심 종목/오늘의 픽)는 유지한 채 narration/summary
+  등 텍스트만 `[MOCK]` 더미로 채운 script.json을 만듭니다.
+- `TTS_MOCK=1`: `generate_voice.py`가 실제 TTS provider 대신 텍스트 길이에
+  비례한 무음에 가까운 톤 mp3를 ffmpeg로 생성합니다.
+
+두 플래그를 `MEDIA_MOCK=1`과 함께 켜면(`SCRIPT_MOCK=1 TTS_MOCK=1 MEDIA_MOCK=1`)
+OpenAI/TTS 비용 없이 재정렬→에셋→미디어→랭킹→자막→영상→메타데이터→
+quality_gate까지 파이프라인 전체를 로컬에서 검증할 수 있습니다. GitHub
+Actions에서는 `morning_core.yml`의 workflow_dispatch에 있는 **"드라이런
+모드" 체크박스**로 동일하게 실행할 수 있습니다(이 경우 `data/media/
+license_log.csv` 커밋도 건너뜁니다 — mock 항목으로 실제 중복 감지 로그가
+오염되지 않도록).
 
 - `BGM_URL`: `assets/music/bgm.mp3`가 이미 레포에 커밋돼 있어(`stock-briefing-video`와
   동일 음원) 별도 설정 없이 바로 BGM이 적용됩니다. 다른 음원으로 바꾸고
