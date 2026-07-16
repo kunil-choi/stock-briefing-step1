@@ -174,7 +174,10 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 `narrative_reorder.reorder_sections(script_data, short_form=True)`(기본값)가
 장 개시 직전 출퇴근길에 빠르게 볼 수 있는 하이라이트 구성만 만듭니다:
 
-1. 15초 훅(전체 브리핑에서 importance가 가장 높은 2~3개 이슈 요약)
+1. 15초 훅(고정 시그니처 오프닝 멘트 + 전체 브리핑에서 importance가 가장 높은
+   2~3개 이슈 요약 — 시그니처 멘트는 `narrative_reorder.OPENING_HOOK_LINE`에
+   호기심 유발형 질문으로 고정돼 있어 매일 동일하게 재생된다. 그 뒤에 이어지는
+   이슈 요약만 날마다 달라진다)
 2. 오늘의 한 줄 결론(시장 요약 헤드라인)
 3. 주도주 후보 TOP3(importance 상위 3개 종목 — "핵심만" 다루기 위해
    `channel_summaries`도 가장 중요한 1개로 줄임)
