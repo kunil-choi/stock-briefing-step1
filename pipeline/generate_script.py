@@ -337,10 +337,22 @@ def build_briefing_text(data: dict) -> str:
             f"촉매: {stock.get('catalyst', '')}",
             f"리스크: {stock.get('risk', '')}",
         ]
-        for cm in stock.get("channel_mentions") or []:
-            parts.append(
-                f"[{cm.get('source_type', '')}/{cm.get('source_name', '')}] {cm.get('content', '')}"
-            )
+        # PANELIST-QUOTE-1: 검증된 패널 발언(panelist_quotes, Gemini 영상
+        # 직접분석)이 있으면 그것만 쓴다. 영상 제작은 시간 제약이 있어
+        # 종목당 한 가지 소스만 골라야 하는데, 검증된 실제 발언이 있는데도
+        # 자막 재구성 텍스트(channel_mentions)를 같이 넣으면 정작 중요한
+        # 발언이 묻힌다. panelist_quotes가 없는 종목만 channel_mentions로
+        # 폴백한다.
+        panelist_quotes = stock.get("panelist_quotes") or []
+        if panelist_quotes:
+            for pq in panelist_quotes:
+                body = pq.get("quote") or pq.get("fact", "")
+                parts.append(f"[패널발언/{pq.get('speaker_name', '')}] {body}")
+        else:
+            for cm in stock.get("channel_mentions") or []:
+                parts.append(
+                    f"[{cm.get('source_type', '')}/{cm.get('source_name', '')}] {cm.get('content', '')}"
+                )
         parts.append("### [종목 구획 끝]")
         return "\n".join(parts)
 
@@ -372,6 +384,22 @@ def build_synthetic_mentions(data: dict, briefing_date_iso: str) -> list:
         for stock in data.get(bucket) or []:
             name = (stock.get("name") or "").strip()
             if not name:
+                continue
+            # PANELIST-QUOTE-1: panelist_quotes(검증된 발언)가 있으면 그것만
+            # 쓰고, 없는 종목만 channel_mentions(자막 재구성 텍스트)로 폴백.
+            panelist_quotes = stock.get("panelist_quotes") or []
+            if panelist_quotes:
+                for pq in panelist_quotes:
+                    mentions.append({
+                        "date":          briefing_date_iso,
+                        "stock_name":    name,
+                        "channel":       pq.get("source_name", ""),
+                        "source_type":   "유튜브",
+                        "speaker":       pq.get("speaker_name", ""),
+                        "quote":         pq.get("quote") or pq.get("fact", ""),
+                        "timestamp_url": pq.get("source_url", ""),
+                        "sentiment":     pq.get("sentiment", ""),
+                    })
                 continue
             for cm in stock.get("channel_mentions") or []:
                 mentions.append({
