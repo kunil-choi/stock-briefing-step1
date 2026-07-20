@@ -22,9 +22,19 @@ from .config import (
     NEWS_KEYWORD_TERMS,
     get_all_krx_names_codes,
     get_stock_sector,
+    is_suspicious_stock_name,
+    safe_display_name,
 )
+from .html_theme import PALETTE
+from .screen_text import compress_to_screen_text
+from .visual_keywords_map import build_visual_keywords_bilingual
 
 EntityType = Literal["기업명", "종목코드", "섹터", "뉴스키워드", "인물", "지역", "증권사"]
+
+AssetSource = Literal[
+    "KBS_INTERNAL", "KBS_BADA", "KBS_WEBSITE", "YONHAP", "NAVER_DISCOVERY",
+    "PUBLIC_AGENCY", "OFFICIAL_COMPANY", "STOCK", "GENERATED_ABSTRACT",
+]
 
 
 class Entity(BaseModel):
@@ -42,10 +52,44 @@ class ScenePlanSection(BaseModel):
     visual_keywords: List[str] = Field(default_factory=list)
     entities: List[Entity] = Field(default_factory=list)
 
+    # ── Phase 1 확장 필드: 화면 표시·연출·자산검색용 ────────────────────────
+    narration: str = ""
+    screenText: List[str] = Field(default_factory=list)
+    visualKeywordsKo: List[str] = Field(default_factory=list)
+    visualKeywordsEn: List[str] = Field(default_factory=list)
+    preferredSources: List[str] = Field(default_factory=list)
+    backgroundType: Literal["image", "video_or_image", "none"] = "image"
+    motion: dict = Field(default_factory=dict)
+    dataOverlay: Optional[dict] = None
+    assetRequirements: dict = Field(default_factory=dict)
+    needsDataReview: bool = False
+    safeDisplayName: Optional[str] = None
+
+
+class VideoMeta(BaseModel):
+    title: str = ""
+    date: str = ""
+    style: str = "broadcast_news"
+    durationSec: Optional[int] = None  # 이 단계에선 음성/자막 미생성이라 계산 불가
+    aspectRatio: str = "16:9"
+    resolution: str = "1920x1080"
+
+
+class GlobalVisualStyle(BaseModel):
+    theme: str = "light_broadcast"
+    fontFamily: str = "Noto Sans KR"
+    primaryColor: str = PALETTE["accent"]
+    upColor: str = PALETTE["up"]
+    downColor: str = PALETTE["down"]
+    backgroundColor: str = PALETTE["bg"]
+    inkColor: str = PALETTE["ink"]
+
 
 class ScenePlan(BaseModel):
     title: str = ""
     date: str = ""
+    videoMeta: VideoMeta = Field(default_factory=VideoMeta)
+    globalVisualStyle: GlobalVisualStyle = Field(default_factory=GlobalVisualStyle)
     sections: List[ScenePlanSection] = Field(default_factory=list)
 
 
@@ -247,6 +291,126 @@ def build_visual_keywords(entities: List[Entity], extra: Optional[List[str]] = N
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Phase 1 확장: preferredSources / backgroundType / motion / dataOverlay /
+# assetRequirements 정적 매핑 (visual_type 8종 기준)
+# ─────────────────────────────────────────────────────────────────────────────
+
+_PREFERRED_SOURCES_BY_VISUAL_TYPE = {
+    "title_card":    ["KBS_INTERNAL", "KBS_BADA", "GENERATED_ABSTRACT"],
+    "market_chart":  ["KBS_INTERNAL", "YONHAP", "GENERATED_ABSTRACT"],
+    "sector_grid":   ["KBS_INTERNAL", "KBS_BADA", "YONHAP", "STOCK"],
+    "strategy_card": ["GENERATED_ABSTRACT", "KBS_BADA"],
+    "closing_card":  ["GENERATED_ABSTRACT"],
+    "list_card":     ["KBS_BADA", "YONHAP", "STOCK"],
+    "stock_chart":   ["KBS_INTERNAL", "KBS_BADA", "YONHAP", "OFFICIAL_COMPANY", "STOCK"],
+    "generic_card":  ["KBS_BADA", "YONHAP", "NAVER_DISCOVERY", "GENERATED_ABSTRACT"],
+}
+
+_BACKGROUND_TYPE_BY_VISUAL_TYPE = {
+    "title_card": "video_or_image",
+    "strategy_card": "none",
+    "closing_card": "none",
+}
+
+_MOTION_BY_VISUAL_TYPE = {
+    "title_card":    {"entry": "fade_scale_in",   "text": "typewriter", "transition": "cut"},
+    "market_chart":  {"entry": "slide_up",        "text": "fade_in",    "transition": "crossfade"},
+    "sector_grid":   {"entry": "grid_stagger_in", "text": "fade_in",    "transition": "crossfade"},
+    "strategy_card": {"entry": "fade_in",         "text": "fade_in",    "transition": "cut"},
+    "closing_card":  {"entry": "fade_in",         "text": "fade_in",    "transition": "fade_out"},
+    "list_card":     {"entry": "list_stagger_in", "text": "fade_in",    "transition": "crossfade"},
+    "stock_chart":   {"entry": "slide_up",        "text": "count_up",   "transition": "crossfade"},
+    "generic_card":  {"entry": "fade_in",         "text": "fade_in",    "transition": "cut"},
+}
+
+
+def default_preferred_sources(visual_type: str) -> List[str]:
+    return list(_PREFERRED_SOURCES_BY_VISUAL_TYPE.get(
+        visual_type, ["KBS_BADA", "YONHAP", "GENERATED_ABSTRACT"]))
+
+
+def default_background_type(visual_type: str) -> str:
+    return _BACKGROUND_TYPE_BY_VISUAL_TYPE.get(visual_type, "image")
+
+
+def default_motion(visual_type: str) -> dict:
+    return dict(_MOTION_BY_VISUAL_TYPE.get(
+        visual_type, {"entry": "fade_in", "text": "fade_in", "transition": "cut"}))
+
+
+def build_data_overlay(sec: dict, visual_type: str) -> Optional[dict]:
+    if visual_type not in ("market_chart", "stock_chart"):
+        return None
+    change = sec.get("change") or sec.get("kospi_change") or ""
+    positive = sec.get("change_positive")
+    if positive is None and change:
+        positive = str(change).strip().startswith("+")
+    mood = "bullish" if positive else ("bearish" if positive is False else "neutral")
+    overlay = {
+        "marketMood": mood,
+        "colorSignal": "up" if mood == "bullish" else ("down" if mood == "bearish" else "neutral"),
+    }
+    for k in ("price", "change", "kospi_value", "kospi_change", "kosdaq_value", "kosdaq_change",
+              "nasdaq_value", "nasdaq_change", "sp500_value", "sp500_change", "usdkrw_value"):
+        if sec.get(k):
+            overlay[k] = sec[k]
+    return overlay
+
+
+def build_asset_requirements(visual_type: str, needs_review: bool) -> dict:
+    return {
+        "needsRealNewsImage": visual_type not in ("strategy_card", "closing_card", "title_card"),
+        "allowStockFallback": visual_type in ("stock_chart", "list_card") and not needs_review,
+        "avoidGenericBusinessHandshake": True,
+    }
+
+
+def extract_narration(sec: dict) -> str:
+    """섹션 종류별로 필드명이 제각각이라 우선순위 폴백 체인으로 추출한다."""
+    for key in ("narration_summary", "narration", "corner_summary", "subtitle_summary", "subtitle"):
+        v = (sec.get(key) or "").strip()
+        if v:
+            return v
+    return ""
+
+
+def _screen_text_base(sec: dict, narration: str) -> str:
+    return (sec.get("corner_summary") or sec.get("subtitle_summary")
+            or sec.get("subtitle") or narration)
+
+
+def _raw_stock_name_for_section(sec: dict) -> Optional[str]:
+    sid = sec.get("id", "")
+    if sid in _AGGREGATE_STOCK_IDS or not (sid.startswith("stock_") or sid.startswith("hidden_")):
+        return None
+    m = re.match(r"^종목\s*분석\s*-\s*(.+)$", sec.get("label", ""))
+    if m:
+        return m.group(1).strip()
+    prefix = "stock_" if sid.startswith("stock_") else "hidden_"
+    return sid[len(prefix):] or None
+
+
+def _candidate_names_in_section(sec: dict) -> List[str]:
+    names = []
+    raw = _raw_stock_name_for_section(sec)
+    if raw:
+        names.append(raw)
+    if sec.get("id", "") in _AGGREGATE_STOCK_IDS:
+        for item in sec.get("items") or []:
+            n = (item.get("name") or "").strip()
+            if n:
+                names.append(n)
+    return names
+
+
+def _section_data_review(sec: dict):
+    bad = [n for n in _candidate_names_in_section(sec) if is_suspicious_stock_name(n)]
+    if not bad:
+        return False, None
+    return True, safe_display_name(bad[0])
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 최상위 빌더
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -261,17 +425,41 @@ def build_scene_plan(script_data: dict) -> ScenePlan:
         text = _collect_text(sec)
         entities = extract_entities(text)
         extra_kw = opening_keywords if sec.get("id") == "opening" else []
+        visual_type = visual_type_for(sec)
+        visual_keywords = build_visual_keywords(entities, extra=extra_kw)
+
+        narration = extract_narration(sec)
+        needs_review, safe_name = _section_data_review(sec)
+        _, visual_keywords_en = build_visual_keywords_bilingual(entities)
+
         out_sections.append(ScenePlanSection(
             id=sec.get("id", ""),
             label=sec.get("label", ""),
             priority_score=compute_priority_score(sec, entities, len(text)),
-            visual_type=visual_type_for(sec),
-            visual_keywords=build_visual_keywords(entities, extra=extra_kw),
+            visual_type=visual_type,
+            visual_keywords=visual_keywords,
             entities=entities,
+            narration=narration,
+            screenText=compress_to_screen_text(
+                headline_base=_screen_text_base(sec, narration),
+                narration=narration,
+                entities=[e.value for e in entities],
+            ),
+            visualKeywordsKo=list(visual_keywords),
+            visualKeywordsEn=visual_keywords_en,
+            preferredSources=default_preferred_sources(visual_type),
+            backgroundType=default_background_type(visual_type),
+            motion=default_motion(visual_type),
+            dataOverlay=build_data_overlay(sec, visual_type),
+            assetRequirements=build_asset_requirements(visual_type, needs_review),
+            needsDataReview=needs_review,
+            safeDisplayName=safe_name,
         ))
 
     return ScenePlan(
         title=script_data.get("title", ""),
         date=script_data.get("date", ""),
+        videoMeta=VideoMeta(title=script_data.get("title", ""), date=script_data.get("date", "")),
+        globalVisualStyle=GlobalVisualStyle(),
         sections=out_sections,
     )

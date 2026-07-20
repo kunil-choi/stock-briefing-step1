@@ -188,6 +188,36 @@ def normalize_stock_name(name: str) -> str:
     return name
 
 
+# ── 종목명 오염 탐지 (scene_plan needsDataReview 가드레일용) ─────────────────
+# fetch_briefing_data()가 upstream JSON을 검증 없이 통과시켜, 일부 종목명
+# 필드에 소스 카테고리 라벨(예: "뉴스경제방송유튜브" = "뉴스"+"경제방송"+"유튜브",
+# _SOURCE_TYPE_TO_CHANNEL_TYPE의 키 조합과 일치)이 섞여 들어오는 사고가
+# 관찰됨. 여기서는 upstream 데이터 자체를 고치지 않고, scene_plan 단계에서
+# "이 이름으로 이미지 검색을 하면 안 된다"는 신호만 만든다.
+_STOCK_NAME_REVIEW_TOKENS = ["유튜브", "뉴스", "경제방송", "채널", "방송", "youtube", "TV"]
+
+
+def is_suspicious_stock_name(name: str) -> bool:
+    """종목명이 실제로는 출처/채널명 라벨이 섞여 들어온 것으로 의심되면 True.
+    화이트리스트(STOCK_CODES) 우선 — 과탐지보다 미탐지가 안전하다(미등록
+    정상 종목명을 잘못 숨기는 사고를 피함)."""
+    name = (name or "").strip()
+    if not name:
+        return False
+    if normalize_stock_name(name) in STOCK_CODES:
+        return False
+    hits = sum(1 for tok in _STOCK_NAME_REVIEW_TOKENS if tok in name)
+    if hits >= 2:
+        return True
+    if hits >= 1 and len(name) > 8:
+        return True
+    return False
+
+
+def safe_display_name(name: str, fallback: str = "관심 종목") -> str:
+    return fallback if is_suspicious_stock_name(name) else name
+
+
 # ── KRX 전종목 사전 (scene_plan 개체명 정규화용) ─────────────────────────────
 # pykrx는 data.krx.co.kr 스크래핑에 로그인을 요구하는 경우가 있어 무인증 환경에서
 # 빈 리스트를 반환할 수 있다(chart.py의 _fetch_ohlcv_pykrx와 동일 이슈). 그런
