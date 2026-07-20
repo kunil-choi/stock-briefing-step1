@@ -18,7 +18,7 @@ from typing import Callable, Optional
 
 DEFAULT_WEIGHTS = (0.4, 0.3, 0.3)  # (volume, news, report)
 
-_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
+_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
 def is_stock_candidate(section_id: str) -> bool:

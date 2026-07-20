@@ -27,7 +27,7 @@ from .scene_plan import build_scene_plan
 # 섹션 분류
 # ─────────────────────────────────────────────────────────────────────────────
 
-_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
+_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
 def classify_section_type(section_id: str) -> str:
@@ -296,7 +296,6 @@ MENTION_INTRO_LINE = (
 
 _LEADER_TRANSITION     = "우선 시장을 이끌고 있는 대형 주도주 상황 살펴보겠습니다."
 _WATCHLIST_TRANSITION  = "인기 유튜브 채널에서 언급된 관심종목에 대해 분석해보겠습니다."
-_HIDDEN_PICK_TRANSITION = "AI가 선정한 오늘의 히든픽 종목은 무엇인지 알아보겠습니다."
 
 
 def _prefix_narration(section: dict, prefix: str) -> dict:
@@ -385,7 +384,6 @@ def build_mention_briefing(script_data: dict) -> dict:
 
     market_sec    = by_id.get("market_summary")
     watchlist_sec = by_id.get("stock_추가관심종목")
-    hidden_sec    = by_id.get("stock_오늘의픽")
     closing_sec   = by_id.get("closing")
 
     hook_sources = sorted(stock_candidates, key=lambda s: importance_by_id.get(s.get("id", ""), 0.0), reverse=True)
@@ -411,11 +409,6 @@ def build_mention_briefing(script_data: dict) -> dict:
         watchlist_group[0] = _prefix_narration(watchlist_group[0], _WATCHLIST_TRANSITION)
         ordered += watchlist_group
 
-    if hidden_sec:
-        ordered.append(_prefix_narration(
-            _annotate(hidden_sec, "stock_checkpoint", importance_by_id, entities_by_id),
-            _HIDDEN_PICK_TRANSITION,
-        ))
 
     if closing_sec:
         ordered.append(_annotate(closing_sec, "closing", importance_by_id, entities_by_id))

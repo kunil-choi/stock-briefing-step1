@@ -62,7 +62,7 @@ MAX_LINES      = 2    # 자막 최대 줄 수
 SILENT_DURATION = 3.0 # 오디오 없을 때 기본 슬라이드 길이
 
 # summary+chart+mention 개별 카드가 아니라 단일 슬라이드로 렌더링되는 집계형 종목 섹션
-AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
+AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
 def _ts(seconds: float) -> str:

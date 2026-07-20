@@ -177,7 +177,7 @@ def extract_entities(text: str) -> List[Entity]:
 # visual_type / priority_score / visual_keywords
 # ─────────────────────────────────────────────────────────────────────────────
 
-_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
+_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 _VISUAL_TYPE_BY_ID = {
     "opening": "title_card",
