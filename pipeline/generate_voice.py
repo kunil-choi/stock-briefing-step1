@@ -29,7 +29,7 @@ from assets.audio_post import (
     detect_advice_language, build_audio_report,
 )
 
-AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
+AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
 def _build_jobs(sections: list, lang: str) -> list:

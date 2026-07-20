@@ -23,7 +23,6 @@ from assets.builders import (
     build_sector,
     build_stock_cards,
     build_extra_watchlist,
-    build_today_pick,
     build_brokerage_report,
     build_ai_strategy,
     build_closing,
@@ -35,7 +34,6 @@ from assets.builders import (
 # 구조인 이 집계 섹션들을 잘못 넘기면 빈 카드가 렌더링된다.
 _AGGREGATE_BUILDERS = {
     "stock_추가관심종목": build_extra_watchlist,
-    "stock_오늘의픽":     build_today_pick,
     "stock_증권사리포트": build_brokerage_report,
 }
 from assets.render import close_renderer

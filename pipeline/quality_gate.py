@@ -62,11 +62,11 @@ def check_metadata(root: str = ".") -> None:
 _PLACEHOLDER_LITERALS = {"000,000", "한줄 요약"}
 
 
-# 추가 관심 종목/오늘의 픽/증권사 리포트는 종목 1개짜리 카드가 아니라
+# 추가 관심 종목/증권사 리포트는 종목 1개짜리 카드가 아니라
 # items:[{name,text}] 리스트 구조라서 price/change/summary/corner_summary
 # 필드 자체가 없다 — id가 "stock_"로 시작한다고 개별 종목 카드와 똑같이
 # 검사하면 정상 섹션이 매번 "빈 값"으로 오탐된다.
-AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_오늘의픽", "stock_증권사리포트"}
+AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
 def check_no_placeholder_content(script_path: str) -> None:

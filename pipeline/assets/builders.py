@@ -311,7 +311,7 @@ def build_stock_cards(sec, out_dir, img_dir, prefix):
     return paths
 
 
-# ── 집계형 종목 섹션 (추가 관심 종목 / 오늘의 픽 / 증권사 리포트) ────────────
+# ── 집계형 종목 섹션 (추가 관심 종목 / 증권사 리포트) ────────────────────────
 # summary+chart+mention 개별 카드가 아니라 단일 슬라이드 한 장으로 구성.
 
 def _extract_broker_label(text: str) -> str:
@@ -378,13 +378,6 @@ def build_extra_watchlist(data, out_dir):
     if not sec:
         return None
     return _build_aggregate_stock_slide(sec, out_dir, "90_extra_watchlist.png", "추가 관심 종목")
-
-
-def build_today_pick(data, out_dir):
-    sec = _find_section(data.get("sections", []), "stock_오늘의픽")
-    if not sec:
-        return None
-    return _build_aggregate_stock_slide(sec, out_dir, "91_today_pick.png", "오늘의 픽")
 
 
 def build_brokerage_report(data, out_dir):
