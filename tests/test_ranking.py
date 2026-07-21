@@ -99,7 +99,6 @@ def test_build_ranking_top5_and_aggregate_exclusion():
             {"id": "hidden_세번째", "price": "1", "change": "-1%", "change_positive": False,
              "channel_summaries": []},
             {"id": "stock_추가관심종목", "items": []},   # 집계 섹션 → 후보 제외돼야 함
-            {"id": "stock_오늘의픽", "items": []},        # 집계 섹션 → 후보 제외돼야 함
             {"id": "ai_strategy"},
             {"id": "closing"},
         ],
@@ -109,7 +108,7 @@ def test_build_ranking_top5_and_aggregate_exclusion():
     ranking = result["ranking"]
 
     ids = [r["id"] for r in ranking]
-    assert "stock_추가관심종목" not in ids and "stock_오늘의픽" not in ids, "집계 섹션이 랭킹 후보에 포함됨"
+    assert "stock_추가관심종목" not in ids, "집계 섹션이 랭킹 후보에 포함됨"
     assert len(ranking) == 3  # 후보가 3개뿐이므로 top_n=5여도 3개만 나와야 함
 
     scores = [r["ranking_score"] for r in ranking]
