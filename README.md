@@ -105,6 +105,47 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 샘플: `tests/test_media_pipeline.py`(`MockProvider`만 사용, 네트워크 없이 실행,
 `python tests/test_media_pipeline.py`).
 
+### AssetSearchService / asset_manifest.json / 권리 검수 (2차 작업)
+
+`pipeline/assets/asset_search_service.py`의 `AssetSearchService`가 `generate_media.py`의
+실제 진입점입니다. 기존 `media_pipeline.build_scene_images()`(스코어링/중복방지)를
+그대로 재사용하면서, 커넥터 인스턴스화(`config/media.yml`의 `providers` 목록 +
+환경변수 존재 여부로 자동 활성/비활성 결정)와 `asset_manifest.json` 생성을 감쌉니다.
+
+- **커넥터 확장**(`pipeline/assets/media_providers.py`): 기존 `YonhapProvider`/`KbsProvider`/
+  `MockProvider`에 더해 `KbsInternalConnector`/`KbsBadaConnector`/`PublicAgencyConnector`/
+  `OfficialCompanyConnector`(필요한 API 키/내부 접근 정보가 없으면 항상 빈 리스트를
+  반환하는 비활성 스켈레톤), `StockPhotoConnector`(Pexels, `PEXELS_API_KEY` 있으면 실제
+  동작), `NaverDiscoveryConnector`(네이버 오픈API로 KBS/연합뉴스 원문 URL만 찾는
+  discovery 전용 — **이미지를 직접 다운로드하지 않으며 항상 검수 대상**)를 추가했습니다.
+  각 커넥터는 `asset_source` 클래스 속성으로 `scene_plan.json`의 `preferredSources`
+  8종 표준값(`KBS_INTERNAL`/`KBS_BADA`/`KBS_WEBSITE`/`YONHAP`/`NAVER_DISCOVERY`/
+  `PUBLIC_AGENCY`/`OFFICIAL_COMPANY`/`STOCK`/`GENERATED_ABSTRACT`)과 일치시킵니다.
+- **권리 분류**(`pipeline/assets/rights_review.py`의 `classify_rights()`): 후보마다
+  `rightsStatus`/`needsReview`를 판정합니다. 네이버 discovery와 외신(URL 휴리스틱)은
+  예외 없이 항상 검수 대상이지만, 지금처럼 API 키 없이 공개 검색 페이지를 스크래핑하는
+  연합뉴스/KBS(`YONHAP`/`KBS_WEBSITE`)는 **기존 동작을 유지**해 `editorial_search`도
+  자동 사용 가능(`needsReview=False`)으로 둡니다(실제 이미지 사용량이 줄지 않도록
+  하기 위한 의도적 결정).
+- **1차 산출물과의 연결**: `build_scene_images()`가 이제 `visual_keywords`(한국어)
+  뿐 아니라 `visualKeywordsEn`(영어, 스톡 이미지 검색용), `preferredSources`(이
+  순서로 커넥터 우선순위 정렬), `needsDataReview`/`assetRequirements.allowStockFallback`
+  (오염 의심 종목명은 한국어로 KBS/연합뉴스 검색을 하지 않고 영어 키워드로만
+  스톡/추상 그래픽을 찾음)를 함께 소비합니다.
+- **asset_manifest.json**: `output/{lang}/media/asset_manifest.json`에 검토된 모든
+  후보(선택된 것 포함)를 `assetId`/`sceneId`/`source`/`credit`/`sourceUrl`/`localPath`/
+  `rightsStatus`/`needsReview`/`selected` 등과 함께 기록합니다. `media_map.json`은
+  하위호환을 위해 그대로 유지됩니다.
+- **다운로드 캐시**: `ASSET_CACHE_DIR`(기본 `assets/cache/`) 아래 `{source}/{source}_{url해시}.jpg`로
+  저장해 같은 URL을 재실행마다 다시 받지 않습니다.
+- **환경변수**: `.env.example` 참고. 실제 키가 없으면 관련 커넥터는 안전하게 비활성화됩니다.
+- **아직 하지 않은 것**: KBS 내부망/KBS 바다/연합뉴스 정식 계약/네이버 오픈API의 실제
+  인증·응답 파싱(이 세션에 접근 권한 없음), `builders.py`(렌더링)가 `media_map.json`/
+  `asset_manifest.json`을 실제로 읽어 화면에 쓰는 것(3차 작업 범위).
+
+샘플: `tests/test_asset_search_service.py`(권리 분류 규칙, 신규 커넥터 비활성 확인,
+캐시 재사용, `AssetSearchService` end-to-end, 전부 오프라인 mock 기반).
+
 ## 방송형 렌더링 (Ken Burns / 전환 / lower-third / 자동 텍스트 축소)
 
 기존 `generate_video.py`는 PNG 슬라이드를 `-loop 1`로 그대로 정지 홀드해

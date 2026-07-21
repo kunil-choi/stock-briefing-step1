@@ -3,6 +3,10 @@
 # pipeline/config_media.py가 이 파일을 로드해 상수로 노출한다.
 
 providers: [yonhap, kbs]   # media_providers.py의 provider.name과 일치해야 함
+# 2차 작업(AssetSearchService)에서 추가된 옵션: kbs_internal, kbs_bada,
+# public_agency, official_company, stock_photo, naver_discovery,
+# generated_abstract. 필요한 환경변수가 없는 커넥터는 등록해도 항상 빈
+# 리스트를 반환하므로 안전하게 추가할 수 있다(예: providers: [yonhap, kbs, stock_photo]).
 
 dedup:
   window_days: 7          # 이 기간 내 사용된 이미지(phash 기준)는 재사용하지 않음
