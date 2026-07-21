@@ -298,6 +298,43 @@ def _wrap_words(text: str, width: int) -> list:
     return lines
 
 
+# 자막 표기는 숫자를 아라비아 숫자로 짧게 쓰지만(예: "85,400"), 실제 내레이션은
+# 이걸 한글로 풀어 읽는다("팔만오천사백원") — 표기 글자 수보다 훨씬 길게
+# 발음된다. 청크 단위로 화면 시간을 배분할 때 이 차이를 무시하고 자막 글자
+# 수만 쓰면, 숫자가 많은 청크는 실제 발화 시간보다 짧게, 문구 위주 청크는
+# 길게 배정돼 내레이션과 자막이 어긋나 보인다(사용자 보고 버그).
+_DIGIT_GROUP_RE = re.compile(r'\d{1,3}(?:,\d{3})*(?:\.\d+)?%?')
+
+
+def _speech_weight(text: str) -> float:
+    """자막 텍스트 조각의 상대적 발화 길이를 추정합니다. 완벽한 한글 숫자
+    변환기를 만드는 대신, 숫자 구간만 분해해 가벼운 보정 계수를 적용합니다:
+    - 정수부(콤마 제외 자릿수)는 1.3배 — "85400"(5자리)→"팔만오천사백"(6음절)처럼
+      만/천/백 등 자릿값 단위가 끼어들어 원래 자릿수보다 길게 발음되는 것의 근사치.
+    - 소수점은 "쩜"(1음절), 소수부는 자릿수 그대로(한 자리씩 그대로 읽음 — 예:
+      ".2"→"쩜이", 자릿값 단위가 끼지 않으므로 확장 배율을 적용하지 않음).
+    - "%"는 "퍼센트"(3음절: 퍼/센/트)로 확장.
+    narration 텍스트(이미 한글로 풀어 쓴 상태)에는 적용하지 않습니다 — 그건
+    그 자체로 이미 발화 길이에 가까운 글자 수입니다."""
+    weight = 0.0
+    pos = 0
+    for m in _DIGIT_GROUP_RE.finditer(text):
+        weight += len(text[pos:m.start()])
+        raw = m.group()
+        has_percent = raw.endswith('%')
+        core = raw[:-1] if has_percent else raw
+        int_part, _, frac_part = core.partition('.')
+        int_digits = int_part.replace(',', '')
+        weight += len(int_digits) * 1.3
+        if frac_part:
+            weight += 1 + len(frac_part)  # "쩜" + 소수부 자릿수
+        if has_percent:
+            weight += 3  # "퍼센트"
+        pos = m.end()
+    weight += len(text[pos:])
+    return max(weight, 1.0)
+
+
 def _split_subtitle_text(text: str) -> list:
     """
     자막 텍스트를 화면 표출 단위로 분할합니다.
@@ -352,7 +389,15 @@ def _make_dialogue_events(narration_text: str, subtitle_text: str,
     길이에 비례해 배분합니다. narration/subtitle은 표기만 다를 뿐(숫자·영문 표기 차이)
     같은 내용을 담고 있어야 하므로, 문장 수가 일치하면 문장 단위로 1:1 짝지어 각
     narration 문장 길이만큼 시간을 배분하고 그 구간에 대응하는 subtitle 문장을 표시합니다.
-    문장 수가 다르면(LLM이 형식을 못 지킨 경우) subtitle 자체 길이 비례로 대체합니다.
+    문장 수가 다르면(LLM이 형식을 못 지킨 경우) subtitle 자체의 발화 가중치
+    (_speech_weight) 비례로 대체합니다.
+
+    ★ 한 문장이 길어 여러 화면 청크로 쪼개질 때(_split_subtitle_text), 청크별
+    시간 배분은 narration 기준 분할점을 알 수 없어 부득이 subtitle 텍스트로
+    추정해야 합니다 — 이때 단순 글자 수 대신 _speech_weight()로 숫자 구간의
+    실제 발화 길이를 보정합니다(자막은 "85,400"처럼 짧게 쓰지만 내레이션은
+    "팔만오천사백원"으로 길게 읽어, 글자 수만 쓰면 숫자 많은 청크가 실제보다
+    짧게 배정돼 내레이션과 어긋나 보이는 문제가 있었습니다).
     """
     if not subtitle_text or duration <= 0:
         return []
@@ -363,8 +408,8 @@ def _make_dialogue_events(narration_text: str, subtitle_text: str,
     if narr_sentences and sub_sentences and len(narr_sentences) == len(sub_sentences):
         pairs = list(zip((len(s) for s in narr_sentences), sub_sentences))
     else:
-        # narration과 subtitle 문장 수가 다르면 subtitle 자체 길이 비례로 대체
-        pairs = [(len(s), s) for s in (sub_sentences or [subtitle_text])]
+        # narration과 subtitle 문장 수가 다르면 subtitle 발화 가중치 비례로 대체
+        pairs = [(_speech_weight(s), s) for s in (sub_sentences or [subtitle_text])]
 
     total_weight = sum(w for w, _ in pairs) or 1
     events = []
@@ -376,9 +421,9 @@ def _make_dialogue_events(narration_text: str, subtitle_text: str,
         if not chunks:
             t_cursor += seg_duration
             continue
-        chunk_total_len = sum(len(c) for c in chunks) or 1
+        chunk_total_len = sum(_speech_weight(c) for c in chunks) or 1
         for chunk in chunks:
-            chunk_duration = seg_duration * (len(chunk) / chunk_total_len)
+            chunk_duration = seg_duration * (_speech_weight(chunk) / chunk_total_len)
             t_start  = t_cursor
             t_end    = t_start + chunk_duration - 0.08
             ass_text = _format_ass_text(chunk)
