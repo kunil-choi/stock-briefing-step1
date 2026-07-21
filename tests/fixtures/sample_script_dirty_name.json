@@ -22,11 +22,11 @@
       "channel_summaries": []
     },
     {
-      "id": "stock_오늘의픽",
-      "label": "오늘의 픽",
-      "corner_summary": "오늘의 픽 요약",
-      "narration": "오늘의 픽을 소개합니다.",
-      "subtitle": "오늘의 픽을 소개합니다.",
+      "id": "stock_추가관심종목",
+      "label": "추가 관심 종목",
+      "corner_summary": "추가 관심 종목 요약",
+      "narration": "다음은 오늘의 추가 관심 종목입니다.",
+      "subtitle": "다음은 오늘의 추가 관심 종목입니다.",
       "items": [
         {"name": "삼성전자", "text": "실적 기대감에 상승했습니다."},
         {"name": "유튜브 뉴스 채널", "text": "출처 라벨 오염 케이스입니다."}

@@ -19,7 +19,6 @@ from assets.narrative_reorder import (  # noqa: E402
     MENTION_INTRO_LINE,
     _LEADER_TRANSITION,
     _WATCHLIST_TRANSITION,
-    _HIDDEN_PICK_TRANSITION,
 )
 
 
@@ -40,7 +39,7 @@ def _stock(name, tier):
     }
 
 
-def _base_script(include_market_data=True, include_hidden=True):
+def _base_script(include_market_data=True):
     market_summary = {
         "id": "market_summary", "corner_summary": "오늘 시장은 상승세를 이어가고 있습니다.",
         "narration": "코스피가 상승세를 보이고 있습니다.", "subtitle": "코스피가 상승세를 보이고 있습니다.",
@@ -71,12 +70,6 @@ def _base_script(include_market_data=True, include_hidden=True):
          "subtitle": "전략 안내", "bullet_points": ["포인트1"]},
         {"id": "closing", "narration": "마무리", "subtitle": "마무리", "disclaimer": "투자 유의사항"},
     ]
-    if include_hidden:
-        sections.insert(-1, {
-            "id": "stock_오늘의픽", "label": "오늘의 픽",
-            "narration": "오늘의 픽입니다.", "subtitle": "오늘의 픽입니다.",
-            "items": [{"name": "히든픽1", "text": "설명"}],
-        })
     return {"title": "테스트", "date": "2026년 07월 16일", "sections": sections}
 
 
@@ -95,7 +88,6 @@ def test_order_and_excluded_sections():
     assert "stock_대형주1" in ids and "stock_대형주2" in ids
     assert "stock_관심종목1" in ids and "stock_관심종목2" in ids
     assert "stock_추가관심종목" in ids
-    assert "stock_오늘의픽" in ids
     print(f"✅ 섹션 구성/제외 확인: {ids}")
 
 
@@ -138,17 +130,6 @@ def test_leader_and_watchlist_transitions():
     print("✅ 대형 주도주/관심종목 전환 멘트가 각 그룹 첫 항목에만 붙음")
 
 
-def test_hidden_pick_transition_when_present_and_absent():
-    with_hidden = build_mention_briefing(_base_script(include_hidden=True))
-    hidden_sec = next(s for s in with_hidden["sections"] if s["id"] == "stock_오늘의픽")
-    assert hidden_sec["narration"].startswith(_HIDDEN_PICK_TRANSITION)
-
-    without_hidden = build_mention_briefing(_base_script(include_hidden=False))
-    ids = [s["id"] for s in without_hidden["sections"]]
-    assert "stock_오늘의픽" not in ids, "히든픽 데이터가 없으면 섹션 자체가 없어야 함"
-    print("✅ AI 히든픽: 데이터 있을 때만 전환 멘트+섹션 포함")
-
-
 def test_stock_tier_fallback_when_missing():
     """stock_tier 필드가 없는 과거 script.json도 앞 2개를 대형 주도주로
     추정해 정상 동작해야 한다(하위 호환)."""
@@ -185,7 +166,6 @@ if __name__ == "__main__":
     test_market_indicators_deterministic_no_interpretation()
     test_market_indicators_skipped_without_data()
     test_leader_and_watchlist_transitions()
-    test_hidden_pick_transition_when_present_and_absent()
     test_stock_tier_fallback_when_missing()
     test_closing_preserved_last_with_original_content()
     test_script_json_not_mutated()
