@@ -25,7 +25,7 @@ if _PIPELINE not in sys.path:
 
 from generate_script import (  # noqa: E402
     build_stock_market_data, build_synthetic_mentions, build_stock_quotes,
-    _is_unfilled_stock_section,
+    _is_unfilled_stock_section, _merge_quotes_by_speaker,
 )
 
 
@@ -84,6 +84,47 @@ def test_stock_quotes_channel_type_mapping():
           f"({types_by_channel})")
 
 
+def test_merge_quotes_by_speaker_combines_same_speaker_fragments():
+    items = [
+        {"speaker": "김철수", "channel": "삼프로TV", "channel_type": "유튜브",
+         "quote": "반도체 업황이 개선되고 있습니다", "timestamp_url": "", "sentiment": "긍정"},
+        {"speaker": "김철수", "channel": "삼프로TV", "channel_type": "유튜브",
+         "quote": "특히 HBM 수요가 견조합니다", "timestamp_url": "", "sentiment": ""},
+        {"speaker": "이영희", "channel": "한국경제TV", "channel_type": "경제방송",
+         "quote": "단기 조정 가능성도 있습니다", "timestamp_url": "", "sentiment": ""},
+    ]
+    merged = _merge_quotes_by_speaker(items)
+    assert len(merged) == 2, "화자 2명(채널·화자 기준) → 2개 그룹으로 병합돼야 함"
+    kim = next(m for m in merged if m["speaker"] == "김철수")
+    assert kim["quote"] == ["반도체 업황이 개선되고 있습니다", "특히 HBM 수요가 견조합니다"], (
+        "같은 화자의 발언 조각이 등장 순서대로 리스트로 묶여야 함")
+    lee = next(m for m in merged if m["speaker"] == "이영희")
+    assert lee["quote"] == ["단기 조정 가능성도 있습니다"]
+    print("✅ _merge_quotes_by_speaker: 같은 화자 발언 조각 병합, 다른 화자는 분리 유지 확인")
+
+
+def test_stock_quotes_merges_before_capping_at_nine():
+    # 같은 화자가 조각을 여러 개 남겨도 슬롯을 독점하지 않고 병합되어 1개 그룹으로 유지됨
+    mentions = [
+        {"stock_name": "삼성전자", "channel": "삼프로TV", "speaker": "김철수",
+         "quote": f"발언 조각 {i}", "source_type": "유튜브"}
+        for i in range(12)
+    ]
+    quotes = build_stock_quotes(mentions, "")
+    assert len(quotes["삼성전자"]) == 1, "같은 화자 조각 12개는 병합 후 1개 그룹이어야 함"
+    assert len(quotes["삼성전자"][0]["quote"]) == 12, "병합된 그룹 안에 조각 12개가 모두 보존돼야 함"
+
+    # 서로 다른 화자가 9명을 초과하면 화자·채널 단위로 9명까지만 유지됨
+    mentions2 = [
+        {"stock_name": "삼성전자", "channel": f"채널{i}", "speaker": f"화자{i}",
+         "quote": "발언", "source_type": "유튜브"}
+        for i in range(12)
+    ]
+    quotes2 = build_stock_quotes(mentions2, "")
+    assert len(quotes2["삼성전자"]) == 9, "서로 다른 화자 12명은 화자 단위로 9명까지만 유지돼야 함"
+    print("✅ build_stock_quotes: 같은 화자는 병합, 서로 다른 화자는 9명 캡으로 폭넓게 유지 확인")
+
+
 def test_unfilled_stock_section_detected():
     assert _is_unfilled_stock_section(
         {"corner_summary": "현대차 한줄 요약", "summary": "한줄 요약"}, "현대차"
@@ -99,5 +140,7 @@ if __name__ == "__main__":
     test_build_stock_market_data_formats_real_values()
     test_securities_channel_mentions_not_dropped()
     test_stock_quotes_channel_type_mapping()
+    test_merge_quotes_by_speaker_combines_same_speaker_fragments()
+    test_stock_quotes_merges_before_capping_at_nine()
     test_unfilled_stock_section_detected()
     print("\n✅ generate_script 테스트 전체 통과")
