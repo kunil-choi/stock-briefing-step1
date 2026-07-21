@@ -63,6 +63,77 @@ def test_legacy_longform_patterns_still_supported():
     print("✅ 구 8단계 롱폼 패턴 하위 호환 확인")
 
 
+def _parse_dialogue_time(event: str) -> tuple:
+    """"Dialogue: 0,H:MM:SS.CC,H:MM:SS.CC,..." 문자열에서 (start, end)를 초 단위로 파싱."""
+    parts = event.split(",")
+    start_str, end_str = parts[1], parts[2]
+
+    def to_seconds(ts):
+        h, m, s = ts.split(":")
+        return int(h) * 3600 + int(m) * 60 + float(s)
+
+    return to_seconds(start_str), to_seconds(end_str)
+
+
+def test_speech_weight_estimates_number_reading_length():
+    from generate_subtitles import _speech_weight
+
+    # 숫자 구간은 그대로의 글자 수보다 실제 한글 발음 길이에 더 가깝게
+    # 보정돼야 한다(자막 "85,400"(6자) → 실제 발음 "팔만오천사백"(6음절)).
+    assert abs(_speech_weight("85,400") - 6.5) < 0.5
+    # "%"/소수점이 있으면 raw 글자 수보다 뚜렷하게 커야 한다("플러스"는 "+"에서
+    # 오는 것이라 이 함수의 대상이 아니지만, "%"→"퍼센트"/소수점→"쩜" 확장은 반영돼야 함).
+    assert _speech_weight("+1.2%") > len("+1.2%")
+    # 숫자가 없는 일반 텍스트는 원래 글자 수와 동일해야 한다(회귀 없음).
+    assert _speech_weight("반도체 업종 강세") == len("반도체 업종 강세")
+    print("✅ _speech_weight: 숫자 구간을 실제 발음 길이에 가깝게 보정, 일반 텍스트는 글자 수 그대로")
+
+
+def test_make_dialogue_events_gives_number_heavy_chunk_more_time():
+    """긴 문장이 여러 화면 청크로 쪼개질 때, 숫자가 몰린 청크가 예전(글자 수
+    기준)보다 더 많은 시간을 배정받아야 한다 — 이게 사용자가 보고한
+    "내레이션과 자막 속도가 안 맞는" 버그의 핵심 수정 지점이다."""
+    from generate_subtitles import _make_dialogue_events, _split_subtitle_text
+
+    subtitle = ("오늘 발표된 실적 자료에 따르면 이 회사의 매출과 영업이익이 시장 예상치를 "
+                "크게 뛰어넘는 놀라운 성장세를 보이며 주가는 급등해 전일 대비 85,400원 "
+                "+12.8%를 기록했습니다")
+    narration = subtitle  # 문장 수 1개로 맞춰 폴백 경로(_speech_weight 가중치)를 그대로 태움
+    chunks = _split_subtitle_text(subtitle)
+    assert len(chunks) == 2, f"테스트 전제(2개 청크로 분할)가 깨짐: {chunks}"
+    # "+12.8%"가 들어있는 짧은 꼬리 청크가 글자 수 대비 숫자 밀도가 가장 높은
+    # 구간이다(앞 청크는 84자 대부분이 일반 텍스트이고 숫자는 "85,400" 하나뿐).
+    number_chunk_idx = next(i for i, c in enumerate(chunks) if "+12.8" in c)
+
+    events = _make_dialogue_events(narration, subtitle, start_time=0.0, duration=20.0)
+    assert len(events) == 2
+
+    durations = [_parse_dialogue_time(e)[1] - _parse_dialogue_time(e)[0] + 0.08 for e in events]
+    number_chunk_duration = durations[number_chunk_idx]
+    naive_share = len(chunks[number_chunk_idx]) / sum(len(c) for c in chunks)
+    actual_share = number_chunk_duration / sum(durations)
+
+    assert actual_share > naive_share, (
+        f"숫자가 몰린 청크가 글자 수 기준(naive={naive_share:.3f})보다 "
+        f"더 많은 시간(actual={actual_share:.3f})을 배정받아야 함"
+    )
+    print(f"✅ _make_dialogue_events: 숫자 청크 시간 배분 개선 확인 "
+          f"(글자수 기준 {naive_share:.1%} → 발화가중치 기준 {actual_share:.1%})")
+
+
+def test_make_dialogue_events_total_duration_unchanged():
+    """가중치 계산 방식이 바뀌어도 슬라이드 전체 길이(duration)는 정확히
+    보존돼야 한다 — 배분 "비율"만 바뀌고 총합은 실측 오디오 길이 그대로."""
+    from generate_subtitles import _make_dialogue_events
+
+    subtitle = "코스피는 2,650.32포인트로 전일 대비 +0.82%를 기록하며 상승 마감했습니다."
+    events = _make_dialogue_events(subtitle, subtitle, start_time=0.0, duration=10.0)
+    assert events
+    last_end = _parse_dialogue_time(events[-1])[1]
+    assert abs(last_end - (0.0 + 10.0 - 0.08)) < 0.05, "총 길이가 실측 duration과 어긋남(회귀)"
+    print("✅ _make_dialogue_events: 가중치 방식이 바뀌어도 총 duration은 정확히 보존됨")
+
+
 def test_generate_video_reuses_shared_mapping_function():
     """generate_video.py가 _frame_stem_to_audio_id를 독립적으로 재구현하지
     않고 generate_subtitles.py의 것을 그대로 import해 쓰는지 확인한다
@@ -80,5 +151,8 @@ if __name__ == "__main__":
     test_closing_frame_mapping_unchanged()
     test_stock_summary_and_mention_mapping_with_short_form_prefix()
     test_legacy_longform_patterns_still_supported()
+    test_speech_weight_estimates_number_reading_length()
+    test_make_dialogue_events_gives_number_heavy_chunk_more_time()
+    test_make_dialogue_events_total_duration_unchanged()
     test_generate_video_reuses_shared_mapping_function()
     print("\n✅ generate_subtitles 매핑 테스트 전체 통과")
