@@ -122,9 +122,9 @@ def run_dirty_name_case():
     assert dirty.safeDisplayName == "관심 종목"
     assert dirty.assetRequirements["allowStockFallback"] is False
 
-    pick = by_id["stock_오늘의픽"]
-    assert pick.needsDataReview is True, "items 안의 오염 종목명도 섹션 단위로 탐지돼야 함"
-    assert pick.safeDisplayName == "관심 종목"
+    watchlist = by_id["stock_추가관심종목"]
+    assert watchlist.needsDataReview is True, "items 안의 오염 종목명도 섹션 단위로 탐지돼야 함"
+    assert watchlist.safeDisplayName == "관심 종목"
 
     print("✅ scene_plan 오염 종목명(needsDataReview) 테스트 통과")
 

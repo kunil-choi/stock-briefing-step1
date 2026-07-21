@@ -455,12 +455,34 @@ _SOURCE_TYPE_TO_CHANNEL_TYPE = {
 }
 
 
+def _merge_quotes_by_speaker(items: list) -> list:
+    """같은 채널·화자의 발언 조각을 하나의 항목으로 묶는다. quote는 등장 순서
+    그대로의 리스트로 유지한다(임의로 한 문자열로 이어붙이면 문장 경계가
+    뭉개질 수 있어, LLM이 조각들을 이어지는 맥락으로 스스로 종합하게 한다).
+    V3-1 원본 데이터에서 같은 화자의 발언이 여러 조각으로 나뉘어 반복
+    등장하는 문제를 이 소비 지점에서 흡수한다(V3-1 저장소 자체는 별도
+    스코프라 수정 대상이 아님)."""
+    order = []
+    grouped: dict = {}
+    for it in items:
+        key = (it.get("channel", ""), it.get("speaker", ""))
+        if key not in grouped:
+            grouped[key] = {**it, "quote": []}
+            order.append(key)
+        q = (it.get("quote") or "").strip()
+        if q:
+            grouped[key]["quote"].append(q)
+    return [grouped[k] for k in order if grouped[k]["quote"]]
+
+
 def build_stock_quotes(mentions: list, briefing_date_iso: str) -> dict:
     """
     종목명을 정규화해 stock_name → [{speaker, channel, channel_type, quote, timestamp_url, sentiment}] 로 그룹핑.
     briefing_date_iso가 있으면 같은 날짜의 발언만 사용 (V3 브리핑과 날짜 어긋남 방지).
-    mention 슬라이드는 최대 3슬라이드(슬라이드당 3개)까지 지원하므로 종목당 최대 9개 발언까지 유지해
-    출연진의 발언을 최대한 폭넓게 다룬다 (요구사항: 방송/유튜브 전문가 발언 종합이 이 영상의 핵심 목적).
+    같은 채널·화자의 발언 조각은 _merge_quotes_by_speaker()로 먼저 하나로 묶은 뒤,
+    화자·채널 단위로 최대 9명까지 유지해 출연진의 발언을 최대한 폭넓게 다룬다
+    (요구사항: 방송/유튜브 전문가 발언 종합이 이 영상의 핵심 목적 — 한 화자가
+    조각을 여러 번 남겨도 슬롯을 독점하지 않도록 병합 후에 자른다).
     """
     grouped: dict = {}
     for m in mentions:
@@ -484,7 +506,7 @@ def build_stock_quotes(mentions: list, briefing_date_iso: str) -> dict:
             "timestamp_url": m.get("timestamp_url") or m.get("video_url", ""),
             "sentiment":     m.get("sentiment", ""),
         })
-    return {name: items[:9] for name, items in grouped.items()}
+    return {name: _merge_quotes_by_speaker(items)[:9] for name, items in grouped.items()}
 
 
 def build_stock_brokerage_mentions(brokerage_reports: dict) -> dict:
@@ -591,11 +613,27 @@ _MENTION_RULES = """
 ### 분석·요약 원칙 (반드시 준수)
 - 없는 내용을 지어내지 말고, 제공된 데이터에 실제로 나온 의견·수치·근거만 사용하세요.
 - 단순 나열이 아니라 "종합 분석"이어야 합니다: 여러 발언/리포트의 공통된 시각이나
-  차이점을 짚고, 목표주가·투자의견·핵심 촉매·리스크 등 구체적 근거를 포함하세요.
+  차이점을 짚고, 목표주가·투자의견·구체적 근거·전망을 포함하세요.
 - 채널명/증권사명은 자연스럽게 문장 안에 녹여 언급하세요(예: "삼프로TV와 한국경제TV
   양쪽에서 모두...", "미래에셋증권과 키움증권은 목표주가를...").
-- 분량: 카테고리별 narration 250~320자 내외(공백 포함). 짧은 headline이 아니라
-  완결된 분석 문단으로 작성하세요.
+- 분량: 카테고리별 narration 500~640자 내외(공백 포함, 기존 대비 약 2배 —
+  짧은 headline이 아니라 배경·근거·전망까지 충분히 담은 완결된 분석 문단으로
+  작성하세요). 근거가 부족하다고 없는 내용을 지어내 채우지 말고, 실제 제공된
+  내용의 배경과 함의를 충분히 풀어써서 분량을 채우세요.
+- 같은 채널·화자의 stock_quotes 항목은 이미 quote 필드가 발언 조각 리스트로
+  묶여 있습니다. 이를 하나의 이어지는 코멘트로 이해하고 종합하되, 조각별로
+  같은 논지를 반복해서 다시 쓰지 마세요.
+- 발언 중 이 종목과 무관한 다른 종목·일반적인 시장 이야기만 담긴 부분은
+  제외하고, 이 종목에 실제로 해당하는 내용만 사용하세요.
+
+### ★ 역할 분리 (매우 중요 — corner_summary/summary/catalysts/risks와 중복 금지)
+- corner_summary/summary/catalysts/risks는 가격 흐름·실적·업종 이슈 등
+  브리핑 원문 기반의 "개요"만 담당합니다. channel_summaries는 "누가 어떻게
+  평가했는지"를 자세히 푸는 "심층 설명"입니다.
+- 개요(corner_summary/summary/catalysts/risks)에서 이미 쓴 문장이나 특정
+  발언자의 구체적 논리를 channel_summaries에서 그대로 반복하지 마세요.
+  channel_summaries는 그 개요의 배경이 되는 구체적 근거·수치·전망을 채널별로
+  새롭게 풀어 설명해야 합니다.
 
 ### narration (TTS 낭독용)
 - "[채널 종류] 쪽에서는" 또는 "증권사 리포트에서는" 식으로 자연스럽게 시작하세요.
@@ -677,8 +715,8 @@ def _mock_stock_section(stock_name: str, quotes: list, brokerage_mentions: list)
         sources = list({q["channel"] for q in quotes if q.get("channel_type") == ctype})[:3] or ["[MOCK]채널"]
         channel_summaries.append({
             "channel_type": ctype, "sources": sources,
-            "narration": f"[MOCK] {ctype} 종합: {stock_name} 관련 더미 분석 문장입니다. " * 3,
-            "subtitle":  f"[MOCK] {ctype} 종합: {stock_name} 관련 더미 분석 문장입니다. " * 3,
+            "narration": f"[MOCK] {ctype} 종합: {stock_name} 관련 더미 분석 문장입니다. " * 6,
+            "subtitle":  f"[MOCK] {ctype} 종합: {stock_name} 관련 더미 분석 문장입니다. " * 6,
         })
     if brokerage_mentions and "증권사" not in types_present:
         channel_summaries.append({
@@ -875,7 +913,7 @@ def _generate_stock_section(stock_name: str, briefing_text: str,
 
 ## ★ 분량 요구사항 (요구사항: 종목별 설명을 더 자세히)
 - narration_summary 400자 이상.
-- channel_summaries의 각 항목 narration은 250~320자 내외.
+- channel_summaries의 각 항목 narration은 500~640자 내외.
 - 목표 미달을 절대 허용하지 마세요. "간략히", "요약하면" 표현 금지.
 
 ## ★ 코너 멘트
