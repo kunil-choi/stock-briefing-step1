@@ -7,6 +7,7 @@ scene_plan.json의 visual_keywords를 입력으로 받아 MediaProvider들에서
 실패하면 섹터 fallback 이미지로 대체한다.
 """
 import csv
+import hashlib
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -17,7 +18,8 @@ import imagehash
 from PIL import Image
 
 from .config import get_sector_fallback_image
-from .media_providers import MediaCandidate, MediaProvider
+from .media_providers import MediaCandidate, MediaProvider, NaverDiscoveryConnector
+from .rights_review import apply_rights
 
 LICENSE_LOG_FIELDS = [
     "date", "section_id", "keyword", "provider", "url",
@@ -44,6 +46,16 @@ class SelectedImage:
     height: int
     score: float
     image_path: str
+    # ── 2차 작업: asset-manifest.json용 확장 필드 ──────────────────────────
+    asset_source: str = ""
+    title: str = ""
+    credit: str = ""
+    source_url: str = ""
+    rights_status: str = "unclear"
+    allowed_platforms: list = None
+    restrictions: list = None
+    needs_review: bool = True
+    search_query: str = ""
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,6 +129,35 @@ def score_candidate(candidate: MediaCandidate, keyword_rank: int,
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# 다운로드 캐시 — 같은 URL을 반복 실행마다 다시 받지 않는다
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _cache_path(cache_dir: str, candidate: MediaCandidate) -> str:
+    source = (candidate.asset_source or candidate.source or "unknown").lower()
+    url_hash = hashlib.sha1(candidate.url.encode("utf-8")).hexdigest()[:12]
+    return os.path.join(cache_dir, source, f"{source}_{url_hash}.jpg")
+
+
+def _cached_download(provider: MediaProvider, candidate: MediaCandidate,
+                      cache_dir: Optional[str]) -> Optional[bytes]:
+    """provider.download()를 감싸 같은 URL은 캐시에서 재사용한다. 인터페이스는
+    바꾸지 않고(호출부는 그대로 bytes|None을 받음), URL 해시 기반으로
+    cache_dir/{source}/{source}_{hash}.jpg에 저장·재사용한다."""
+    if not cache_dir or not candidate.url or candidate.url.startswith("file://"):
+        return provider.download(candidate)
+    path = _cache_path(cache_dir, candidate)
+    if os.path.isfile(path):
+        with open(path, "rb") as f:
+            return f.read()
+    content = provider.download(candidate)
+    if content:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(content)
+    return content
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # 선택 파이프라인
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -124,10 +165,22 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
                        recent_hashes: List[imagehash.ImageHash], img_dir: str,
                        now: Optional[datetime] = None,
                        max_candidates: int = MAX_CANDIDATES_PER_SECTION,
-                       dedup_threshold: int = DEDUP_HAMMING_THRESHOLD) -> Optional[SelectedImage]:
+                       dedup_threshold: int = DEDUP_HAMMING_THRESHOLD,
+                       cache_dir: Optional[str] = None,
+                       manifest_rows: Optional[list] = None) -> Optional[SelectedImage]:
+    """manifest_rows가 주어지면, 검토된 모든 후보(다운로드 성공분 + 권리
+    검수로 건너뛴 분)를 asset-manifest.json용 dict로 append한다."""
     now = now or datetime.now()
     scored = []
     probed = 0
+    rows_by_candidate_id = {}  # id(cand) -> manifest row dict (선택 확정 시 in-place로 갱신)
+
+    def _record(cand, width=None, height=None, score=0.0):
+        if manifest_rows is None:
+            return
+        row = _manifest_row(section_id, cand, width, height, score)
+        rows_by_candidate_id[id(cand)] = row
+        manifest_rows.append(row)
 
     for rank, keyword in enumerate(keywords):
         if probed >= max_candidates:
@@ -138,7 +191,19 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
             for cand in provider.search(keyword, count=3):
                 if probed >= max_candidates:
                     break
-                content = provider.download(cand)
+                apply_rights(cand)
+
+                if cand.needs_review:
+                    # 권리 불명확 후보는 다운로드하지 않는다(대역폭 낭비 방지 +
+                    # 검수 전 콘텐츠를 로컬에 받아두지 않기 위함). 네이버
+                    # discovery는 애초에 download()가 항상 None이라 이 분기가
+                    # 아니어도 아래에서 걸러지지만, 다른 소스(외신 등)도 같은
+                    # 규칙을 적용한다.
+                    probed += 1
+                    _record(cand)
+                    continue
+
+                content = _cached_download(provider, cand, cache_dir)
                 probed += 1
                 if not content:
                     continue
@@ -150,9 +215,11 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
                     continue
                 if is_duplicate(phash, recent_hashes, threshold=dedup_threshold):
                     print(f"  [media] 중복(7일 내 사용) 제외: {cand.url[:60]}")
+                    _record(cand, width, height)
                     continue
                 score = score_candidate(cand, rank, width, height, now)
                 scored.append((score, cand, content, width, height, phash))
+                _record(cand, width, height, score)
 
     if not scored:
         return None
@@ -165,11 +232,61 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
     with open(image_path, "wb") as f:
         f.write(content)
 
+    winner_row = rows_by_candidate_id.get(id(cand))
+    if winner_row is not None:
+        winner_row["selected"] = True
+        winner_row["localPath"] = image_path
+
     return SelectedImage(
         section_id=section_id, keyword=cand.keyword, provider=cand.source,
         url=cand.url, license=cand.license, phash=str(phash),
         width=width, height=height, score=score, image_path=image_path,
+        asset_source=cand.asset_source, title=cand.title, credit=cand.credit,
+        source_url=cand.source_url, rights_status=cand.rights_status,
+        allowed_platforms=cand.allowed_platforms, restrictions=cand.restrictions,
+        needs_review=cand.needs_review, search_query=cand.keyword,
     )
+
+
+def _manifest_row(section_id: str, cand: MediaCandidate, width: Optional[int],
+                   height: Optional[int], score: float) -> dict:
+    """asset-manifest.json의 assets[] 항목 하나. selected/localPath는 select_best_image()가
+    승자를 확정한 뒤 in-place로 갱신한다(초기값은 항상 False/빈 문자열)."""
+    asset_id_src = cand.asset_source or cand.source or "unknown"
+    url_hash = hashlib.sha1((cand.url or cand.source_url or "").encode("utf-8")).hexdigest()[:8]
+    return {
+        "assetId":          f"{asset_id_src.lower()}_{section_id}_{url_hash}",
+        "sceneId":          section_id,
+        "source":           cand.asset_source or cand.source,
+        "type":             "image",
+        "title":            cand.title,
+        "credit":           cand.credit,
+        "sourceUrl":        cand.source_url or cand.url,
+        "downloadUrl":      cand.download_url or cand.url,
+        "localPath":        "",
+        "searchQuery":      cand.keyword,
+        "rightsStatus":     cand.rights_status,
+        "allowedPlatforms": list(cand.allowed_platforms or []),
+        "restrictions":     list(cand.restrictions or []),
+        "containsPerson":  cand.contains_person,
+        "containsLogo":    cand.contains_logo,
+        "isForeignAgency": cand.is_foreign_agency,
+        "needsReview":      cand.needs_review,
+        "selected":         False,
+        "width":            width,
+        "height":           height,
+        "score":            score,
+    }
+
+
+def build_asset_manifest(manifest_rows: List[dict], project: str = "stock-briefing-video") -> dict:
+    """select_best_image()가 채운 manifest_rows(assets 항목 리스트)를
+    asset-manifest.json 최상위 구조로 감싼다."""
+    return {
+        "generatedAt": datetime.now().astimezone().isoformat(),
+        "project": project,
+        "assets": manifest_rows,
+    }
 
 
 def _fallback_sector_for_section(section: dict) -> str:
@@ -179,14 +296,44 @@ def _fallback_sector_for_section(section: dict) -> str:
     return ""
 
 
+def _order_providers(providers: List[MediaProvider], preferred_sources: List[str]) -> List[MediaProvider]:
+    """scene_plan 섹션의 preferredSources 순서대로 provider를 정렬한다.
+    preferredSources가 없거나 일치하는 provider가 없으면 원래 순서 그대로
+    (기존 동작과 100% 동일)."""
+    if not preferred_sources:
+        return providers
+    order_index = {src: i for i, src in enumerate(preferred_sources)}
+    return sorted(providers, key=lambda p: order_index.get(p.asset_source, len(preferred_sources)))
+
+
+def _keywords_for_section(sec: dict, restrict_to_stock_fallback: bool) -> List[str]:
+    """1차 작업이 채운 visual_keywords(한국어)/visualKeywordsEn(영어)을 함께
+    사용한다. needsDataReview=True(오염 의심 종목명)인 섹션은 종목명 기반
+    한국어 키워드로 KBS/연합뉴스를 검색하지 않고, 영어 키워드(스톡 사진/추상
+    그래픽용)만 사용한다 — 1차에서 만든 안전장치를 실제로 적용."""
+    ko = sec.get("visual_keywords") or []
+    en = sec.get("visualKeywordsEn") or []
+    if restrict_to_stock_fallback:
+        return list(en)
+    out = list(ko)
+    for kw in en:
+        if kw not in out:
+            out.append(kw)
+    return out
+
+
 def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProvider],
                         log_path: str, now: Optional[datetime] = None,
                         dedup_window_days: int = DEDUP_WINDOW_DAYS,
                         dedup_threshold: int = DEDUP_HAMMING_THRESHOLD,
-                        max_candidates: int = MAX_CANDIDATES_PER_SECTION) -> dict:
+                        max_candidates: int = MAX_CANDIDATES_PER_SECTION,
+                        cache_dir: Optional[str] = None,
+                        manifest_rows: Optional[list] = None) -> dict:
     """scene_plan(dict, scene_plan.json 로드 결과)의 모든 섹션에 대해 이미지를
     선택하고 {section_id: {image_path, source, license, keyword, score}}를
-    반환합니다. 검색 실패 섹션은 섹터 fallback(없으면 None)으로 채웁니다."""
+    반환합니다. 검색 실패 섹션은 섹터 fallback(없으면 None)으로 채웁니다.
+    manifest_rows가 주어지면 asset-manifest.json용 행을 그 리스트에 채웁니다
+    (반환값 자체는 하위호환을 위해 media_map dict 그대로 유지)."""
     now = now or datetime.now()
     log_rows = load_license_log(log_path)
     recent_hashes = _recent_phashes(log_rows, now, days=dedup_window_days)
@@ -195,11 +342,17 @@ def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProv
     new_rows = []
     for sec in scene_plan.get("sections") or []:
         section_id = sec.get("id", "")
-        keywords = sec.get("visual_keywords") or []
+        needs_data_review = bool(sec.get("needsDataReview"))
+        allow_stock_fallback = bool((sec.get("assetRequirements") or {}).get("allowStockFallback", True))
+        restrict_to_stock_fallback = needs_data_review and allow_stock_fallback
+        keywords = _keywords_for_section(sec, restrict_to_stock_fallback)
+        ordered_providers = _order_providers(providers, sec.get("preferredSources") or [])
+
         selected = None
         if keywords:
-            selected = select_best_image(section_id, keywords, providers, recent_hashes, img_dir, now,
-                                          max_candidates=max_candidates, dedup_threshold=dedup_threshold)
+            selected = select_best_image(section_id, keywords, ordered_providers, recent_hashes, img_dir, now,
+                                          max_candidates=max_candidates, dedup_threshold=dedup_threshold,
+                                          cache_dir=cache_dir, manifest_rows=manifest_rows)
 
         if selected:
             media_map[section_id] = {
