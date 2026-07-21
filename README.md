@@ -203,6 +203,64 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 `ENABLE_KEN_BURNS=true`일 때의 zoompan 경로/전환/이어붙이기 검증,
 `python tests/test_video_renderer.py`. ffmpeg가 PATH에 없으면 스킵).
 
+### scene_plan.json / media_map.json을 실제 화면에 연결 (3차 작업)
+
+1·2차 작업은 `scene_plan.json`(압축된 화면 텍스트)과 `media_map.json`(선택된
+이미지)을 만들었지만, 실제 렌더링(`builders.py`)은 그 어느 것도 읽지 않고
+`reordered_script.json` 원본 문장만 그대로 화면에 썼습니다. 3차 작업은 이
+연결을 만듭니다.
+
+- **`generate_assets.py`**가 `reordered_script.json`뿐 아니라 `scene_plan.json`/
+  `media_map.json`도 로드해 섹션 id로 조인한 `visual` dict(`screenText`/
+  `image_path`/`needsDataReview`/`safeDisplayName` 등)를 각 빌더에 전달합니다
+  (`_resolve_visual()`). 두 파일이 없거나(1·2차를 안 거쳤거나 실패한 경우)
+  섹션이 매칭되지 않으면 빈 값으로 채워져 빌더가 기존 폴백 경로(원본 문장/
+  이미지 없음)로 자연스럽게 동작합니다 — 회귀 없음.
+- **배경 이미지 + 사진 위 텍스트**: `html_theme.background_layer()`가 전체화면
+  배경 이미지와 아래로 갈수록 어두워지는 그라디언트 오버레이를 만듭니다.
+  이 코드베이스는 카드/텍스트를 대부분 인라인 style로 작성해 CSS 클래스로
+  일괄 색상 오버라이드가 어려우므로, "글자 색을 바꾸는" 대신
+  `text_plate()`(반투명 다크 판)로 헤드라인을 감싸 사진의 명암과 무관하게
+  항상 대비를 보장합니다. 흰 카드(`class="card"`)류 컴포넌트는 이미
+  불투명해 배경 사진 위에서도 별도 처리 없이 안전합니다. 배경 사진이 있으면
+  기본 흰색 상단바도 반투명 다크 톤으로 전환해 사진과 한 화면처럼 보이게
+  합니다. 적용 대상: `build_hook`(오프닝)/`_build_stock_summary`/
+  `build_sector`/`build_market_summary`.
+- **오프닝(`build_hook`) 재구성**: 배경 사진이 있으면 `screenText`(예: "AI
+  반도체 급락" / "오늘 시장의 방향은?")를 큰 흰 헤드라인으로, 없으면 기존
+  원형 그라디언트 폴백을 그대로 씁니다. 오늘의 핵심 이슈 키워드 3개를 칩으로
+  추가했습니다. 이 파이프라인은 1개 장면=1개 정지 이미지+1개 오디오
+  구간이라(`video_renderer.py`), 오프닝 안에서 "0~1.5초/1.5~4.5초/4.5~8초"
+  식 여러 타이밍 비트를 넣는 멀티 비트 애니메이션은 이번 범위가 아닙니다
+  (`generate_video.py`의 프레임-오디오 페어링 구조 자체를 바꿔야 함).
+- **화면 텍스트 압축 적용**: `corner_summary`/`subtitle` 원문 대신
+  `scene_plan.json`의 `screenText`(최대 2줄, 1차 작업의 규칙 기반 압축
+  결과)를 우선 사용합니다. `screenText`가 없으면 기존 원문으로 폴백합니다.
+- **오염 종목명 안전장치를 화면에 실제 적용**: `needsDataReview=true`
+  섹션은 원래 종목명 대신 `safeDisplayName`("관심 종목")을 제목/lower-third에
+  표시하고, 그 이름으로 로고를 검색하는 것도(무의미하므로) 건너뜁니다.
+- **하단 뉴스 티커**: `html_theme.news_ticker()`. `set_briefing_date()`와
+  동일한 전역 상태 패턴(`set_ticker_text()`)으로 구현해 `shell()` 기반
+  빌더 전체가 시그니처 변경 없이 자동으로 티커를 받습니다. 이 파이프라인은
+  DOM을 정지 스크린샷으로 뜨는 방식(PNG 1장, video 아님)이라 CSS marquee
+  애니메이션은 캡처 시점의 임의 프레임만 찍혀 의미가 없어, 스크롤 대신 고정
+  텍스트로 표시합니다. `lower_third()`가 이미 `.content` 하단을 차지하는
+  종목 카드류는 `suppress_ticker=True`로 겹침을 피합니다. 티커 문구는
+  `scene_plan.json`의 `priority_score` 상위 섹션 키워드를 모아 자동 생성하고,
+  색조는 `market_summary`의 `dataOverlay.marketMood`를 따릅니다.
+- **`review-checklist.md`**(`pipeline/generate_review_checklist.py`):
+  렌더링 전 자동 판정 가능한 항목(오프닝 screenText 유무, 2줄 초과 섹션,
+  `needsReview`인데 `selected`된 자산이 있는지, 오염 종목명 목록, 외신 자산
+  목록)을 정리한 체크리스트를 `output/{lang}/review-checklist.md`로 생성.
+
+이번 범위에서 하지 않은 것: 섹터 타일 하나하나에 개별 이미지를 붙이는 것
+(`media_map.json`이 섹션 단위 이미지 1장만 제공), Ken Burns를 오프닝에만
+선택 적용하는 것(전역 스위치라 장면별 차등 적용은 별도 작업), `html_theme.py`
+전체를 다크 금융뉴스 테마로 재작성하는 것(1차 결정대로 기존 라이트 테마 유지).
+
+샘플: `tests/test_builders_visual.py`(배경 이미지 유무/screenText 우선순위/
+티커 전역상태/`_resolve_visual` 조인 검증), `tests/test_review_checklist.py`.
+
 ## 종목 언급 중심 플롯 (섹션 재정렬 — 실제 영상 제작에 반영됨)
 
 `generate_reordered_script.py`가 `script.json`을 읽어 재정렬한

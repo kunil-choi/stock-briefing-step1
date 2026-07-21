@@ -13,7 +13,7 @@ from .html_theme import (
     point_card, bullet_column, quote_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
     lower_third, headline_card, report_card, risk_card, sector_heatmap,
-    autofit_text,
+    autofit_text, text_plate,
 )
 from .chart import build_chart_with_insight
 from .image_fetch import fetch_news_image
@@ -62,17 +62,53 @@ def build_opening(data, out_dir):
 # ── 훅 (Phase E/짧은 하이라이트 포맷: 브랜드 인트로를 대체하는 15초 훅) ────────
 #
 # narrative_reorder._build_hook_section()이 만드는 합성 섹션(id="hook")을
-# 렌더링한다. 기존 build_opening()의 브랜드 배경(원형 그라디언트)은 재사용해
-# 채널 아이덴티티는 유지하되, 느린 타이틀 카드 대신 오늘 장 시작 전 가장
-# 중요한 이슈 요약을 바로 보여준다 — 출퇴근길에 클릭하자마자 핵심이 나오도록.
-def build_hook(sec, out_dir):
-    headline = sec.get("subtitle") or sec.get("narration", "")
+# 렌더링한다. 3차 작업: scene_plan.json의 screenText(압축된 헤드라인)와
+# media_map.json의 선택 이미지(visual)가 있으면 전체화면 배경 사진 + 반투명
+# 다크 판(text_plate) 위에 흰 헤드라인을 올리는 유튜브 후킹형 오프닝으로
+# 재구성한다. 이미지가 없으면 기존 원형 그라디언트 폴백(회귀 없음)을 그대로 쓴다.
+def build_hook(sec, out_dir, visual=None):
+    visual = visual or {}
+    image_path = visual.get("image_path")
+    screen_lines = [l for l in (visual.get("screenText") or []) if l]
+    fallback_text = sec.get("subtitle") or sec.get("narration", "")
 
-    headline_html = autofit_text(
-        headline, base_font_size=54, max_lines=5, min_font_size=30,
-        extra_style=f"font-weight:800;color:{PALETTE['ink']};max-width:1560px;text-align:left;",
-    )
-    content = f"""
+    # 오늘의 핵심 이슈 칩(최대 3개) — 기존 build_opening()의 키워드 pill 패턴을
+    # 재사용. reordered_script의 keywords가 없으면 scene_plan의 한국어 키워드로 보강.
+    keywords = (sec.get("keywords") or visual.get("visualKeywordsKo") or [])[:3]
+
+    if image_path:
+        headline_inner = (
+            "".join(f'<div style="font-size:58px;font-weight:800;line-height:1.35;'
+                     f'color:#fff;">{esc(l)}</div>' for l in screen_lines)
+            if screen_lines else
+            autofit_text(fallback_text, base_font_size=48, max_lines=3, min_font_size=28,
+                         extra_style="font-weight:800;color:#fff;text-align:left;")
+        )
+        chip_html = "".join(
+            f'<span class="pill" style="background:{PALETTE["ink"]}cc;color:#fff;'
+            f'border:2px solid {c};font-size:24px;font-weight:700;">{esc(k)}</span>'
+            for k, c in zip(keywords, _ACCENT_CYCLE)
+        )
+        content = f"""
+<div class="pill" style="background:{PALETTE['accent']};color:#fff;font-size:26px;padding:12px 30px;">KBS 머니올라</div>
+{text_plate(headline_inner, extra_style="text-align:left;max-width:1560px;")}
+<div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;">{chip_html}</div>
+"""
+        html = centered_shell(content, background_image=image_path)
+    else:
+        headline_html = (
+            "".join(f'<div style="font-size:54px;font-weight:800;line-height:1.35;">{esc(l)}</div>'
+                     for l in screen_lines)
+            if screen_lines else
+            autofit_text(fallback_text, base_font_size=54, max_lines=5, min_font_size=30,
+                         extra_style=f"font-weight:800;color:{PALETTE['ink']};max-width:1560px;text-align:left;")
+        )
+        kw_html = "".join(
+            f'<span class="pill" style="background:{c}1a;color:{c};border:2px solid {c};'
+            f'font-size:24px;font-weight:700;">{esc(k)}</span>'
+            for k, c in zip(keywords, _ACCENT_CYCLE)
+        )
+        content = f"""
 <div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
   background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
   top:-260px;left:50%;transform:translateX(-50%);"></div>
@@ -80,8 +116,10 @@ def build_hook(sec, out_dir):
 <div class="pill" style="background:{PALETTE['highlight']};color:{PALETTE['ink']};
   font-size:32px;font-weight:800;padding:14px 34px;">오늘, 계좌를 흔들 변수는?</div>
 {headline_html}
+<div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;">{kw_html}</div>
 """
-    html = centered_shell(content)
+        html = centered_shell(content)
+
     return render_html_to_png(html, os.path.join(out_dir, "00_hook.png"))
 
 
@@ -98,10 +136,16 @@ def build_conclusion(sec, out_dir):
 
 # ── 시장 요약 ───────────────────────────────────────────────────────────────
 
-def build_market_summary(data, out_dir):
+def build_market_summary(data, out_dir, visual=None):
+    visual = visual or {}
     sec = _find_section(data.get("sections", []), "market_summary")
     corner_summary = sec.get("corner_summary", "")
     points = sec.get("points", [])[:6]
+    image_path = visual.get("image_path")
+    screen_lines = [l for l in (visual.get("screenText") or []) if l]
+    # headline_card()는 이미 불투명 흰 카드 안에 텍스트를 담으므로 배경 사진이
+    # 있어도 별도 색상 처리 없이 그대로 안전하게 읽힌다.
+    headline_text = "\n".join(screen_lines) if screen_lines else corner_summary
 
     rows = [
         ("코스피",    sec.get("kospi_value", ""),  sec.get("kospi_change", ""),  sec.get("kospi_change_positive", True)),
@@ -111,7 +155,7 @@ def build_market_summary(data, out_dir):
         ("원달러환율", sec.get("usdkrw_value", ""), sec.get("usdkrw_change", ""), sec.get("usdkrw_positive", False)),
     ]
 
-    corner_html = headline_card(corner_summary) if corner_summary else ""
+    corner_html = headline_card(headline_text) if headline_text else ""
     points_html = ""
     if points:
         cards = "".join(point_card(i + 1, p, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
@@ -126,32 +170,46 @@ def build_market_summary(data, out_dir):
 </div>
 {points_html}"""
 
-    html = shell("주요 지표", content)
+    html = shell("주요 지표", content, background_image=image_path)
     return [render_html_to_png(html, os.path.join(out_dir, "01_market_00.png"))]
 
 
 # ── 업종 분석 ───────────────────────────────────────────────────────────────
 
-def build_sector(data, out_dir):
+def build_sector(data, out_dir, visual=None):
+    visual = visual or {}
     sec = _find_section(data.get("sections", []), "sectors")
     corner_summary = sec.get("corner_summary", "")
     sector_list = sec.get("sector_list", sec.get("sectors", sec.get("list", [])))[:6]
+    image_path = visual.get("image_path")
+    screen_lines = [l for l in (visual.get("screenText") or []) if l]
+    headline_text = "\n".join(screen_lines) if screen_lines else corner_summary
 
-    corner_html = (
-        f'<div class="corner-summary">{esc(corner_summary)}</div>' if corner_summary else ""
-    )
+    if image_path and headline_text:
+        headline_html = text_plate(
+            f'<div style="font-size:32px;font-weight:800;color:#fff;white-space:pre-line;">'
+            f'{esc(headline_text)}</div>'
+        )
+    else:
+        headline_html = (
+            f'<div class="corner-summary">{esc(headline_text)}</div>' if headline_text else ""
+        )
 
-    content = f"""{corner_html}
+    content = f"""{headline_html}
 {sector_heatmap(sector_list)}"""
 
-    html = shell("핵심 업종 분석", content)
+    html = shell("핵심 업종 분석", content, background_image=image_path)
     return render_html_to_png(html, os.path.join(out_dir, "02_sector.png"))
 
 
 # ── 종목 요약 슬라이드 ──────────────────────────────────────────────────────
 
-def _build_stock_summary(sec, out_path, img_dir):
+def _build_stock_summary(sec, out_path, img_dir, visual=None):
+    visual         = visual or {}
     stock_name     = sec.get("id", "").replace("stock_", "").replace("hidden_", "")
+    # 1차 작업의 needsDataReview 안전장치를 화면에 실제로 적용: 오염 의심
+    # 종목명(예: "뉴스경제방송유튜브")은 실제 이름 대신 안전한 표시명으로 보여준다.
+    display_name  = (visual.get("safeDisplayName") or stock_name) if visual.get("needsDataReview") else stock_name
     price          = sec.get("price", "")
     change         = sec.get("change", "")
     positive       = sec.get("change_positive", True)
@@ -160,14 +218,8 @@ def _build_stock_summary(sec, out_path, img_dir):
     risks          = sec.get("risks", [])[:4]
     corner_summary = sec.get("corner_summary", "")
     is_hidden      = sec.get("id", "").startswith("hidden_")
-
-    logo_path = fetch_news_image(stock_name, img_dir, [])
-    logo_html = (
-        f'<img src="{file_uri(logo_path)}" style="width:150px;height:150px;'
-        f'border-radius:50%;object-fit:cover;border:4px solid {PALETTE["accent"]};'
-        f'position:absolute;top:0;right:0;">'
-        if logo_path else ""
-    )
+    image_path     = visual.get("image_path")
+    screen_lines   = [l for l in (visual.get("screenText") or []) if l]
 
     hidden_badge = (
         f'<span class="pill" style="background:{PALETTE["highlight"]};color:#5c4a00;'
@@ -175,6 +227,8 @@ def _build_stock_summary(sec, out_path, img_dir):
         if is_hidden else ""
     )
 
+    # 사진 배경 위에서는 accent(민트)보다 흰색 숫자가 대비가 안정적이다.
+    price_number_color = "#ffffff" if image_path else PALETTE["accent"]
     price_html = ""
     if price:
         color = PALETTE["up"] if positive else PALETTE["down"]
@@ -186,15 +240,13 @@ def _build_stock_summary(sec, out_path, img_dir):
         )
         price_html = (
             f'<div style="margin-top:14px;">'
-            f'<span style="font-size:48px;font-weight:800;color:{PALETTE["accent"]};">'
+            f'<span style="font-size:48px;font-weight:800;color:{price_number_color};">'
             f'₩ {esc(price)}</span>{change_html}</div>'
         )
 
-    summary_text = corner_summary or summary
-    summary_html = (
-        f'<div class="corner-summary" style="margin-top:24px;">{esc(summary_text)}</div>'
-        if summary_text else ""
-    )
+    # 화면 헤드라인: scene_plan의 압축된 screenText(최대 2줄) 우선, 없으면
+    # 기존처럼 corner_summary/summary 원문으로 폴백(회귀 없음).
+    summary_text = "\n".join(screen_lines) if screen_lines else (corner_summary or summary)
 
     lower_html = ""
     if catalysts or risks:
@@ -210,14 +262,53 @@ def _build_stock_summary(sec, out_path, img_dir):
     normalized = normalize_stock_name(stock_name)
     code   = STOCK_CODES.get(normalized, "")
     sector = get_stock_sector(normalized)
-    lower_third_html = lower_third(stock_name, code, change, positive, sector)
+    lower_third_html = lower_third(display_name, code, change, positive, sector)
 
+    if image_path:
+        # 배경 이미지가 있으면 150px 원형 로고 대신 전체화면 배경을 쓰고,
+        # 이름/가격/헤드라인을 반투명 다크 판 안에 흰 글자로 담는다.
+        title_block = (
+            f'{hidden_badge}'
+            f'<div style="font-size:72px;font-weight:800;color:#fff;">{esc(display_name)}</div>'
+            f'{price_html}'
+        )
+        summary_html = (
+            f'<div style="font-size:28px;font-weight:700;color:#fff;margin-top:18px;'
+            f'line-height:1.5;white-space:pre-line;">{esc(summary_text)}</div>'
+            if summary_text else ""
+        )
+        content = f"""
+<div style="padding-bottom:110px;">
+  {text_plate(title_block + summary_html, extra_style="display:block;max-width:1400px;")}
+  {lower_html}
+</div>
+{lower_third_html}
+"""
+        bar_label = f"숨은 종목 분석: {display_name}" if is_hidden else f"종목 분석: {display_name}"
+        html = shell(bar_label, content, stock_tag=display_name, background_image=image_path,
+                     suppress_ticker=True)
+        return render_html_to_png(html, out_path)
+
+    # ── 배경 이미지가 없을 때(기존 동작, 회귀 없음) ──────────────────────────
+    # needsDataReview(오염 의심 종목명)면 그 이름으로 로고를 검색하는 것 자체가
+    # 무의미하므로 건너뛴다(실패로 끝날 헛된 외부 요청을 만들지 않음).
+    logo_path = None if visual.get("needsDataReview") else fetch_news_image(stock_name, img_dir, [])
+    logo_html = (
+        f'<img src="{file_uri(logo_path)}" style="width:150px;height:150px;'
+        f'border-radius:50%;object-fit:cover;border:4px solid {PALETTE["accent"]};'
+        f'position:absolute;top:0;right:0;">'
+        if logo_path else ""
+    )
+    summary_html = (
+        f'<div class="corner-summary" style="margin-top:24px;white-space:pre-line;">{esc(summary_text)}</div>'
+        if summary_text else ""
+    )
     content = f"""
 <div style="padding-bottom:110px;">
   <div style="position:relative;">
     {logo_html}
     {hidden_badge}
-    <div style="font-size:72px;font-weight:800;">{esc(stock_name)}</div>
+    <div style="font-size:72px;font-weight:800;">{esc(display_name)}</div>
     {price_html}
   </div>
   {summary_html}
@@ -225,8 +316,8 @@ def _build_stock_summary(sec, out_path, img_dir):
 </div>
 {lower_third_html}
 """
-    bar_label = f"숨은 종목 분석: {stock_name}" if is_hidden else f"종목 분석: {stock_name}"
-    html = shell(bar_label, content, stock_tag=stock_name)
+    bar_label = f"숨은 종목 분석: {display_name}" if is_hidden else f"종목 분석: {display_name}"
+    html = shell(bar_label, content, stock_tag=display_name, suppress_ticker=True)
     return render_html_to_png(html, out_path)
 
 
@@ -288,13 +379,13 @@ def _build_mention_page(sec, out_path, page_idx):
 
 # ── 종목 카드 묶음 ─────────────────────────────────────────────────────────
 
-def build_stock_cards(sec, out_dir, img_dir, prefix):
+def build_stock_cards(sec, out_dir, img_dir, prefix, visual=None):
     generated_paths = set()
 
     summary_path = os.path.join(out_dir, f"{prefix}_1_summary.png")
 
     paths = [
-        _build_stock_summary(sec, summary_path, img_dir),
+        _build_stock_summary(sec, summary_path, img_dir, visual=visual),
     ]
     generated_paths.add(summary_path)
 

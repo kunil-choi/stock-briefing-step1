@@ -26,6 +26,19 @@ def set_briefing_date(date_str: str) -> None:
     global _BRIEFING_DATE_STR
     _BRIEFING_DATE_STR = date_str or ""
 
+
+# 3차 작업: 하단 뉴스 티커. set_briefing_date()와 동일한 패턴(전역 상태 1회
+# 설정 → shell()이 매 호출마다 자동 소비)으로, 모든 shell() 기반 빌더 호출부를
+# 일일이 고치지 않고 generate_assets.py가 한 번만 설정하면 된다.
+_TICKER_TEXT = ""
+_TICKER_TONE = "neutral"
+
+
+def set_ticker_text(text: str, tone: str = "neutral") -> None:
+    global _TICKER_TEXT, _TICKER_TONE
+    _TICKER_TEXT = text or ""
+    _TICKER_TONE = tone
+
 PALETTE = {
     "bg":           "#faf9f6",
     "dot":          "#e6e4dc",
@@ -73,6 +86,57 @@ def file_uri(path: str) -> str:
         return f"data:{mime};base64,{b64}"
     except Exception:
         return "file://" + os.path.abspath(path)
+
+
+# ── 3차 작업: 배경 이미지 / 사진 위 텍스트 판 / 하단 뉴스 티커 ──────────────
+#
+# 이 파일의 기존 카드/텍스트는 전부 인라인 style(색상 등)로 작성돼 있어(CSS
+# 클래스로 일괄 오버라이드하기 어려움), 사진 위에서도 항상 읽히도록 만드는
+# 방법으로 "글자 색을 바꾸는" 대신 "반투명 다크 판(text_plate) 위에 흰 글자를
+# 올리는" 접근을 쓴다 — 어떤 사진이 오더라도(밝든 어둡든) 대비가 보장된다.
+
+def background_layer(image_path, darkness: float = 0.72) -> str:
+    """전체화면 배경 이미지 + 아래로 갈수록 어두워지는 그라디언트 오버레이.
+    image_path가 없거나 파일이 실제로 없으면 빈 문자열을 반환해 기존 레이아웃을
+    그대로 유지한다(호출부에서 이 반환값을 content 앞에 붙이기만 하면 됨 —
+    z-index가 음수라 뒤에 깔리므로 DOM 삽입 위치는 중요하지 않다)."""
+    if not image_path or not os.path.isfile(image_path):
+        return ""
+    uri = file_uri(image_path)
+    return f"""
+<div style="position:absolute;inset:0;z-index:-3;background-image:url('{uri}');
+  background-size:cover;background-position:center;"></div>
+<div style="position:absolute;inset:0;z-index:-2;
+  background:linear-gradient(180deg, rgba(5,7,13,.30) 0%, rgba(5,7,13,.55) 45%,
+  rgba(5,7,13,{darkness}) 100%);"></div>"""
+
+
+def text_plate(inner_html: str, extra_style: str = "") -> str:
+    """사진 배경 위에 얹는 반투명 다크 판. 카드 없이 배경에 직접 나오는
+    헤드라인/타이틀류 텍스트를 감쌀 때 사용한다(사진의 밝기와 무관하게 항상
+    대비를 보장하기 위함 — 글자색만 흰색으로 바꾸는 것보다 안전하다)."""
+    return (
+        f'<div style="display:inline-block;background:rgba(5,7,13,.55);'
+        f'border-radius:18px;padding:22px 30px;{extra_style}">{inner_html}</div>'
+    )
+
+
+def news_ticker(text: str, tone: str = "neutral") -> str:
+    """화면 하단(.content 영역 안쪽, 자막 번인 영역과는 분리된 위치)에 고정
+    표시되는 얇은 뉴스 티커. 이 파이프라인은 DOM을 정지 스크린샷으로 뜨는
+    방식이라(video가 아니라 PNG 1장) CSS marquee 애니메이션은 캡처 시점의
+    임의의 프레임만 찍혀 의미가 없다 — 그래서 스크롤 대신 고정 텍스트로
+    표시한다."""
+    if not text:
+        return ""
+    colors = {"bullish": PALETTE["up"], "bearish": PALETTE["down"], "neutral": PALETTE["accent"]}
+    color = colors.get(tone, PALETTE["accent"])
+    return f"""
+<div style="position:absolute;left:0;right:0;bottom:0;height:48px;
+  display:flex;align-items:center;background:{PALETTE['ink']}f0;
+  border-left:6px solid {color};border-radius:10px;padding:0 22px;overflow:hidden;">
+  <span style="font-size:21px;font-weight:700;color:#fff;white-space:nowrap;">{esc(text)}</span>
+</div>"""
 
 
 BASE_CSS = f"""
@@ -131,24 +195,42 @@ body{{
 
 
 def shell(topbar_label: str, content_html: str, stock_tag: str = "",
-          date_str: str = "") -> str:
+          date_str: str = "", background_image=None, suppress_ticker: bool = False) -> str:
     date_str = date_str or _BRIEFING_DATE_STR or date.today().strftime("%Y.%m.%d")
     tag_html = f'<div class="tag">#{esc(stock_tag)}</div>' if stock_tag else ""
+    has_bg = bool(background_image and os.path.isfile(background_image))
+    bg_html = background_layer(background_image)
+    # 티커는 set_ticker_text()로 한 번 설정한 전역값을 모든 shell() 호출이
+    # 자동으로 소비한다(set_briefing_date()와 동일한 패턴) — 빌더 함수 시그니처를
+    # 일일이 바꾸지 않아도 된다. suppress_ticker=True는 lower_third()처럼
+    # .content 하단을 이미 차지하는 콘텐츠와 겹치지 않도록 개별 호출부가 끈다.
+    ticker_html = "" if suppress_ticker else news_ticker(_TICKER_TEXT, _TICKER_TONE)
+    # 배경 사진이 있으면 흰 상단바가 사진과 따로 노는 느낌이 들어, 반투명
+    # 다크 톤 + 흰 글자로 바꿔 사진과 한 화면처럼 어울리게 한다.
+    topbar_style = ' style="background:rgba(5,7,13,.55);border-bottom:none;"' if has_bg else ""
+    label_style = ' style="color:#fff;"' if has_bg else ""
+    date_style = ' style="color:#e5e7eb;"' if has_bg else ""
+    sub_style = ' style="color:#cbd5e1;"' if has_bg else ""
+    divider_style = ' style="background:rgba(255,255,255,.35);"' if has_bg else ""
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>{BASE_CSS}</style></head>
 <body><div class="stage">
-  <div class="topbar">
+  {bg_html}
+  <div class="topbar"{topbar_style}>
     <div class="brand">KBS</div>
-    <div class="brand-sub">머니올라</div>
-    <div class="divider"></div>
-    <div class="label">{esc(strip_emoji(topbar_label))}</div>
-    <div class="date">{esc(date_str)}</div>
+    <div class="brand-sub"{sub_style}>머니올라</div>
+    <div class="divider"{divider_style}></div>
+    <div class="label"{label_style}>{esc(strip_emoji(topbar_label))}</div>
+    <div class="date"{date_style}>{esc(date_str)}</div>
   </div>
-  <div class="content">{content_html}</div>
+  <div class="content">{content_html}{ticker_html}</div>
   <div class="subtitle-zone">{tag_html}</div>
 </div></body></html>"""
 
 
-def centered_shell(content_html: str) -> str:
+def centered_shell(content_html: str, background_image=None) -> str:
+    # background_layer()는 .stage 전체(화면 전체 높이)를 덮어야 자막존 경계에서
+    # 이미지가 끊기지 않으므로, .center-wrap 안이 아니라 .stage의 형제로 둔다.
+    bg_html = background_layer(background_image)
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>{BASE_CSS}
 .center-wrap{{
   position:absolute; left:0; top:0; width:{W}px; height:{H - SUBTITLE_BAR_H}px;
@@ -157,6 +239,7 @@ def centered_shell(content_html: str) -> str:
 }}
 </style></head>
 <body><div class="stage">
+  {bg_html}
   <div class="center-wrap">{content_html}</div>
   <div class="subtitle-zone"></div>
 </div></body></html>"""
