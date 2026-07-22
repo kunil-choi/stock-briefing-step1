@@ -286,6 +286,33 @@ def point_card(num: int, text: str, color: str) -> str:
     )
 
 
+def point_card_img(num: int, name: str, text: str, color: str, image_uri: str = "") -> str:
+    """point_card()의 이미지 포함 변형. "추가 관심 종목"처럼 종목이 여러 개
+    나열되는 집계 슬라이드에서, 텍스트뿐이던 카드에 종목 썸네일을 곁들여
+    한눈에 구분되는 카드형 레이아웃으로 보여준다. image_uri가 없으면(검색
+    실패 등) 썸네일 없이 기존 point_card()와 동일한 레이아웃으로 폴백한다."""
+    img_html = (
+        f'<img src="{image_uri}" style="width:64px;height:64px;border-radius:12px;'
+        f'object-fit:cover;flex-shrink:0;border:2px solid {color}55;">'
+        if image_uri else ""
+    )
+    name_html = (
+        f'<div style="font-size:22px;font-weight:800;color:{color};margin-bottom:4px;">{esc(name)}</div>'
+        if name else ""
+    )
+    return (
+        f'<div class="card" style="display:flex;align-items:center;gap:16px;'
+        f'padding:18px 24px;">'
+        f'<div class="badge-num" style="background:{color}22;color:{color};'
+        f'border:2px solid {color};flex-shrink:0;">{num}</div>'
+        f'{img_html}'
+        f'<div style="flex:1;">{name_html}'
+        f'<div style="font-size:23px;line-height:1.5;font-weight:600;">{esc(text)}</div>'
+        f'</div>'
+        f'</div>'
+    )
+
+
 def bullet_column(title: str, items: list, color: str) -> str:
     lis = "".join(
         f'<li style="margin-bottom:14px;line-height:1.5;">{esc(it)}</li>'

@@ -74,11 +74,20 @@ def test_shell_background_image_param():
 
 
 def test_build_hook_falls_back_without_visual():
-    sec = {"id": "hook", "subtitle": "오늘 코스피는 상승 마감했습니다.", "narration": "오늘 코스피는 상승 마감했습니다."}
+    # FIX-HOOK-SPLIT-1: 훅이 타이틀/포인트 두 화면으로 나뉘면서 build_hook()의
+    # 반환값이 단일 경로 → 경로 리스트로 바뀌었다(build_stock_cards()/
+    # build_market_summary()와 동일한 다중 프레임 패턴).
+    sec = {
+        "id": "hook",
+        "hook_title": "장이 열리기 전, 당신의 계좌를 흔들 변수는?",
+        "hook_points": ["오늘 코스피는 상승 마감했습니다."],
+        "subtitle": "오늘 코스피는 상승 마감했습니다.", "narration": "오늘 코스피는 상승 마감했습니다.",
+    }
     with tempfile.TemporaryDirectory() as tmp:
-        path = build_hook(sec, tmp, visual=None)
-        assert os.path.isfile(path)
-    print("✅ build_hook: visual 없이도(1차 이전 상태) 기존처럼 동작")
+        paths = build_hook(sec, tmp, visual=None)
+        assert isinstance(paths, list) and len(paths) == 2
+        assert all(os.path.isfile(p) for p in paths)
+    print("✅ build_hook: visual 없이도 타이틀+포인트 2장 렌더링(기존처럼 예외 없이 동작)")
 
 
 def test_build_hook_uses_screen_text_with_image():
@@ -86,14 +95,19 @@ def test_build_hook_uses_screen_text_with_image():
         f.write(b"\xff\xd8\xff" + b"0" * 100)
         img_path = f.name
     try:
-        sec = {"id": "hook", "subtitle": "원본 문장", "narration": "원본 문장", "keywords": ["반도체", "실적"]}
+        sec = {
+            "id": "hook", "subtitle": "원본 문장", "narration": "원본 문장", "keywords": ["반도체", "실적"],
+            "hook_title": "장이 열리기 전, 당신의 계좌를 흔들 변수는?",
+            "hook_points": ["AI 반도체 급락", "오늘 시장의 방향은?"],
+        }
         visual = {"screenText": ["AI 반도체 급락", "오늘 시장의 방향은?"], "image_path": img_path}
         with tempfile.TemporaryDirectory() as tmp:
-            path = build_hook(sec, tmp, visual=visual)
-            assert os.path.isfile(path)
+            paths = build_hook(sec, tmp, visual=visual)
+            assert isinstance(paths, list) and len(paths) == 2
+            assert all(os.path.isfile(p) for p in paths)
     finally:
         os.unlink(img_path)
-    print("✅ build_hook: screenText+이미지가 있으면 배경 사진 경로로 렌더링(예외 없이 완료)")
+    print("✅ build_hook: screenText+이미지가 있으면 배경 사진 경로로 타이틀+포인트 2장 렌더링(예외 없이 완료)")
 
 
 def test_stock_summary_uses_safe_display_name_when_data_review_flagged():
@@ -129,16 +143,24 @@ def test_resolve_visual_join_and_missing_file_guard():
 
 
 def test_compute_ticker_ranks_by_priority_and_dedupes():
+    # FIX-TICKER-1: 티커가 임의 섹션의 visualKeywordsKo[0](섹터명 등 종목이
+    # 아닌 키워드 포함 가능)이 아니라, 오늘 이 영상이 다루는 "종목 섹션"의
+    # 종목명만 모아 "오늘의 주요 관심종목: " 라벨을 붙이도록 바뀌었다.
     sections = [
         {"id": "closing", "priority_score": 0.3, "visualKeywordsKo": ["마무리"]},
         {"id": "stock_삼성전자", "priority_score": 0.9, "visualKeywordsKo": ["삼성전자", "반도체"]},
+        {"id": "stock_추가관심종목", "priority_score": 0.95, "visualKeywordsKo": ["추가관심종목"]},
         {"id": "market_summary", "priority_score": 0.6, "visualKeywordsKo": ["코스피"],
          "dataOverlay": {"marketMood": "bearish"}},
     ]
     text, tone = _compute_ticker(sections, max_items=6)
-    assert text.split(" · ")[0] == "삼성전자", "priority_score가 가장 높은 섹션의 키워드가 먼저 나와야 함"
+    assert text.startswith("오늘의 주요 관심종목: "), "종목 목록임을 밝히는 라벨이 붙어야 함"
+    names = text.removeprefix("오늘의 주요 관심종목: ").split(" · ")
+    assert names[0] == "삼성전자", "priority_score가 가장 높은 종목 섹션의 이름이 먼저 나와야 함"
+    assert "추가관심종목" not in names, "집계 섹션(stock_추가관심종목)은 개별 종목이 아니므로 제외돼야 함"
+    assert "마무리" not in names and "코스피" not in names, "종목이 아닌 섹션의 키워드는 섞이면 안 됨"
     assert tone == "bearish"
-    print("✅ _compute_ticker: priority_score 순 정렬 + market_summary의 마켓무드 반영")
+    print("✅ _compute_ticker: 종목 섹션만 priority_score 순으로 모으고 집계 섹션은 제외")
 
 
 if __name__ == "__main__":

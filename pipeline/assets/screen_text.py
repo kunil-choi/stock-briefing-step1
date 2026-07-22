@@ -55,6 +55,18 @@ def to_keyword_form(text: str, drop_prices: bool = True) -> str:
     return t.strip()
 
 
+# 하드 컷 결과가 조사/연결어미 한 글자로 끝나면(예: "...유입과") 어색하게
+# 매달린다 — 이미 완전한 문장이 아닌 잘린 조각이므로, 마지막 조사를 마저
+# 지우는 쪽이 자연스럽다.
+_DANGLING_PARTICLES = set("과와은는이가을를의에로도만며고나")
+
+
+def _strip_dangling_particle(text: str) -> str:
+    if len(text) >= 2 and text[-1] in _DANGLING_PARTICLES:
+        return text[:-1].rstrip()
+    return text
+
+
 def compress_line(text: str, max_chars: int = 18) -> str:
     t = to_keyword_form(text)
     if len(t) <= max_chars:
@@ -64,7 +76,8 @@ def compress_line(text: str, max_chars: int = 18) -> str:
     cut = t[:max_chars]
     if " " in cut:
         cut = cut[: cut.rfind(" ")]
-    return cut.strip()
+    cut = cut.strip()
+    return _strip_dangling_particle(cut)
 
 
 def compress_to_screen_text(

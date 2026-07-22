@@ -3,10 +3,15 @@
 프리미엄 TTS 파이프라인(Phase H)의 provider 우선순위/설정, 오디오 후처리
 (atempo/loudnorm/BGM 덕킹) 파라미터, 발음 교정 사전을 노출한다."""
 import os
-import re
+import sys
 from typing import List
 
 import yaml
+
+_HERE_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HERE_DIR not in sys.path:
+    sys.path.insert(0, _HERE_DIR)
+from assets.korean_numbers import read_decimal_numbers_ko
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _AUDIO_PATH = os.path.join(_HERE, "..", "config", "audio.yml")
@@ -42,14 +47,21 @@ PRONUNCIATION_RULES: List[List[str]] = _PRONUNCIATION_CFG.get("rules") or []
 
 def apply_pronunciation_rules(text: str) -> str:
     """narration 텍스트에 config/pronunciation_ko.yml의 발음 교정 규칙과
-    소수점 "쩜" 변환을 적용합니다. subtitle(화면 자막)에는 절대 사용하지
-    마세요."""
+    소수점 숫자 완전 한글 변환을 적용합니다. subtitle(화면 자막)에는 절대
+    사용하지 마세요.
+
+    FIX-NUM-READ-1: 예전에는 "(\\d+)\\.(\\d+)" 자리에 "쩜"만 끼워 넣고 숫자
+    자체는 아라비아 숫자 그대로 TTS에 넘겼다 — 그 결과 소수부(예: ".27")를
+    TTS가 자릿수 단위가 있는 두 자리 수("이십칠")로 읽어버려, 한국어 표준
+    발음(소수부는 한 자리씩: "이칠")과 어긋났다. read_decimal_numbers_ko()가
+    정수부/소수부/부호/퍼센트까지 통째로 한글 발음으로 풀어써 이 문제를
+    근본적으로 해결한다(assets/korean_numbers.py 참고)."""
     if not text:
         return text
     result = text
     for src, dst in PRONUNCIATION_RULES:
         result = result.replace(src, dst)
-    result = re.sub(r"(\d+)\.(\d+)", lambda m: f"{m.group(1)}쩜{m.group(2)}", result)
+    result = read_decimal_numbers_ko(result)
     return result
 
 

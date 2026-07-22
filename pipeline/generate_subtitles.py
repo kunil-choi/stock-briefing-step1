@@ -9,7 +9,8 @@ ASS(Advanced SubStation Alpha) 자막 파일 생성 모듈
 - 긴 자막은 적절한 길이로 자동 분할합니다.
 
 프레임 파일명 → 오디오 ID 매핑 규칙:
-  00_hook.png                → hook.mp3
+  00_hook_1_title.png        → hook_title.mp3
+  00_hook_2_points.png       → hook_points.mp3
   01_conclusion.png          → conclusion.mp3
   10_삼성전자_1_summary.png  → stock_삼성전자_summary.mp3
   10_삼성전자_3_mention.png  → stock_삼성전자_mention.mp3
@@ -112,7 +113,9 @@ def _frame_stem_to_audio_id(stem: str, sections: list) -> str:
     """
     # 고정 패턴 (정확한 매핑)
     fixed_patterns = [
-        (r'^00_hook$',              'hook'),
+        (r'^00_hook_1_title$',      'hook_title'),
+        (r'^00_hook_2_points$',     'hook_points'),
+        (r'^00_hook$',              'hook'),  # 하위 호환(구 단일 프레임 asset_map 캐시 대비)
         (r'^01_conclusion$',        'conclusion'),
         (r'^00_opening$',           'opening'),
         (r'^01_market',             'market_summary'),
@@ -240,6 +243,17 @@ def _build_subtitle_map(sections: list, lang: str):
             # 클로징 슬라이드는 투자 유의사항 전문을 화면에 이미 글자로 표시하므로
             # (builders.build_closing 참고) 하단 자막을 중복으로 넣지 않는다.
             continue
+
+        elif sid == "hook":
+            # FIX-HOOK-SPLIT-1: 훅이 타이틀/포인트 두 화면(두 오디오)으로
+            # 나뉘었으므로(narrative_reorder._build_hook_section,
+            # builders.build_hook 참고) 자막도 그 두 오디오 ID에 맞춰 나눈다.
+            title = section.get("hook_title", "")
+            if title:
+                subtitle_map["hook_title"] = (title, title)
+            points_text = section.get("hook_points_narration", "")
+            if points_text:
+                subtitle_map["hook_points"] = (points_text, points_text)
 
         else:
             # 일반 섹션
