@@ -263,6 +263,70 @@ def draw_candle_chart(df: pd.DataFrame, stock_name: str, save_path: str) -> Opti
         return None
 
 
+def draw_compact_week_chart(df: pd.DataFrame, save_path: str) -> Optional[str]:
+    """종목 상세 카드 하단에 인라인으로 들어가는 소형 캔들 차트를 그린다.
+    draw_candle_chart()(2주 전체 슬라이드용, 거래량 subplot+어노테이션 포함)와
+    달리 카드 안에 작게 들어갈 목적이라 거래량/워터마크/고저 어노테이션 없이
+    캔들 몸통 + 종가 추세선 + 최소한의 축만 남긴다."""
+    try:
+        bg     = tuple(v / 255 for v in C["chart_bg"])
+        up_col = "#%02x%02x%02x" % C["chart_up"]
+        dn_col = "#%02x%02x%02x" % C["chart_down"]
+        grid_c = "#%02x%02x%02x" % C["chart_grid"]
+        text_c = "#%02x%02x%02x" % C["chart_text"]
+        gold_c = "#%02x%02x%02x" % C["gold"]
+
+        fig, ax = plt.subplots(1, 1, figsize=(6.4, 3.4), facecolor=bg)
+        ax.set_facecolor(bg)
+        ax.tick_params(colors=text_c, labelsize=12)
+        for spine in ax.spines.values():
+            spine.set_color(grid_c)
+        ax.yaxis.grid(True, color=grid_c, linewidth=0.6, linestyle="--")
+        ax.set_axisbelow(True)
+
+        for i, (_, row) in enumerate(df.iterrows()):
+            is_up  = row["Close"] >= row["Open"]
+            color  = up_col if is_up else dn_col
+            body_b = min(row["Open"], row["Close"])
+            body_h = abs(row["Close"] - row["Open"]) or (row["High"] * 0.001)
+            ax.bar(i, body_h, bottom=body_b, color=color, width=0.55, zorder=3)
+            ax.plot([i, i], [row["Low"], row["High"]], color=color, linewidth=1.3, zorder=2)
+
+        ax.plot(list(range(len(df))), df["Close"].tolist(),
+                color=gold_c, linewidth=1.0, alpha=0.5, zorder=1)
+
+        labels = [d.strftime("%m/%d") for d in df.index]
+        ax.set_xticks(list(range(len(df))))
+        ax.set_xticklabels(labels, color=text_c, fontsize=11)
+        ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{int(x):,}"))
+        ax.tick_params(axis="y", colors=text_c, labelsize=11, pad=6)
+        ax.set_xlim(-0.7, len(df) - 0.3)
+
+        plt.subplots_adjust(left=0.16, right=0.97, top=0.94, bottom=0.14)
+        plt.savefig(save_path, dpi=100, bbox_inches="tight", facecolor=bg)
+        plt.close(fig)
+        return save_path
+    except Exception as e:
+        print(f"  [chart] 소형 주간 차트 생성 실패: {e}")
+        plt.close("all")
+        return None
+
+
+def build_week_chart(stock_name: str, img_dir: str, days: int = 5) -> Optional[str]:
+    """최근 거래일 기준 지난 1주일(기본 5거래일) 소형 캔들 차트 경로를 반환한다.
+    데이터를 못 구하면(네트워크/휴장 등) None을 반환 — 호출부가 차트 없이
+    기존 레이아웃으로 자연스럽게 폴백해야 한다(회귀 없음)."""
+    normalized = normalize_stock_name(stock_name)
+    save_path  = os.path.join(img_dir, f"week_chart_{normalized}.png")
+    if os.path.exists(save_path) and os.path.getsize(save_path) > 3000:
+        return save_path
+    df = fetch_ohlcv(normalized, days=days)
+    if df is None or len(df) < 2:
+        print(f"  [chart] 주간 차트 데이터 부족: {normalized}")
+        return None
+    return draw_compact_week_chart(df, save_path)
+
+
 def build_chart_insight(df: pd.DataFrame) -> Optional[str]:
     """2주간 OHLCV로 간단한 차트 분석법 기반 코멘트를 생성합니다.
     등락폭이 미미하고 이동평균·거래량에서도 뚜렷한 신호가 없으면 None을 반환해

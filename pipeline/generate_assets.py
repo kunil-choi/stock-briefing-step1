@@ -80,18 +80,34 @@ def _resolve_visual(section_id: str, scene_by_id: dict, media_map: dict) -> dict
     }
 
 
+_TICKER_AGGREGATE_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
+
+
 def _compute_ticker(scene_sections: list, max_items: int = 6):
-    """오늘의 핵심 키워드를 priority_score 상위 섹션에서 모아 하단 티커 텍스트로
-    만든다. 시장 전반 분위기(dataOverlay.marketMood)로 색조를 정한다."""
+    """오늘 영상이 다루는 종목명을 priority_score 상위 섹션에서 모아 하단
+    티커 텍스트로 만든다. 시장 전반 분위기(dataOverlay.marketMood)로 색조를
+    정한다.
+
+    FIX-TICKER-1: 예전에는 섹션 종류를 가리지 않고 visualKeywordsKo[0]을
+    그대로 모았다 — 그 결과 "삼성전자 · 삼성SDI · KB금융 · HD현대중공업 ·
+    LG화학 · 금융"처럼 실제 종목명과 섹터/키워드("금융")가 뒤섞여 무엇을
+    나열한 목록인지 애매했다. 이제는 개별 종목 섹션(stock_/hidden_, 집계
+    섹션 제외)의 종목명만 모으고 "오늘의 주요 관심종목: " 라벨을 붙여
+    이 영상이 다루는 종목 목록임을 명확히 한다."""
     ranked = sorted(scene_sections, key=lambda s: s.get("priority_score", 0), reverse=True)
-    items = []
+    names = []
     for s in ranked:
-        kws = s.get("visualKeywordsKo") or s.get("visual_keywords") or []
-        if kws and kws[0] not in items:
-            items.append(kws[0])
-        if len(items) >= max_items:
+        sid = s.get("id", "")
+        if sid in _TICKER_AGGREGATE_IDS:
+            continue
+        if not (sid.startswith("stock_") or sid.startswith("hidden_")):
+            continue
+        name = sid.replace("stock_", "").replace("hidden_", "").strip()
+        if name and name not in names:
+            names.append(name)
+        if len(names) >= max_items:
             break
-    text = " · ".join(items)
+    text = f"오늘의 주요 관심종목: {' · '.join(names)}" if names else ""
 
     tone = "neutral"
     for s in scene_sections:
@@ -163,7 +179,7 @@ def run(lang: str = "KO"):
             visual = _resolve_visual(sid, scene_by_id, media_map)
 
             if sid == "hook":
-                asset_map["frames"].append(build_hook(sec, out_dir, visual=visual))
+                asset_map["frames"].extend(build_hook(sec, out_dir, visual=visual))
             elif sid == "conclusion":
                 asset_map["frames"].append(build_conclusion(sec, out_dir))
             elif sid == "closing":
@@ -175,7 +191,7 @@ def run(lang: str = "KO"):
             elif sid == "ai_strategy":
                 asset_map["frames"].append(build_ai_strategy(data, out_dir))
             elif sid in _AGGREGATE_BUILDERS:
-                frame = _AGGREGATE_BUILDERS[sid](data, out_dir)
+                frame = _AGGREGATE_BUILDERS[sid](data, out_dir, img_dir)
                 if frame:
                     asset_map["frames"].append(frame)
             elif section_type == "top_mover" or sid.startswith("stock_") or sid.startswith("hidden_"):
