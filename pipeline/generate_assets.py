@@ -77,6 +77,11 @@ def _resolve_visual(section_id: str, scene_by_id: dict, media_map: dict) -> dict
         "needsDataReview": bool(scene.get("needsDataReview")),
         "safeDisplayName": scene.get("safeDisplayName"),
         "image_path": image_path,
+        # FIX-CREDIT-1: 배경 사진의 출처(예: "사진: 연합뉴스")를 화면에 작은
+        # 워터마크로 표시하기 위해 media_map.json의 credit을 함께 넘긴다.
+        # fallback(섹터 대체 이미지)은 뉴스 사진이 아니므로 credit이 비어 있고,
+        # 그 경우 builders.py가 워터마크를 아예 그리지 않는다.
+        "credit": media.get("credit", ""),
     }
 
 

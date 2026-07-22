@@ -17,6 +17,7 @@ if _PIPELINE not in sys.path:
 from assets.media_providers import (  # noqa: E402
     MediaCandidate, MockProvider, NaverDiscoveryConnector, KbsInternalConnector,
     KbsBadaConnector, PublicAgencyConnector, StockPhotoConnector,
+    _parse_og_image_from_html,
 )
 from assets.rights_review import classify_rights  # noqa: E402
 from assets.media_pipeline import (  # noqa: E402
@@ -80,12 +81,27 @@ def test_mock_only_connectors_disabled_without_env():
     print("✅ 실 API 키/설정이 없으면 신규 커넥터가 안전하게 빈 리스트를 반환(비활성)")
 
 
-def test_naver_discovery_never_downloads():
+def test_naver_discovery_resolves_confirmed_source_to_yonhap_kbs():
+    # FIX-NAVER-DISCOVERY-1: 예전에는 discovery 전용(download()가 항상 None)
+    # 이었지만, 이제는 네이버 뉴스 검색으로 찾은 연합뉴스/KBS 원문 기사의
+    # og:image를 직접 추출해 실제로 다운로드 가능한 이미지 후보를 만든다.
+    # download()가 더 이상 오버라이드돼 있지 않으므로 기본 MediaProvider.download()
+    # (일반 HTTP GET)를 그대로 상속받는다.
     conn = NaverDiscoveryConnector()
-    cand = MediaCandidate(url="", source="naver_discovery", asset_source="NAVER_DISCOVERY",
-                           source_url="https://news.kbs.co.kr/article/1")
-    assert conn.download(cand) is None, "네이버 discovery 후보는 절대 직접 다운로드하면 안 됨"
-    print("✅ NaverDiscoveryConnector.download()는 항상 None(직접 렌더링 금지)")
+    assert "download" not in NaverDiscoveryConnector.__dict__, (
+        "download()를 더 이상 오버라이드하지 않아야 함 — 실제로 이미지를 받아야 하므로 "
+        "기본 MediaProvider.download() 동작(HTTP GET)을 그대로 써야 한다"
+    )
+    print("✅ NaverDiscoveryConnector: og:image로 확인된 이미지는 기본 download() 경로로 실제 다운로드됨")
+
+
+def test_parse_og_image_from_html_handles_both_attribute_orders():
+    html_content_last = '<meta property="og:image" content="https://img.yna.co.kr/photo/1.jpg">'
+    html_content_first = "<meta content='https://news.kbs.co.kr/img/2.jpg' property='og:image'>"
+    assert _parse_og_image_from_html(html_content_last) == "https://img.yna.co.kr/photo/1.jpg"
+    assert _parse_og_image_from_html(html_content_first) == "https://news.kbs.co.kr/img/2.jpg"
+    assert _parse_og_image_from_html("<html><body>no meta here</body></html>") == ""
+    print("✅ _parse_og_image_from_html: content/property 속성 순서 둘 다 처리, 없으면 빈 문자열")
 
 
 def test_order_providers_by_preferred_sources():
@@ -177,7 +193,8 @@ if __name__ == "__main__":
     test_classify_rights_foreign_agency_always_review()
     test_classify_rights_mock_always_usable()
     test_mock_only_connectors_disabled_without_env()
-    test_naver_discovery_never_downloads()
+    test_naver_discovery_resolves_confirmed_source_to_yonhap_kbs()
+    test_parse_og_image_from_html_handles_both_attribute_orders()
     test_order_providers_by_preferred_sources()
     test_keywords_for_section_needs_data_review_gate()
     test_cached_download_avoids_repeat_download()
