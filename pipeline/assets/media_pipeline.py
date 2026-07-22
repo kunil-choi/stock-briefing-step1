@@ -26,7 +26,7 @@ LICENSE_LOG_FIELDS = [
     "license", "phash", "width", "height", "score",
 ]
 
-_PROVIDER_TRUST = {"yonhap": 0.3, "kbs": 0.3, "mock": 0.15}
+_PROVIDER_TRUST = {"yonhap": 0.3, "kbs": 0.3, "naver_discovery": 0.28, "mock": 0.15}
 _LICENSE_SCORE = {"api_licensed": 0.2, "editorial_search": 0.1, "mock": 0.05, "unknown": 0.0}
 
 DEDUP_WINDOW_DAYS = 7
@@ -362,6 +362,7 @@ def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProv
                 "keyword":    selected.keyword,
                 "score":      selected.score,
                 "phash":      selected.phash,
+                "credit":     selected.credit,
             }
             new_rows.append({
                 "date":       now.strftime("%Y-%m-%d"),
@@ -386,6 +387,7 @@ def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProv
                 "keyword":    "",
                 "score":      0.0,
                 "phash":      None,
+                "credit":     "",
             }
             print(f"  [media] {section_id}: 이미지 검색 실패 → 섹터 폴백({sector or '기타'})")
 

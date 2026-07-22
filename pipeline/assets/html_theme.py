@@ -95,20 +95,34 @@ def file_uri(path: str) -> str:
 # 방법으로 "글자 색을 바꾸는" 대신 "반투명 다크 판(text_plate) 위에 흰 글자를
 # 올리는" 접근을 쓴다 — 어떤 사진이 오더라도(밝든 어둡든) 대비가 보장된다.
 
-def background_layer(image_path, darkness: float = 0.72) -> str:
+def background_layer(image_path, darkness: float = 0.72, credit: str = "") -> str:
     """전체화면 배경 이미지 + 아래로 갈수록 어두워지는 그라디언트 오버레이.
     image_path가 없거나 파일이 실제로 없으면 빈 문자열을 반환해 기존 레이아웃을
     그대로 유지한다(호출부에서 이 반환값을 content 앞에 붙이기만 하면 됨 —
-    z-index가 음수라 뒤에 깔리므로 DOM 삽입 위치는 중요하지 않다)."""
+    z-index가 음수라 뒤에 깔리므로 DOM 삽입 위치는 중요하지 않다).
+
+    credit이 있으면(예: "사진: 연합뉴스") 화면 우측 하단에 작은 출처 텍스트를
+    워터마크로 얹는다 — 뉴스 사진을 실제로 다운로드해 쓰는 만큼 출처를
+    표시해야 한다는 요구사항(FIX-CREDIT-1)."""
     if not image_path or not os.path.isfile(image_path):
         return ""
     uri = file_uri(image_path)
+    # 화면 우측, 자막 번인 영역(subtitle-zone) 바로 위 — .tag(종목 해시태그,
+    # subtitle-zone 안쪽 top:14px)와 실제로 타 붙는 캡션 텍스트(자막존 하단)
+    # 둘 다와 겹치지 않는 유일한 안전지대.
+    credit_html = (
+        f'<div style="position:absolute;right:24px;bottom:{SUBTITLE_BAR_H + 14}px;z-index:-1;'
+        f'font-size:16px;color:rgba(255,255,255,.75);font-weight:600;'
+        f'text-shadow:0 1px 3px rgba(0,0,0,.8);">{esc(credit)}</div>'
+        if credit else ""
+    )
     return f"""
 <div style="position:absolute;inset:0;z-index:-3;background-image:url('{uri}');
   background-size:cover;background-position:center;"></div>
 <div style="position:absolute;inset:0;z-index:-2;
   background:linear-gradient(180deg, rgba(5,7,13,.30) 0%, rgba(5,7,13,.55) 45%,
-  rgba(5,7,13,{darkness}) 100%);"></div>"""
+  rgba(5,7,13,{darkness}) 100%);"></div>
+{credit_html}"""
 
 
 def text_plate(inner_html: str, extra_style: str = "") -> str:
@@ -195,11 +209,12 @@ body{{
 
 
 def shell(topbar_label: str, content_html: str, stock_tag: str = "",
-          date_str: str = "", background_image=None, suppress_ticker: bool = False) -> str:
+          date_str: str = "", background_image=None, suppress_ticker: bool = False,
+          credit: str = "") -> str:
     date_str = date_str or _BRIEFING_DATE_STR or date.today().strftime("%Y.%m.%d")
     tag_html = f'<div class="tag">#{esc(stock_tag)}</div>' if stock_tag else ""
     has_bg = bool(background_image and os.path.isfile(background_image))
-    bg_html = background_layer(background_image)
+    bg_html = background_layer(background_image, credit=credit)
     # 티커는 set_ticker_text()로 한 번 설정한 전역값을 모든 shell() 호출이
     # 자동으로 소비한다(set_briefing_date()와 동일한 패턴) — 빌더 함수 시그니처를
     # 일일이 바꾸지 않아도 된다. suppress_ticker=True는 lower_third()처럼
@@ -227,10 +242,10 @@ def shell(topbar_label: str, content_html: str, stock_tag: str = "",
 </div></body></html>"""
 
 
-def centered_shell(content_html: str, background_image=None) -> str:
+def centered_shell(content_html: str, background_image=None, credit: str = "") -> str:
     # background_layer()는 .stage 전체(화면 전체 높이)를 덮어야 자막존 경계에서
     # 이미지가 끊기지 않으므로, .center-wrap 안이 아니라 .stage의 형제로 둔다.
-    bg_html = background_layer(background_image)
+    bg_html = background_layer(background_image, credit=credit)
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>{BASE_CSS}
 .center-wrap{{
   position:absolute; left:0; top:0; width:{W}px; height:{H - SUBTITLE_BAR_H}px;

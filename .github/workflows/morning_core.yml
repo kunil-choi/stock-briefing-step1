@@ -124,6 +124,12 @@ jobs:
         env:
           YONHAP_API_KEY: ${{ secrets.YONHAP_API_KEY }}
           KBS_API_KEY: ${{ secrets.KBS_API_KEY }}
+          # naver_discovery 커넥터(config/media.yml) — 네이버 뉴스 검색으로
+          # yonhap/kbs가 자체 검색으로 못 찾은 키워드를 보완한다. 시크릿이
+          # 없으면 커넥터가 자동으로 빈 결과만 반환한다(안전한 기본값).
+          NAVER_SEARCH_CLIENT_ID: ${{ secrets.NAVER_SEARCH_CLIENT_ID }}
+          NAVER_SEARCH_CLIENT_SECRET: ${{ secrets.NAVER_SEARCH_CLIENT_SECRET }}
+          ENABLE_NAVER_DISCOVERY: ${{ secrets.NAVER_SEARCH_CLIENT_ID && 'true' || 'false' }}
           MEDIA_MOCK: ${{ inputs.dry_run && '1' || '' }}
         run: python pipeline/generate_media.py KO
       - uses: actions/upload-artifact@v4

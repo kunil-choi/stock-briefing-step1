@@ -9,8 +9,12 @@
   유지한다 — editorial_search도 needs_review=False(자동 사용 가능)로 둔다.
   실제 계약 API 키가 생기면 license가 "api_licensed"/"contracted"로 바뀔 뿐
   needs_review 판정 로직은 그대로 재사용된다.
-- 네이버 discovery(NAVER_DISCOVERY)는 원문 URL을 찾는 용도일 뿐 직접 렌더링
-  가능한 자산으로 취급하지 않는다 — 항상 검수 대상.
+- 네이버 discovery(NaverDiscoveryConnector)는 네이버 뉴스 검색으로 연합뉴스/
+  KBS 원문 기사를 찾아 그 페이지의 og:image를 직접 추출하므로, 원문 도메인이
+  확인된 후보는 asset_source를 YONHAP/KBS_WEBSITE로 재태깅해 그 두 소스와
+  동일하게 취급한다(아래 규칙이 그대로 적용됨). asset_source가 여전히
+  NAVER_DISCOVERY로 남아있는 경우(원문 도메인을 확인 못한 레거시/예외 상황)만
+  아래에서 항상 검수 대상으로 처리한다.
 - 외신(is_foreign_agency=True)은 소스가 무엇이든 항상 검수 대상 — 이 규칙은
   "현재 동작 유지" 결정과 무관하게 예외 없이 적용한다.
 - MockProvider(license=="mock")는 오프라인 테스트/시뮬레이션 데이터이므로

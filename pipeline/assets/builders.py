@@ -86,7 +86,7 @@ def _build_hook_title(sec, out_dir, visual, image_path):
 <div class="pill" style="background:{PALETTE['accent']};color:#fff;font-size:26px;padding:12px 30px;">KBS 머니올라</div>
 {text_plate(headline_inner, extra_style="text-align:left;max-width:1560px;")}
 """
-        html = centered_shell(content, background_image=image_path)
+        html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
     else:
         content = f"""
 <div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
@@ -119,7 +119,7 @@ def _build_hook_points(sec, out_dir, visual, image_path):
 <div class="pill" style="background:{PALETTE['accent']};color:#fff;font-size:26px;padding:12px 30px;">오늘의 핵심 이슈</div>
 {text_plate(lines_html, extra_style="text-align:left;max-width:1620px;")}
 """
-        html = centered_shell(content, background_image=image_path)
+        html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
     else:
         lines_html = "".join(
             f'<div style="display:flex;gap:16px;align-items:flex-start;margin-top:22px;">'
@@ -218,7 +218,7 @@ def build_market_summary(data, out_dir, visual=None):
 </div>
 {points_html}"""
 
-    html = shell("주요 지표", content, background_image=image_path)
+    html = shell("주요 지표", content, background_image=image_path, credit=visual.get("credit", ""))
     return [render_html_to_png(html, os.path.join(out_dir, "01_market_00.png"))]
 
 
@@ -246,7 +246,7 @@ def build_sector(data, out_dir, visual=None):
     content = f"""{headline_html}
 {sector_heatmap(sector_list)}"""
 
-    html = shell("핵심 업종 분석", content, background_image=image_path)
+    html = shell("핵심 업종 분석", content, background_image=image_path, credit=visual.get("credit", ""))
     return render_html_to_png(html, os.path.join(out_dir, "02_sector.png"))
 
 
@@ -347,7 +347,7 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
 """
         bar_label = f"숨은 종목 분석: {display_name}" if is_hidden else f"종목 분석: {display_name}"
         html = shell(bar_label, content, stock_tag=display_name, background_image=image_path,
-                     suppress_ticker=True)
+                     suppress_ticker=True, credit=visual.get("credit", ""))
         return render_html_to_png(html, out_path)
 
     # ── 배경 이미지가 없을 때(기존 동작, 회귀 없음) ──────────────────────────

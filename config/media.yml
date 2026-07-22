@@ -2,11 +2,15 @@
 # 미디어 검색 파이프라인(pipeline/assets/media_pipeline.py) 설정.
 # pipeline/config_media.py가 이 파일을 로드해 상수로 노출한다.
 
-providers: [yonhap, kbs]   # media_providers.py의 provider.name과 일치해야 함
+providers: [yonhap, kbs, naver_discovery]   # media_providers.py의 provider.name과 일치해야 함
+# yonhap/kbs가 각 사이트 자체 검색으로 못 찾은 키워드를 naver_discovery가
+# 네이버 뉴스 검색으로 보완한다(연합뉴스/KBS 원문 기사를 찾아 og:image를
+# 추출 — NAVER_SEARCH_CLIENT_ID/SECRET + ENABLE_NAVER_DISCOVERY=true가 없으면
+# 자동으로 빈 결과만 반환하므로 키가 없어도 안전하다).
 # 2차 작업(AssetSearchService)에서 추가된 옵션: kbs_internal, kbs_bada,
-# public_agency, official_company, stock_photo, naver_discovery,
-# generated_abstract. 필요한 환경변수가 없는 커넥터는 등록해도 항상 빈
-# 리스트를 반환하므로 안전하게 추가할 수 있다(예: providers: [yonhap, kbs, stock_photo]).
+# public_agency, official_company, stock_photo, generated_abstract. 필요한
+# 환경변수가 없는 커넥터는 등록해도 항상 빈 리스트를 반환하므로 안전하게
+# 추가할 수 있다(예: providers: [yonhap, kbs, naver_discovery, stock_photo]).
 
 dedup:
   window_days: 7          # 이 기간 내 사용된 이미지(phash 기준)는 재사용하지 않음

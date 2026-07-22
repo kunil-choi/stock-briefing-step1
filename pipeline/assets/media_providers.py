@@ -13,6 +13,7 @@ import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from io import BytesIO
 from typing import List, Optional
 
@@ -383,16 +384,70 @@ class StockPhotoConnector(MediaProvider):
             return []
 
 
+_OGIMAGE_RE = [
+    re.compile(r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']', re.IGNORECASE),
+    re.compile(r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']', re.IGNORECASE),
+]
+
+
+def _parse_og_image_from_html(html: str) -> str:
+    """HTML 문자열에서 og:image 메타태그의 이미지 URL을 뽑는 순수 함수(네트워크
+    없음, 테스트 용이). 속성 순서(content가 먼저/나중)가 사이트마다 달라 두
+    패턴을 모두 시도한다."""
+    for pattern in _OGIMAGE_RE:
+        m = pattern.search(html or "")
+        if m:
+            return m.group(1)
+    return ""
+
+
+def _extract_og_image(article_url: str) -> str:
+    """기사 페이지를 실제로 내려받아 og:image를 추출한다(네트워크 필요)."""
+    try:
+        r = requests.get(article_url, headers=HEADERS, timeout=10)
+        if r.status_code != 200:
+            return ""
+        return _parse_og_image_from_html(r.text)
+    except Exception as e:
+        print(f"  [media:naver_discovery] og:image 추출 실패 ({article_url[:60]}): {e}")
+    return ""
+
+
+def _parse_naver_pubdate(pub_date: str) -> Optional[datetime]:
+    try:
+        return parsedate_to_datetime(pub_date) if pub_date else None
+    except Exception:
+        return None
+
+
 class NaverDiscoveryConnector(MediaProvider):
-    """네이버 검색 결과에서 KBS/연합뉴스 원문 기사 URL을 찾는 discovery 전용
-    커넥터. 이미지를 직접 다운로드하지 않으며(download()는 항상 None),
-    반환하는 후보는 rights_review.classify_rights()가 항상 rights_status
-    ="unclear"/needs_review=True로 분류해 자동 렌더링 후보에서 제외된다 —
-    발견된 sourceUrl은 KbsProvider/YonhapProvider의 후속 검색 힌트로만 쓰인다.
+    """네이버 뉴스 검색 API로 연합뉴스/KBS 원문 기사를 찾은 뒤, 그 기사
+    페이지의 og:image를 추출해 실제로 다운로드 가능한 이미지 후보를 만든다.
+
+    출처 확인 방법으로 "네이버 이미지 검색 API"가 아니라 "네이버 뉴스 검색
+    API + 원문 페이지 og:image 추출"을 쓰는 이유: 네이버 이미지 검색 결과의
+    link는 네이버 자체 CDN(pstatic.net 등)으로 프록시되는 경우가 많아 URL만
+    보고 원 출처 도메인을 신뢰하기 어렵다. 뉴스 검색 API의 link/originallink는
+    언론사 원문 URL 그대로이므로 yna.co.kr/kbs.co.kr인지 확실히 판별할 수
+    있고, 그 페이지에서 직접 뽑은 og:image는 그 기사의 대표 사진이 맞다는
+    보장이 있다.
+
+    일단 원문이 yna.co.kr/kbs.co.kr로 확인되면, 이후 신뢰도·권리 판정은
+    YonhapProvider/KbsProvider와 완전히 동일하게 취급한다(asset_source를
+    "YONHAP"/"KBS_WEBSITE"로 설정 — rights_review.classify_rights()가 이미
+    이 두 값을 editorial_search/needs_review=False로 자동 승인 처리한다).
+    이 커넥터 자체가 발견한 이미지가 아니라, "연합뉴스/KBS 원문 페이지에서
+    직접 가져온 이미지"이므로 같은 신뢰 등급이 맞다 — NAVER_DISCOVERY라는
+    별도 미확인 등급을 쓸 이유가 없다(og:image 추출에 실패해 원문 이미지를
+    확인 못한 경우에만 이 후보를 아예 만들지 않고 건너뛴다).
+
     NAVER_SEARCH_CLIENT_ID/SECRET와 ENABLE_NAVER_DISCOVERY=true가 모두 있어야
-    동작한다."""
+    동작한다(둘 다 없으면 빈 리스트 — 기존 도메인 사이트 직접 검색인
+    YonhapProvider/KbsProvider가 못 찾은 경우를 보완하는 2차 경로)."""
     name = "naver_discovery"
-    asset_source = "NAVER_DISCOVERY"
+    asset_source = "NAVER_DISCOVERY"  # search()가 실제로 반환하는 후보는 개별적으로 YONHAP/KBS_WEBSITE로 재설정됨
+
+    _SOURCE_BY_DOMAIN = [("yna.co.kr", "YONHAP", "사진: 연합뉴스"), ("kbs.co.kr", "KBS_WEBSITE", "사진: KBS")]
 
     def __init__(self):
         self.client_id = os.environ.get("NAVER_SEARCH_CLIENT_ID", "")
@@ -417,23 +472,29 @@ class NaverDiscoveryConnector(MediaProvider):
             items = (r.json().get("items") or [])[:count]
             out = []
             for item in items:
-                link = item.get("link", "")
-                if "kbs.co.kr" not in link and "yna.co.kr" not in link:
-                    continue  # KBS/연합뉴스 원문만 발견 대상으로 삼는다(그 외 출처는 무시)
+                # originallink가 있으면 그게 진짜 언론사 원문(link는 네이버뉴스
+                # 자체 페이지로 리다이렉트되는 경우가 흔함) — originallink 우선.
+                link = item.get("originallink") or item.get("link", "")
+                match = next((m for m in self._SOURCE_BY_DOMAIN if m[0] in link), None)
+                if not match:
+                    continue  # 연합뉴스/KBS 원문만 발견 대상으로 삼는다(그 외 출처는 무시)
+                _, asset_source, credit = match
+
+                image_url = _extract_og_image(link)
+                if not image_url:
+                    continue  # 원문 확인은 됐지만 대표 이미지를 못 뽑았으면 후보로 만들지 않음
+
                 out.append(MediaCandidate(
-                    url="", source=self.name, keyword=keyword,
+                    url=image_url, source=self.name, keyword=keyword,
                     title=re.sub(r"<.*?>", "", item.get("title", "")),
-                    license="unclear", asset_source="NAVER_DISCOVERY",
+                    published_at=_parse_naver_pubdate(item.get("pubDate", "")),
+                    license="editorial_search", asset_source=asset_source, credit=credit,
                     source_url=link, search_query=keyword,
-                    rights_status="unclear", needs_review=True,
                 ))
             return out
         except Exception as e:
             print(f"  [media:naver_discovery] 검색 실패 ({keyword}): {e}")
             return []
-
-    def download(self, candidate: MediaCandidate) -> Optional[bytes]:
-        return None  # discovery 전용 — 이미지를 직접 다운로드하지 않는다
 
 
 class GeneratedAbstractConnector(MediaProvider):
