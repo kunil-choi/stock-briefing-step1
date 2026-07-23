@@ -11,15 +11,15 @@ providers:
   openai:
     voice: nova              # nova(여성) / onyx(남성) / alloy / echo / fable / shimmer
     model: tts-1-hd           # tts-1(빠름) / tts-1-hd(고품질)
-    # 합성 단계에서 낭독 속도 자체를 높인다(0.25~4.0, OpenAI TTS 네이티브
+    # 합성 단계에서 낭독 속도 자체를 조절한다(0.25~4.0, OpenAI TTS 네이티브
     # speed 파라미터). 다 만들어진 오디오를 나중에 ffmpeg atempo로 빨리 재생하는
     # 것과 달리 음높이 왜곡·기계음 느낌 없이 자연스럽게 빨라지고, 문장 사이
-    # 포즈도 비례해서 짧아진다. 1.15~1.25 구간이 자연스러운 상한선.
-    speaking_rate: 1.2
+    # 포즈도 비례해서 짧아진다. 1.0이 원어민 기준 보통 속도.
+    speaking_rate: 1.0
 
   azure:
     voice_id: ko-KR-SunHiNeural
-    speaking_rate: 1.2       # 0.5~2.0, SSML prosody rate — 네이티브 신경망 TTS라 1.2~1.3도 자연스러움
+    speaking_rate: 1.0       # 0.5~2.0, SSML prosody rate
     pitch: 0                  # -50~+50 (%)
 
   elevenlabs:
@@ -29,7 +29,7 @@ providers:
     model_id: eleven_multilingual_v2
     stability: 0.72
     similarity_boost: 0.88
-    speaking_rate: 1.15       # voice_settings.speed (0.7~1.2 범위)
+    speaking_rate: 1.0        # voice_settings.speed (0.7~1.2 범위)
     output_format: mp3_44100_128
 
 # TTS 합성 후 최종 영상 나레이션 속도를 맞추는 ffmpeg atempo 배속의 허용 범위.

@@ -74,20 +74,18 @@ def test_shell_background_image_param():
 
 
 def test_build_hook_falls_back_without_visual():
-    # FIX-HOOK-SPLIT-1: 훅이 타이틀/포인트 두 화면으로 나뉘면서 build_hook()의
-    # 반환값이 단일 경로 → 경로 리스트로 바뀌었다(build_stock_cards()/
-    # build_market_summary()와 동일한 다중 프레임 패턴).
+    # 훅은 제목 카드 화면 한 장뿐이다(내레이션/자막 없음) — build_hook()은
+    # 그 한 장의 경로만 담은 리스트를 반환한다.
     sec = {
         "id": "hook",
-        "hook_title": "장이 열리기 전, 당신의 계좌를 흔들 변수는?",
-        "hook_points": ["오늘 코스피는 상승 마감했습니다."],
-        "subtitle": "오늘 코스피는 상승 마감했습니다.", "narration": "오늘 코스피는 상승 마감했습니다.",
+        "hook_title": "오늘 투자자들의 관심이 집중될 종목은?",
+        "hook_subline": "지난 24시간 유튜브·증권사 방송을 AI로 분석했습니다",
     }
     with tempfile.TemporaryDirectory() as tmp:
         paths = build_hook(sec, tmp, visual=None)
-        assert isinstance(paths, list) and len(paths) == 2
+        assert isinstance(paths, list) and len(paths) == 1
         assert all(os.path.isfile(p) for p in paths)
-    print("✅ build_hook: visual 없이도 타이틀+포인트 2장 렌더링(기존처럼 예외 없이 동작)")
+    print("✅ build_hook: visual 없이도 타이틀 카드 1장 렌더링(기존처럼 예외 없이 동작)")
 
 
 def test_build_hook_uses_screen_text_with_image():
@@ -96,18 +94,18 @@ def test_build_hook_uses_screen_text_with_image():
         img_path = f.name
     try:
         sec = {
-            "id": "hook", "subtitle": "원본 문장", "narration": "원본 문장", "keywords": ["반도체", "실적"],
-            "hook_title": "장이 열리기 전, 당신의 계좌를 흔들 변수는?",
-            "hook_points": ["AI 반도체 급락", "오늘 시장의 방향은?"],
+            "id": "hook", "keywords": ["반도체", "실적"],
+            "hook_title": "오늘 투자자들의 관심이 집중될 종목은?",
+            "hook_subline": "지난 24시간 유튜브·증권사 방송을 AI로 분석했습니다",
         }
         visual = {"screenText": ["AI 반도체 급락", "오늘 시장의 방향은?"], "image_path": img_path}
         with tempfile.TemporaryDirectory() as tmp:
             paths = build_hook(sec, tmp, visual=visual)
-            assert isinstance(paths, list) and len(paths) == 2
+            assert isinstance(paths, list) and len(paths) == 1
             assert all(os.path.isfile(p) for p in paths)
     finally:
         os.unlink(img_path)
-    print("✅ build_hook: screenText+이미지가 있으면 배경 사진 경로로 타이틀+포인트 2장 렌더링(예외 없이 완료)")
+    print("✅ build_hook: screenText+이미지가 있으면 배경 사진 경로로 타이틀 카드 1장 렌더링(예외 없이 완료)")
 
 
 def test_stock_summary_uses_safe_display_name_when_data_review_flagged():

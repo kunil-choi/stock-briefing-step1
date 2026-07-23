@@ -60,15 +60,10 @@ def _build_jobs(sections: list, lang: str) -> list:
                     label_suffix = cs.get("channel_type", f"mention_page{p}")
                     jobs.append((text, f"{audio_base}/{sid}_mention_{p:02d}.mp3", f"{label} [{label_suffix}]"))
         elif sid == "hook":
-            # FIX-HOOK-SPLIT-1: 훅이 타이틀/포인트 두 화면으로 나뉘었으므로
-            # (narrative_reorder._build_hook_section, builders.build_hook 참고)
-            # 오디오도 화면당 하나씩 별도로 합성한다.
-            title = section.get("hook_title", "")
-            if title:
-                jobs.append((title, f"{audio_base}/hook_title.mp3", f"{label} [title]"))
-            points_text = section.get("hook_points_narration", "")
-            if points_text:
-                jobs.append((points_text, f"{audio_base}/hook_points.mp3", f"{label} [points]"))
+            # 훅 타이틀 화면은 제목 카드처럼 텍스트만 보여주고 내레이션은 넣지
+            # 않는다(narrative_reorder._build_hook_section 참고) — 오디오를
+            # 합성하지 않으며, generate_video.py가 무음 프레임으로 처리한다.
+            continue
         else:
             narration = section.get("narration", "")
             if narration:

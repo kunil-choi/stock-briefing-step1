@@ -13,17 +13,17 @@ window:
 report_decision: {}
 
 duration:
-  # narrative_reorder.build_mention_briefing()("종목 언급 중심" 구성)으로
-  # 바뀌면서 시장배경 해설/섹터분석/AI 투자전략/리스크 다이제스트가 전부
-  # 빠지고 대형 주도주 2개+관심종목 위주로만 구성되므로, 기존 9~11분보다
-  # 짧아질 것으로 예상해 목표를 낮췄다(pipeline/generate_video.py가 이 값을
-  # 그대로 읽어 TARGET_MIN/MAX/IDEAL로 쓴다). 이 범위는 실제 생성물 길이를
-  # 보고 재조정이 필요할 수 있는 잠정치다 — 짧은 스크립트를 억지로 늘리려고
-  # adjust_to_target_duration()이 내레이션 속도를 부자연스럽게 낮추는 걸
-  # 막는 게 목적이라, 실측 후 범위를 좁혀도 된다.
+  # 실측 결과(2026-07-23 실행) 종전 5~9분 범위에서 실제로는 6분39초로 나와
+  # 8분 미만이었다 — stock_추가관심종목 narration이 프롬프트가 요구한 분량
+  # (종목당 100자 이상)보다 짧게 나온 게 주 원인으로 보여 generate_script.py에
+  # 분량 검증·재시도를 추가했다(FIX-AGGREGATE-NARRATION-LENGTH-1). 목표를
+  # 8~10분으로 올려 그 콘텐츠 증가분이 실제 목표에 반영되게 한다(pipeline/
+  # generate_video.py가 이 값을 그대로 읽어 TARGET_MIN/MAX/IDEAL로 쓴다).
+  # 콘텐츠 자체가 부족한 채로 이 하한만 올리면 adjust_to_target_duration()이
+  # 정지 프레임 패딩으로 시간만 채울 수 있으니, 분량 검증 재시도와 함께 봐야 한다.
   longform:
-    min_seconds: 300    # 5분
-    max_seconds: 540    # 9분
+    min_seconds: 480    # 8분
+    max_seconds: 600    # 10분
   shorts:
     min_seconds: 30
     max_seconds: 60

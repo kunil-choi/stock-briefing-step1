@@ -64,16 +64,16 @@ def build_opening(data, out_dir):
     return render_html_to_png(html, os.path.join(out_dir, "00_opening.png"))
 
 
-# ── 훅 (Phase E/짧은 하이라이트 포맷: 브랜드 인트로를 대체하는 15초 훅) ────────
+# ── 훅 (브랜드 인트로를 대체하는 제목 카드 한 장) ──────────────────────────
 #
 # narrative_reorder._build_hook_section()이 만드는 합성 섹션(id="hook")을
-# 화면 2장으로 나눠 렌더링한다:
-#   1) 00_hook_1_title.png  — 시그니처 질문(hook_title) 한 줄만
-#   2) 00_hook_2_points.png — 오늘의 핵심 이슈(hook_points) 최대 3개를 큰 글씨
-#      3줄로. 두 화면 모두 같은 배경 이미지(있으면)를 재사용해 하나의 오프닝
-#      시퀀스처럼 보이게 한다. media_map.json의 선택 이미지(visual)가 있으면
-#      전체화면 배경 사진 + 반투명 다크 판(text_plate) 위에 흰 글자를 올리고,
-#      없으면 기존 원형 그라디언트 폴백(회귀 없음)을 그대로 쓴다.
+# 제목 카드 한 장(00_hook_1_title.png)으로 렌더링한다 — 시그니처 질문
+# (hook_title) 한 줄 + 부제(hook_subline). 내레이션/자막 없이 화면만 잠깐
+# 보여주는 제목 화면이다(generate_voice.py/generate_subtitles.py가 이
+# 섹션에 대해 오디오·자막을 만들지 않고, generate_video.py가 무음 프레임으로
+# 처리한다). media_map.json의 선택 이미지(visual)가 있으면 전체화면 배경 사진
+# + 반투명 다크 판(text_plate) 위에 흰 글자를 올리고, 없으면 원형 그라디언트
+# 폴백을 쓴다.
 def _build_hook_title(sec, out_dir, visual, image_path):
     title   = sec.get("hook_title") or sec.get("subtitle") or sec.get("narration", "")
     subline = sec.get("hook_subline", "")
@@ -94,16 +94,24 @@ def _build_hook_title(sec, out_dir, visual, image_path):
 """
         html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
     else:
+        # 사진 후보를 못 찾았을 때의 폴백 디자인. 예전에는 중앙 상단에 원형
+        # 그라디언트 하나 + 중앙 정렬 텍스트뿐이라 밋밋했다 — 우측 세로
+        # 악센트 바(방송 "속보" 느낌)와 비대칭으로 배치한 두 개의 옅은 원,
+        # 헤드라인 위 강조 바를 더해 사진이 없어도 화면에 입체감을 준다.
         sub_html_plain = (
             f'<div style="font-size:32px;font-weight:600;line-height:1.5;'
-            f'color:{PALETTE["ink"]};max-width:1560px;margin-top:18px;">{esc(subline)}</div>'
+            f'color:{PALETTE["muted"]};max-width:1560px;margin-top:18px;">{esc(subline)}</div>'
             if subline else ""
         )
         content = f"""
-<div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
-  background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
-  top:-260px;left:50%;transform:translateX(-50%);"></div>
+<div style="position:absolute;z-index:-2;right:-320px;top:-220px;width:1000px;height:1000px;
+  border-radius:50%;background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 72%);"></div>
+<div style="position:absolute;z-index:-2;left:-240px;bottom:80px;width:560px;height:560px;
+  border-radius:50%;background:radial-gradient(circle,{PALETTE['highlight']}55 0%,transparent 72%);"></div>
+<div style="position:absolute;z-index:-1;top:0;right:0;width:28px;height:100%;
+  background:linear-gradient(180deg,{PALETTE['accent']} 0%,{_ACCENT_CYCLE[3]} 100%);"></div>
 {kbs_badge()}
+<div style="width:110px;height:10px;background:{PALETTE['highlight']};border-radius:6px;margin:30px 0 2px;"></div>
 <div style="font-size:60px;font-weight:800;line-height:1.45;color:{PALETTE['ink']};
   max-width:1560px;">{esc(title)}</div>
 {sub_html_plain}
@@ -113,61 +121,10 @@ def _build_hook_title(sec, out_dir, visual, image_path):
     return render_html_to_png(html, os.path.join(out_dir, "00_hook_1_title.png"))
 
 
-def _build_hook_points(sec, out_dir, visual, image_path):
-    points = [p for p in (sec.get("hook_points") or []) if p]
-    # 오늘의 핵심 이슈 칩(최대 3개) — 기존 키워드 pill 패턴 재사용.
-    # reordered_script의 keywords가 없으면 scene_plan의 한국어 키워드로 보강.
-    keywords = (sec.get("keywords") or visual.get("visualKeywordsKo") or [])[:3]
-
-    if image_path:
-        lines_html = "".join(
-            f'<div style="display:flex;gap:16px;align-items:flex-start;margin-top:22px;">'
-            f'<span style="font-size:44px;font-weight:800;color:{_ACCENT_CYCLE[i % len(_ACCENT_CYCLE)]};">●</span>'
-            f'<span style="font-size:42px;font-weight:800;line-height:1.4;color:#fff;">{esc(p)}</span>'
-            f'</div>'
-            for i, p in enumerate(points)
-        )
-        content = f"""
-<div class="pill" style="background:{PALETTE['accent']};color:#fff;font-size:26px;padding:12px 30px;">오늘의 핵심 이슈</div>
-{text_plate(lines_html, extra_style="text-align:left;max-width:1620px;")}
-"""
-        html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
-    else:
-        lines_html = "".join(
-            f'<div style="display:flex;gap:16px;align-items:flex-start;margin-top:22px;">'
-            f'<span style="font-size:40px;font-weight:800;color:{_ACCENT_CYCLE[i % len(_ACCENT_CYCLE)]};">●</span>'
-            f'<span style="font-size:38px;font-weight:800;line-height:1.4;color:{PALETTE["ink"]};'
-            f'text-align:left;">{esc(p)}</span>'
-            f'</div>'
-            for i, p in enumerate(points)
-        )
-        kw_html = "".join(
-            f'<span class="pill" style="background:{c}1a;color:{c};border:2px solid {c};'
-            f'font-size:22px;font-weight:700;">{esc(k)}</span>'
-            for k, c in zip(keywords, _ACCENT_CYCLE)
-        )
-        content = f"""
-<div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
-  background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
-  top:-260px;left:50%;transform:translateX(-50%);"></div>
-{kbs_badge()}
-<div class="pill" style="background:{PALETTE['highlight']};color:{PALETTE['ink']};
-  font-size:28px;font-weight:800;padding:12px 30px;">오늘의 핵심 이슈</div>
-<div style="max-width:1560px;">{lines_html}</div>
-<div style="display:flex;gap:14px;flex-wrap:wrap;justify-content:center;margin-top:8px;">{kw_html}</div>
-"""
-        html = centered_shell(content)
-
-    return render_html_to_png(html, os.path.join(out_dir, "00_hook_2_points.png"))
-
-
 def build_hook(sec, out_dir, visual=None):
     visual = visual or {}
     image_path = visual.get("image_path")
-    paths = [_build_hook_title(sec, out_dir, visual, image_path)]
-    if sec.get("hook_points"):
-        paths.append(_build_hook_points(sec, out_dir, visual, image_path))
-    return paths
+    return [_build_hook_title(sec, out_dir, visual, image_path)]
 
 
 # ── 오늘의 한 줄 결론 ───────────────────────────────────────────────────────
@@ -175,11 +132,14 @@ def build_hook(sec, out_dir, visual=None):
 # narrative_reorder._build_mention_intro_section()이 만드는 합성 섹션
 # (id="conclusion")을 렌더링한다. 이전에는 흰 카드(headline_card) + 화면 하단
 # 관심종목 티커 조합이었는데, 사용자 피드백에 따라: (1) 하단 티커 밴드를
-# 빼고, (2) 매번 검색에 의존하지 않는 고정 "한국 주식시장" 대표 배경
-# (거래소풍 스카이라인 + 캔들스틱 차트, generate_conclusion_background.py로
-# 생성)을 깔고, (3) 그 위에 "유튜브에서 가장 많이 언급된 종목 분석" 타이틀과
-# 기존 내레이션 문구를 text_plate로 얹는 방식으로 바꿨다. 내레이션 자체는
-# 그대로 유지한다(문구 변경 없음, 화면 표현만 변경).
+# 빼고, (2) 매번 검색에 의존하지 않는 고정 "증권거래소 전광판" 대표 배경
+# (블러 처리된 시세 셀 그리드, generate_conclusion_background.py로 생성)을
+# 깔고, (3) 그 위에 "유튜브에서 가장 많이 언급된 종목 분석" 타이틀과 기존
+# 내레이션 문구를 text_plate로 얹는 방식으로 바꿨다. 타이틀+설명 텍스트를
+# 화면 세로 중앙 쯤으로 내려 한 덩어리로 보이게 하고, 상단바 코너 라벨은
+# 비워 텍스트 판이 화면의 유일한 초점이 되게 한다. 내레이션 자체는 그대로
+# 유지하되(문구 변경 없음), 자막(burn-in)은 이 화면에서만 뺀다
+# (generate_subtitles.py의 conclusion 특수 처리 참고).
 def build_conclusion(sec, out_dir):
     headline = sec.get("subtitle") or sec.get("narration", "")
     inner = (
@@ -188,9 +148,13 @@ def build_conclusion(sec, out_dir):
         f'<div style="font-size:28px;font-weight:600;color:#e5e7eb;line-height:1.6;'
         f'margin-top:22px;">{esc(headline)}</div>'
     )
-    content = text_plate(inner, extra_style="text-align:left;max-width:1500px;")
+    plate = text_plate(inner, extra_style="text-align:left;max-width:1500px;")
+    content = (
+        f'<div style="display:flex;flex-direction:column;justify-content:center;'
+        f'height:100%;">{plate}</div>'
+    )
     bg = _CONCLUSION_BG if os.path.isfile(_CONCLUSION_BG) else None
-    html = shell("오늘의 한 줄 결론", content, background_image=bg, suppress_ticker=True)
+    html = shell("", content, background_image=bg, suppress_ticker=True)
     return render_html_to_png(html, os.path.join(out_dir, "01_conclusion.png"))
 
 
@@ -304,9 +268,13 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
             f'₩ {esc(price)}</span>{change_html}</div>'
         )
 
-    # 화면 헤드라인: scene_plan의 압축된 screenText(최대 2줄) 우선, 없으면
-    # 기존처럼 corner_summary/summary 원문으로 폴백(회귀 없음).
-    summary_text = "\n".join(screen_lines) if screen_lines else (corner_summary or summary)
+    # 화면 헤드라인: corner_summary/summary 원문(완성된 한 문장)을 우선 쓴다.
+    # scene_plan의 screenText는 compress_to_screen_text()가 키워드형으로
+    # 18자까지 하드 컷하는데, corner_summary는 이미 프롬프트가 25자 내외로
+    # 짧게 요약해 두므로 여기서 또 압축하면 "외국인 투자자들이 LG전자"처럼
+    # 주어만 남고 서술어가 잘린 문장이 나온다(사용자 보고 버그) — corner_summary/
+    # summary가 둘 다 없는 예외적인 경우에만 압축된 screenText로 폴백한다.
+    summary_text = corner_summary or summary or "\n".join(screen_lines)
 
     # FIX-DUP-LOWER-1: 예전에는 화면 하단에 lower_third(종목명/코드/등락률/섹터)를
     # 또 띄웠는데, 이 정보가 전부 화면 상단(종목명/가격/등락률)과 그대로 겹쳐
@@ -524,11 +492,8 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
                 if img_path:
                     img_uri = file_uri(img_path)
             cards += point_card_img(i + 1, name, text, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)], img_uri)
-        layout = "grid;grid-template-columns:1fr 1fr" if len(items) > 5 else "flex;flex-direction:column"
-        # FIX-TICKER-OVERLAP-1: 하단 뉴스 티커(news_ticker, .content 하단에
-        # absolute 도킹)가 카드 목록 마지막 항목과 겹쳐 가리던 문제 — 다른
-        # 빌더들처럼 티커 높이만큼 하단 여백을 미리 확보한다.
-        body_html = f'<div style="display:{layout};gap:14px;padding-bottom:64px;">{cards}</div>'
+        layout = "grid;grid-template-columns:1fr 1fr" if len(items) > 3 else "flex;flex-direction:column"
+        body_html = f'<div style="display:{layout};gap:14px;">{cards}</div>'
     else:
         # items가 없는 경우(레거시/누락 대비): 문장 단위로만 분할해 표시
         body_text = sec.get("subtitle", sec.get("narration", ""))
@@ -537,10 +502,16 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
             point_card(i + 1, b, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
             for i, b in enumerate(bullets)
         )
-        body_html = f'<div style="display:flex;flex-direction:column;gap:14px;padding-bottom:64px;">{cards}</div>'
+        body_html = f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
 
     content = f"{corner_html}{body_html}"
-    html = shell(title, content)
+    # FIX-TICKER-OVERLAP-2: 이 화면은 종목 카드가 .content 영역을 거의 다
+    # 채우고(개수가 많을수록 특히), 하단 뉴스 티커(news_ticker, .content
+    # 하단에 absolute 도킹)가 그 위에 그대로 겹쳐 그려져 마지막 카드 텍스트를
+    # 가렸다. 다른 빌더들(build_conclusion, 종목 분석 화면 등)처럼 티커를 꺼서
+    # 카드 개수와 무관하게 겹침 자체를 없앤다 — 이 화면은 corner_summary가
+    # 이미 티커와 같은 요약 정보를 담고 있어 티커가 없어도 정보 손실이 없다.
+    html = shell(title, content, suppress_ticker=True)
     return render_html_to_png(html, os.path.join(out_dir, filename))
 
 

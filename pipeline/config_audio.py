@@ -11,7 +11,7 @@ import yaml
 _HERE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HERE_DIR not in sys.path:
     sys.path.insert(0, _HERE_DIR)
-from assets.korean_numbers import read_decimal_numbers_ko
+from assets.korean_numbers import read_decimal_numbers_ko, read_year_numbers_ko
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _AUDIO_PATH = os.path.join(_HERE, "..", "config", "audio.yml")
@@ -62,6 +62,7 @@ def apply_pronunciation_rules(text: str) -> str:
     for src, dst in PRONUNCIATION_RULES:
         result = result.replace(src, dst)
     result = read_decimal_numbers_ko(result)
+    result = read_year_numbers_ko(result)
     return result
 
 

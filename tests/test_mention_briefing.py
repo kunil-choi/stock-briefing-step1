@@ -102,10 +102,13 @@ def test_conclusion_is_fixed_mention_intro():
 def test_market_indicators_deterministic_no_interpretation():
     reordered = build_mention_briefing(_base_script())
     market = next(s for s in reordered["sections"] if s["id"] == "market_summary")
-    assert market["corner_summary"] == "", "해석성 corner_summary는 비워야 함"
+    # corner_summary는 해석성 문구가 아니라 화면 헤드라인 전용 고정 라벨이다
+    # (narration을 그대로 압축하면 어색하게 잘리는 문제 때문에 고정 문구를 씀).
+    assert market["corner_summary"] == "국내 증시 전일 종가와 미국 주요 지수"
     assert market["points"] == [], "해석성 points는 비워야 함"
     assert "상승세" not in market["narration"], "진행형 표현이 섞이면 안 됨(코드로 직접 생성)"
     assert "마감" in market["narration"]
+    assert "우선 어제 마감된" in market["narration"]
     assert "2,650.32" in market["narration"] and "+0.82%" in market["narration"]
     print("✅ 주요 지표 내레이션이 해석 없이 코드로 결정적으로 생성됨")
 

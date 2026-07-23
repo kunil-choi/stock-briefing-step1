@@ -9,8 +9,7 @@ ASS(Advanced SubStation Alpha) 자막 파일 생성 모듈
 - 긴 자막은 적절한 길이로 자동 분할합니다.
 
 프레임 파일명 → 오디오 ID 매핑 규칙:
-  00_hook_1_title.png        → hook_title.mp3
-  00_hook_2_points.png       → hook_points.mp3
+  00_hook_1_title.png        → hook_title.mp3 (제목 카드 — 오디오/자막 없음, 무음 프레임)
   01_conclusion.png          → conclusion.mp3
   10_삼성전자_1_summary.png  → stock_삼성전자_summary.mp3
   10_삼성전자_3_mention.png  → stock_삼성전자_mention.mp3
@@ -114,7 +113,6 @@ def _frame_stem_to_audio_id(stem: str, sections: list) -> str:
     # 고정 패턴 (정확한 매핑)
     fixed_patterns = [
         (r'^00_hook_1_title$',      'hook_title'),
-        (r'^00_hook_2_points$',     'hook_points'),
         (r'^00_hook$',              'hook'),  # 하위 호환(구 단일 프레임 asset_map 캐시 대비)
         (r'^01_conclusion$',        'conclusion'),
         (r'^00_opening$',           'opening'),
@@ -244,16 +242,16 @@ def _build_subtitle_map(sections: list, lang: str):
             # (builders.build_closing 참고) 하단 자막을 중복으로 넣지 않는다.
             continue
 
+        elif sid == "conclusion":
+            # 오늘의 한 줄 결론 화면은 같은 문구를 화면 중앙 text_plate로 이미
+            # 보여주므로(builders.build_conclusion 참고) 하단 자막은 중복이라
+            # 뺀다 — 내레이션 오디오는 그대로 유지된다.
+            continue
+
         elif sid == "hook":
-            # FIX-HOOK-SPLIT-1: 훅이 타이틀/포인트 두 화면(두 오디오)으로
-            # 나뉘었으므로(narrative_reorder._build_hook_section,
-            # builders.build_hook 참고) 자막도 그 두 오디오 ID에 맞춰 나눈다.
-            title = section.get("hook_title", "")
-            if title:
-                subtitle_map["hook_title"] = (title, title)
-            points_text = section.get("hook_points_narration", "")
-            if points_text:
-                subtitle_map["hook_points"] = (points_text, points_text)
+            # 훅 타이틀 화면은 제목 카드처럼 텍스트만 보여주고 자막은 넣지
+            # 않는다(narrative_reorder._build_hook_section 참고).
+            continue
 
         else:
             # 일반 섹션

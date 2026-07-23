@@ -632,17 +632,29 @@ _MENTION_RULES = """
 - 발언 중 이 종목과 무관한 다른 종목·일반적인 시장 이야기만 담긴 부분은
   제외하고, 이 종목에 실제로 해당하는 내용만 사용하세요.
 
-### ★ 역할 분리 (매우 중요 — corner_summary/summary/catalysts/risks와 중복 금지)
-- corner_summary/summary/catalysts/risks는 가격 흐름·실적·업종 이슈 등
-  브리핑 원문 기반의 "개요"만 담당합니다. channel_summaries는 "누가 어떻게
-  평가했는지"를 자세히 푸는 "심층 설명"입니다.
+### ★ 역할 분리 (매우 중요 — narration_summary/corner_summary/summary/catalysts/risks와 중복 금지)
+- narration_summary(및 corner_summary/summary/catalysts/risks)는 가격 흐름·실적·
+  업종 이슈 등 브리핑 원문 기반의 "개요"만 담당합니다. channel_summaries는
+  "누가 어떻게 평가했는지"를 자세히 푸는 "심층 설명"입니다. 이 둘은 이어서
+  재생되는 서로 다른 화면이므로, 같은 내용을 두 번 듣는 느낌이 나면 안 됩니다.
+- narration_summary에서 특정 채널·발언자의 평가를 미리 언급해야 한다면, 결론만
+  한 문장으로 짧게 녹이세요(예: "유튜브·경제방송에서는 실적 개선 기대감에
+  주목하고 있습니다" 정도). 그 결론에 이르게 된 구체적 근거·수치·전망·화자별
+  논리는 오직 channel_summaries에서만 처음 소개하세요 — narration_summary에서
+  이미 푼 논리를 channel_summaries에서 다시 그대로 설명하거나, 반대로
+  channel_summaries의 문장을 narration_summary에 미리 요약해 두 곳의 내용이
+  겹치게 하지 마세요.
 - 개요(corner_summary/summary/catalysts/risks)에서 이미 쓴 문장이나 특정
   발언자의 구체적 논리를 channel_summaries에서 그대로 반복하지 마세요.
   channel_summaries는 그 개요의 배경이 되는 구체적 근거·수치·전망을 채널별로
   새롭게 풀어 설명해야 합니다.
 
 ### narration (TTS 낭독용)
-- "[채널 종류] 쪽에서는" 또는 "증권사 리포트에서는" 식으로 자연스럽게 시작하세요.
+- ★ "[채널 종류] 쪽에서는 (종목명)의 (주제)에 대한 다양한 분석이 나오고
+  있습니다" 같은 내용 없는 도입 문구로 시작하지 마세요 — 이런 문구는 매
+  종목마다 반복돼 정보 가치가 없습니다. 도입 인사말 없이 바로 첫 번째
+  화자/채널의 구체적인 발언 소개로 시작하세요(예: "삼프로TV에 출연한 OOO
+  연구원은 ~라고 분석했습니다"로 문장을 바로 시작).
 - 종결어미 다양화 (같은 어미 2회 연속 금지):
   "~라고 분석했습니다" | "~다고 평가했습니다" | "~라고 진단했습니다" | "~고 내다봤습니다"
   "~다고 전망했습니다" | "~라고 짚었습니다" | "~고 설명했습니다" | "~다고 판단했습니다"
@@ -1049,6 +1061,24 @@ def _generate_aggregate_sections(remaining_stocks: list,
     data = _call_json(system_prompt, user_content, max_tokens=8000, temperature=0.7,
                        mock=_mock_aggregate_sections(remaining_stocks, brokerage_reports)
                        if SCRIPT_MOCK else None)
+
+    # FIX-AGGREGATE-NARRATION-LENGTH-1: 위 프롬프트는 stock_추가관심종목의 narration을
+    # "종목당 최소 100자, 전체 400자 이상"으로 요구하지만, _generate_stock_section()의
+    # placeholder 재시도 안전망과 달리 이 분량 요구를 검증·재시도하는 로직이 없었다 —
+    # 모델이 요구보다 짧게 답해도 그대로 통과해, 화면(items 텍스트)에는 종목별 설명이
+    # 다 나오는데 내레이션은 그보다 훨씬 짧은 불일치(=화면 대비 적게 읽어주는 느낌 +
+    # 영상 분량 부족)로 이어졌다.
+    if not SCRIPT_MOCK and remaining_stocks:
+        agg = data.get("stock_추가관심종목") or {}
+        min_chars = 100 * len(remaining_stocks)
+        if len(agg.get("narration") or "") < min_chars:
+            print(f"  ⚠️ stock_추가관심종목: narration이 요구 분량({min_chars}자)보다 짧음 — 재시도")
+            retry = _call_json(system_prompt, user_content, max_tokens=8000, temperature=0.9)
+            retry_agg = (retry or {}).get("stock_추가관심종목") or {}
+            if len(retry_agg.get("narration") or "") > len(agg.get("narration") or ""):
+                data["stock_추가관심종목"] = retry_agg
+            else:
+                print("  ❌ stock_추가관심종목: 재시도 후에도 분량 부족 — 화면 대비 내레이션이 짧을 수 있음")
 
     sections = []
     for sid, title in (
