@@ -116,7 +116,14 @@ def _section_summary_text(section: dict) -> str:
 # 보여주는 타이틀 화면, 2) 그날의 핵심 이슈 2~3개를 큰 글씨 줄바꿈으로 보여주는
 # 포인트 화면(HOOK_POINTS_INTRO 없이 blurbs만). 문구를 바꾸려면 이 상수만
 # 수정하면 된다.
-OPENING_HOOK_LINE = "장이 열리기 전, 당신의 계좌를 흔들 변수는?"
+OPENING_HOOK_LINE = "오늘 투자자들의 관심이 집중될 종목은?"
+
+# 훅 타이틀 화면(00_hook_1_title.png)에 큰 제목 문구 아래 작게 들어가는 부제.
+# 화면에만 표시되는 시각 요소이며 내레이션(TTS)에는 포함되지 않는다.
+OPENING_HOOK_SUBLINE = (
+    "지난 24시간 업로드된 구독자 상위권 유튜브 콘텐츠와 "
+    "증권사 경제방송 채널을 AI로 분석했습니다"
+)
 
 
 _SENTENCE_END_RE = re.compile(r"[.!?다요]$")
@@ -152,6 +159,7 @@ def _build_hook_section(hook_sources: list) -> dict:
         "importance": 1.0, "entities": [],
         "narration": narration, "subtitle": narration,
         "hook_title": OPENING_HOOK_LINE,
+        "hook_subline": OPENING_HOOK_SUBLINE,
         "hook_points": blurbs,
         # 화면 2(포인트) 오디오·자막용으로 미리 합쳐둔 텍스트. 항목마다 문장
         # 부호를 붙여야 TTS가 항목 사이에서 제대로 쉬어 읽는다(_ensure_sentence_end
@@ -319,8 +327,10 @@ def reorder_sections(script_data: dict, top_movers_count: int = 3,
 # ─────────────────────────────────────────────────────────────────────────────
 
 MENTION_INTRO_LINE = (
-    "지난 24시간 동안 경제 유튜브 채널과 증권사 채널, 경제 방송에서 언급된 "
-    "관심 종목을 빠르게 정리해드립니다."
+    "지난 24시간 동안 인기 유튜브 채널에서 가장 많이 언급된 종목은 무엇이었을까요? "
+    "KBS 머니올라가 관련 영상을 AI로 분석해, "
+    "전문가들이 주목한 종목과 언급 포인트를 핵심만 빠르게 정리해드립니다. "
+    "바로 확인해보시죠."
 )
 
 _LEADER_TRANSITION     = "우선 시장을 이끌고 있는 대형 주도주 상황 살펴보겠습니다."
