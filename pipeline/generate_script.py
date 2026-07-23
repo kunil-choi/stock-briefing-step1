@@ -632,17 +632,29 @@ _MENTION_RULES = """
 - 발언 중 이 종목과 무관한 다른 종목·일반적인 시장 이야기만 담긴 부분은
   제외하고, 이 종목에 실제로 해당하는 내용만 사용하세요.
 
-### ★ 역할 분리 (매우 중요 — corner_summary/summary/catalysts/risks와 중복 금지)
-- corner_summary/summary/catalysts/risks는 가격 흐름·실적·업종 이슈 등
-  브리핑 원문 기반의 "개요"만 담당합니다. channel_summaries는 "누가 어떻게
-  평가했는지"를 자세히 푸는 "심층 설명"입니다.
+### ★ 역할 분리 (매우 중요 — narration_summary/corner_summary/summary/catalysts/risks와 중복 금지)
+- narration_summary(및 corner_summary/summary/catalysts/risks)는 가격 흐름·실적·
+  업종 이슈 등 브리핑 원문 기반의 "개요"만 담당합니다. channel_summaries는
+  "누가 어떻게 평가했는지"를 자세히 푸는 "심층 설명"입니다. 이 둘은 이어서
+  재생되는 서로 다른 화면이므로, 같은 내용을 두 번 듣는 느낌이 나면 안 됩니다.
+- narration_summary에서 특정 채널·발언자의 평가를 미리 언급해야 한다면, 결론만
+  한 문장으로 짧게 녹이세요(예: "유튜브·경제방송에서는 실적 개선 기대감에
+  주목하고 있습니다" 정도). 그 결론에 이르게 된 구체적 근거·수치·전망·화자별
+  논리는 오직 channel_summaries에서만 처음 소개하세요 — narration_summary에서
+  이미 푼 논리를 channel_summaries에서 다시 그대로 설명하거나, 반대로
+  channel_summaries의 문장을 narration_summary에 미리 요약해 두 곳의 내용이
+  겹치게 하지 마세요.
 - 개요(corner_summary/summary/catalysts/risks)에서 이미 쓴 문장이나 특정
   발언자의 구체적 논리를 channel_summaries에서 그대로 반복하지 마세요.
   channel_summaries는 그 개요의 배경이 되는 구체적 근거·수치·전망을 채널별로
   새롭게 풀어 설명해야 합니다.
 
 ### narration (TTS 낭독용)
-- "[채널 종류] 쪽에서는" 또는 "증권사 리포트에서는" 식으로 자연스럽게 시작하세요.
+- ★ "[채널 종류] 쪽에서는 (종목명)의 (주제)에 대한 다양한 분석이 나오고
+  있습니다" 같은 내용 없는 도입 문구로 시작하지 마세요 — 이런 문구는 매
+  종목마다 반복돼 정보 가치가 없습니다. 도입 인사말 없이 바로 첫 번째
+  화자/채널의 구체적인 발언 소개로 시작하세요(예: "삼프로TV에 출연한 OOO
+  연구원은 ~라고 분석했습니다"로 문장을 바로 시작).
 - 종결어미 다양화 (같은 어미 2회 연속 금지):
   "~라고 분석했습니다" | "~다고 평가했습니다" | "~라고 진단했습니다" | "~고 내다봤습니다"
   "~다고 전망했습니다" | "~라고 짚었습니다" | "~고 설명했습니다" | "~다고 판단했습니다"

@@ -87,6 +87,21 @@ def read_decimal_numbers_ko(text: str) -> str:
     return _DECIMAL_NUMBER_RE.sub(_replace_match, text)
 
 
+# "YYYY년" 패턴만 대상으로 한다 — 4자리 뒤에 "년"이 붙는 숫자는 항상 연도라서
+# 자릿값 표기(이천이십팔)로 읽는 게 애매할 여지가 없고(다른 정수처럼 문맥에
+# 따라 고유어 수사를 써야 할 위험이 없다), TTS가 그대로 두면 "이십이십팔년"
+# 처럼 두 자리씩 끊어 읽는 등 부자연스럽게 읽는 경우가 있어 별도로 변환한다.
+_YEAR_RE = re.compile(r"(\d{4})년")
+
+
+def read_year_numbers_ko(text: str) -> str:
+    """텍스트 안의 "YYYY년" 패턴을 한글 자릿값 발음으로 치환한다. 예:
+    "2028년" → "이천이십팔년"."""
+    if not text:
+        return text
+    return _YEAR_RE.sub(lambda m: read_integer_ko(int(m.group(1))) + "년", text)
+
+
 # ── 은/는 조사 선택 ──────────────────────────────────────────────────────
 
 def pick_eun_neun(word: str) -> str:

@@ -62,6 +62,29 @@ def download_bgm(save_path: str):
         print(f"  [bgm] 다운로드 실패: {e}")
 
 
+# 오디오 없이 텍스트만 보여주는 화면(예: 훅 타이틀 카드)의 고정 표시 시간.
+# generate_subtitles.py의 동명 상수(SILENT_DURATION)와 값을 맞춰야 두 모듈이
+# 계산하는 장면 길이/자막 타임라인이 어긋나지 않는다.
+SILENT_FRAME_AUDIO_IDS = {"hook_title"}
+SILENT_FRAME_DURATION = 3.0
+
+
+def _ensure_silent_audio(mp3_path: str, duration: float) -> str:
+    """audio_id가 SILENT_FRAME_AUDIO_IDS에 있어 의도적으로 내레이션이 없는
+    프레임을 위해, duration초짜리 무음 mp3를 만든다(없으면). compose_scene()이
+    Ken Burns 클립을 만들 때 오디오 스트림이 있어야 하므로 실제 파일이 필요하다."""
+    if not os.path.isfile(mp3_path):
+        os.makedirs(os.path.dirname(mp3_path), exist_ok=True)
+        cmd = [
+            "ffmpeg", "-y",
+            "-f", "lavfi", "-t", f"{duration}", "-i", "anullsrc=r=44100:cl=stereo",
+            "-c:a", "aac", "-b:a", "192k",
+            mp3_path,
+        ]
+        subprocess.run(cmd, capture_output=True)
+    return mp3_path
+
+
 # ── 오디오 길이 ───────────────────────────────────────────────────────────
 
 def get_audio_duration(mp3_path: str) -> float:
@@ -328,9 +351,12 @@ def run(lang: str = "KO"):
         mp3_path = os.path.join(audio_dir, f"{audio_id}.mp3")
 
         if not os.path.isfile(mp3_path):
-            missing_audio.append(audio_id)
-            print(f"  ❌ MP3 없음 [{audio_id}] → 파이프라인 실패 처리")
-            continue
+            if audio_id in SILENT_FRAME_AUDIO_IDS:
+                mp3_path = _ensure_silent_audio(mp3_path, SILENT_FRAME_DURATION)
+            else:
+                missing_audio.append(audio_id)
+                print(f"  ❌ MP3 없음 [{audio_id}] → 파이프라인 실패 처리")
+                continue
 
         dur = get_audio_duration(mp3_path)
         total_audio_duration += dur

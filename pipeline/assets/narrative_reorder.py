@@ -112,10 +112,7 @@ def _section_summary_text(section: dict) -> str:
 # ─────────────────────────────────────────────────────────────────────────────
 
 # 오프닝 시그니처 멘트 — 채널 브랜딩 목적상 매일 동일한 문구를 사용한다(의도적
-# 고정, LLM 재생성 대상 아님). 훅은 이제 두 화면으로 나뉜다: 1) 이 질문 한 줄만
-# 보여주는 타이틀 화면, 2) 그날의 핵심 이슈 2~3개를 큰 글씨 줄바꿈으로 보여주는
-# 포인트 화면(HOOK_POINTS_INTRO 없이 blurbs만). 문구를 바꾸려면 이 상수만
-# 수정하면 된다.
+# 고정, LLM 재생성 대상 아님). 문구를 바꾸려면 이 상수만 수정하면 된다.
 OPENING_HOOK_LINE = "오늘 투자자들의 관심이 집중될 종목은?"
 
 # 훅 타이틀 화면(00_hook_1_title.png)에 큰 제목 문구 아래 작게 들어가는 부제.
@@ -126,46 +123,18 @@ OPENING_HOOK_SUBLINE = (
 )
 
 
-_SENTENCE_END_RE = re.compile(r"[.!?다요]$")
-
-
-def _ensure_sentence_end(text: str) -> str:
-    """문장이 마침 부호 없이 끝나면 마침표를 붙인다. 훅 포인트 3개를 그냥
-    공백으로 이어붙이면 TTS가 쉼 없이 한 문장처럼 읽어버려(사용자 보고 버그),
-    항목 사이에 실제 문장 경계가 생기도록 각 블러브를 독립된 문장으로 만든다
-    — 이 마침표가 자막 분할(_split_into_sentences)의 기준점도 된다."""
-    t = text.strip()
-    if not t:
-        return t
-    return t if _SENTENCE_END_RE.search(t) else t + "."
-
-
-def _build_hook_section(hook_sources: list) -> dict:
-    """15초 훅: 두 화면으로 나뉜다.
-      1) hook_title 화면 — 매일 동일한 시그니처 질문(OPENING_HOOK_LINE) 한 줄만.
-      2) hook_points 화면 — importance가 가장 높은 2~3개 이슈 요약을 큰 글씨
-         3줄로 각각 보여준다.
-    builders.build_hook()이 이 두 필드를 읽어 프레임 2장 + 오디오 2개를 만든다
-    (generate_voice.py/_build_jobs(), generate_subtitles.py/_frame_stem_to_audio_id()
-    참고). narration/subtitle 필드는 하위 호환(단어 수 추정·개체명 추출 등 이
-    section을 id 하나로 취급하는 기존 소비자)을 위해 전체 텍스트를 그대로 담아
-    유지한다 — 실제 오디오 합성에는 더 이상 쓰이지 않는다."""
-    blurbs = [soften_advice_language(_section_summary_text(s)) for s in hook_sources]
-    blurbs = [b for b in blurbs if b][:3]
-    points_narration = " ".join(_ensure_sentence_end(b) for b in blurbs)
-    narration = (OPENING_HOOK_LINE + " " + points_narration).strip()
+def _build_hook_section() -> dict:
+    """15초 훅: 시그니처 질문(OPENING_HOOK_LINE) 한 줄짜리 타이틀 화면 하나뿐.
+    제목 화면처럼 텍스트만 보여주고 내레이션·자막은 넣지 않는다(builders.build_hook()이
+    hook_title 필드를 화면 렌더링에만 쓴다 — generate_voice.py/_build_jobs(),
+    generate_subtitles.py/_build_subtitle_map()도 hook_title에 대해 오디오·자막을
+    만들지 않는다). 화면 표시 시간은 generate_video.py의 무음 프레임 처리를 참고."""
     return {
-        "id": "hook", "label": "15초 훅", "section_type": "hook",
+        "id": "hook", "label": "훅 타이틀", "section_type": "hook",
         "importance": 1.0, "entities": [],
-        "narration": narration, "subtitle": narration,
+        "narration": "", "subtitle": "",
         "hook_title": OPENING_HOOK_LINE,
         "hook_subline": OPENING_HOOK_SUBLINE,
-        "hook_points": blurbs,
-        # 화면 2(포인트) 오디오·자막용으로 미리 합쳐둔 텍스트. 항목마다 문장
-        # 부호를 붙여야 TTS가 항목 사이에서 제대로 쉬어 읽는다(_ensure_sentence_end
-        # 참고) — generate_voice.py/generate_subtitles.py가 이 필드를 그대로
-        # 쓰도록 해서 같은 접합 로직이 여러 파일에 중복되지 않게 한다.
-        "hook_points_narration": points_narration,
     }
 
 
@@ -265,11 +234,8 @@ def reorder_sections(script_data: dict, top_movers_count: int = 3,
     market_sec = by_id.get("market_summary")
     closing_sec = by_id.get("closing")
 
-    hook_sources = [s for s in sections if s.get("id") not in ("opening", "closing")]
-    hook_sources.sort(key=lambda s: importance_by_id.get(s.get("id", ""), 0.0), reverse=True)
-
     ordered = [
-        _build_hook_section(hook_sources[:3]),
+        _build_hook_section(),
         _build_conclusion_section(market_sec, importance_by_id, entities_by_id),
     ]
     if short_form:
@@ -387,19 +353,22 @@ def _build_market_indicators_section(market_sec: Optional[dict], importance_by_i
     if market_sec.get("usdkrw_value"):
         lines.append(f"원달러 환율은 {market_sec['usdkrw_value']}원으로 마감했습니다.")
     narration = (
-        "이제 어제 마감된 국내 증시와, 오늘 새벽 마감된 미국 증시 주요 지표를 전해드립니다. "
+        "우선 어제 마감된 국내 증시와, 오늘 새벽 마감된 미국 증시 주요 지표를 전해드립니다. "
         + " ".join(l for l in lines if l)
     ).strip()
     # 시각 카드(builders.build_market_summary의 코스피/코스닥/나스닥/S&P500/환율
-    # 숫자 표)는 그대로 재사용하되, corner_summary/points 같은 해석성 문구는
-    # 비워 카드에 노출되지 않게 한다 — 해석 없이 지표만 보여주는 짧은 카드로.
+    # 숫자 표)는 그대로 재사용하되, points 같은 해석성 문구는 비워 카드에
+    # 노출되지 않게 한다 — 해석 없이 지표만 보여주는 짧은 카드로. corner_summary는
+    # 화면 헤드라인 전용 고정 문구로 둔다(narration을 그대로 압축하면 어색하게
+    # 잘리므로 — scene_plan._screen_text_base()가 corner_summary를 최우선으로
+    # 쓴다).
     return {
         **market_sec,
         "id": "market_summary", "section_type": "market_indicators",
         "importance": round(importance_by_id.get("market_summary", 0.5), 2),
         "entities": entities_by_id.get("market_summary", []),
         "narration": narration, "subtitle": narration,
-        "corner_summary": "", "points": [],
+        "corner_summary": "국내 증시 전일 종가와 미국 주요 지수", "points": [],
     }
 
 
@@ -431,10 +400,8 @@ def build_mention_briefing(script_data: dict) -> dict:
     watchlist_sec = by_id.get("stock_추가관심종목")
     closing_sec   = by_id.get("closing")
 
-    hook_sources = sorted(stock_candidates, key=lambda s: importance_by_id.get(s.get("id", ""), 0.0), reverse=True)
-
     ordered = [
-        _build_hook_section(hook_sources[:3]),
+        _build_hook_section(),
         _build_mention_intro_section(importance_by_id, entities_by_id),
     ]
 
