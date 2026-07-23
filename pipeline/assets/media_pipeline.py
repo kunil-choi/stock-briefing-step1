@@ -32,6 +32,14 @@ _LICENSE_SCORE = {"api_licensed": 0.2, "editorial_search": 0.1, "mock": 0.05, "u
 DEDUP_WINDOW_DAYS = 7
 DEDUP_HAMMING_THRESHOLD = 6   # phash 해밍 거리 이 값 이하면 "같은 이미지"로 간주
 MAX_CANDIDATES_PER_SECTION = 8
+# provider.search()에 요청하는 개수. NaverDiscoveryConnector는 이 값을 네이버
+# 뉴스검색 API의 display 파라미터로 그대로 써서, 반환된 기사들 중 원문 도메인이
+# yna.co.kr/kbs.co.kr인 것만 걸러 쓴다(media_providers.py의 _SOURCE_BY_DOMAIN
+# 필터). 요청 개수가 작으면(예: 3) 네이버 뉴스 랭킹 특성상 상위 3건 안에
+# 연합뉴스/KBS 기사가 없는 경우가 흔해 대부분 빈 결과로 끝난다 — API 호출
+# 자체는 여전히 키워드당 1번뿐이라(요청 개수만 늘어남) 비용 부담 없이 도메인
+# 필터가 걸러낼 후보 모수를 늘려 실제 매치율을 높인다.
+PROVIDER_SEARCH_COUNT = 20
 
 
 @dataclass
@@ -198,7 +206,7 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
         for provider in providers:
             if probed >= max_candidates:
                 break
-            for cand in provider.search(keyword, count=3):
+            for cand in provider.search(keyword, count=PROVIDER_SEARCH_COUNT):
                 if probed >= max_candidates:
                     break
                 apply_rights(cand)

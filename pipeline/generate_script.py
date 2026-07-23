@@ -1050,6 +1050,24 @@ def _generate_aggregate_sections(remaining_stocks: list,
                        mock=_mock_aggregate_sections(remaining_stocks, brokerage_reports)
                        if SCRIPT_MOCK else None)
 
+    # FIX-AGGREGATE-NARRATION-LENGTH-1: 위 프롬프트는 stock_추가관심종목의 narration을
+    # "종목당 최소 100자, 전체 400자 이상"으로 요구하지만, _generate_stock_section()의
+    # placeholder 재시도 안전망과 달리 이 분량 요구를 검증·재시도하는 로직이 없었다 —
+    # 모델이 요구보다 짧게 답해도 그대로 통과해, 화면(items 텍스트)에는 종목별 설명이
+    # 다 나오는데 내레이션은 그보다 훨씬 짧은 불일치(=화면 대비 적게 읽어주는 느낌 +
+    # 영상 분량 부족)로 이어졌다.
+    if not SCRIPT_MOCK and remaining_stocks:
+        agg = data.get("stock_추가관심종목") or {}
+        min_chars = 100 * len(remaining_stocks)
+        if len(agg.get("narration") or "") < min_chars:
+            print(f"  ⚠️ stock_추가관심종목: narration이 요구 분량({min_chars}자)보다 짧음 — 재시도")
+            retry = _call_json(system_prompt, user_content, max_tokens=8000, temperature=0.9)
+            retry_agg = (retry or {}).get("stock_추가관심종목") or {}
+            if len(retry_agg.get("narration") or "") > len(agg.get("narration") or ""):
+                data["stock_추가관심종목"] = retry_agg
+            else:
+                print("  ❌ stock_추가관심종목: 재시도 후에도 분량 부족 — 화면 대비 내레이션이 짧을 수 있음")
+
     sections = []
     for sid, title in (
         ("stock_추가관심종목", "추가 관심 종목"),

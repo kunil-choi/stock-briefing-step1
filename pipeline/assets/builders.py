@@ -94,16 +94,24 @@ def _build_hook_title(sec, out_dir, visual, image_path):
 """
         html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
     else:
+        # 사진 후보를 못 찾았을 때의 폴백 디자인. 예전에는 중앙 상단에 원형
+        # 그라디언트 하나 + 중앙 정렬 텍스트뿐이라 밋밋했다 — 우측 세로
+        # 악센트 바(방송 "속보" 느낌)와 비대칭으로 배치한 두 개의 옅은 원,
+        # 헤드라인 위 강조 바를 더해 사진이 없어도 화면에 입체감을 준다.
         sub_html_plain = (
             f'<div style="font-size:32px;font-weight:600;line-height:1.5;'
-            f'color:{PALETTE["ink"]};max-width:1560px;margin-top:18px;">{esc(subline)}</div>'
+            f'color:{PALETTE["muted"]};max-width:1560px;margin-top:18px;">{esc(subline)}</div>'
             if subline else ""
         )
         content = f"""
-<div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
-  background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
-  top:-260px;left:50%;transform:translateX(-50%);"></div>
+<div style="position:absolute;z-index:-2;right:-320px;top:-220px;width:1000px;height:1000px;
+  border-radius:50%;background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 72%);"></div>
+<div style="position:absolute;z-index:-2;left:-240px;bottom:80px;width:560px;height:560px;
+  border-radius:50%;background:radial-gradient(circle,{PALETTE['highlight']}55 0%,transparent 72%);"></div>
+<div style="position:absolute;z-index:-1;top:0;right:0;width:28px;height:100%;
+  background:linear-gradient(180deg,{PALETTE['accent']} 0%,{_ACCENT_CYCLE[3]} 100%);"></div>
 {kbs_badge()}
+<div style="width:110px;height:10px;background:{PALETTE['highlight']};border-radius:6px;margin:30px 0 2px;"></div>
 <div style="font-size:60px;font-weight:800;line-height:1.45;color:{PALETTE['ink']};
   max-width:1560px;">{esc(title)}</div>
 {sub_html_plain}
@@ -524,11 +532,8 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
                 if img_path:
                     img_uri = file_uri(img_path)
             cards += point_card_img(i + 1, name, text, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)], img_uri)
-        layout = "grid;grid-template-columns:1fr 1fr" if len(items) > 5 else "flex;flex-direction:column"
-        # FIX-TICKER-OVERLAP-1: 하단 뉴스 티커(news_ticker, .content 하단에
-        # absolute 도킹)가 카드 목록 마지막 항목과 겹쳐 가리던 문제 — 다른
-        # 빌더들처럼 티커 높이만큼 하단 여백을 미리 확보한다.
-        body_html = f'<div style="display:{layout};gap:14px;padding-bottom:64px;">{cards}</div>'
+        layout = "grid;grid-template-columns:1fr 1fr" if len(items) > 3 else "flex;flex-direction:column"
+        body_html = f'<div style="display:{layout};gap:14px;">{cards}</div>'
     else:
         # items가 없는 경우(레거시/누락 대비): 문장 단위로만 분할해 표시
         body_text = sec.get("subtitle", sec.get("narration", ""))
@@ -537,10 +542,16 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
             point_card(i + 1, b, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
             for i, b in enumerate(bullets)
         )
-        body_html = f'<div style="display:flex;flex-direction:column;gap:14px;padding-bottom:64px;">{cards}</div>'
+        body_html = f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
 
     content = f"{corner_html}{body_html}"
-    html = shell(title, content)
+    # FIX-TICKER-OVERLAP-2: 이 화면은 종목 카드가 .content 영역을 거의 다
+    # 채우고(개수가 많을수록 특히), 하단 뉴스 티커(news_ticker, .content
+    # 하단에 absolute 도킹)가 그 위에 그대로 겹쳐 그려져 마지막 카드 텍스트를
+    # 가렸다. 다른 빌더들(build_conclusion, 종목 분석 화면 등)처럼 티커를 꺼서
+    # 카드 개수와 무관하게 겹침 자체를 없앤다 — 이 화면은 corner_summary가
+    # 이미 티커와 같은 요약 정보를 담고 있어 티커가 없어도 정보 손실이 없다.
+    html = shell(title, content, suppress_ticker=True)
     return render_html_to_png(html, os.path.join(out_dir, filename))
 
 
