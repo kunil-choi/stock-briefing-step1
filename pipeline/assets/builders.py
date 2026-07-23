@@ -75,12 +75,18 @@ def build_opening(data, out_dir):
 #      전체화면 배경 사진 + 반투명 다크 판(text_plate) 위에 흰 글자를 올리고,
 #      없으면 기존 원형 그라디언트 폴백(회귀 없음)을 그대로 쓴다.
 def _build_hook_title(sec, out_dir, visual, image_path):
-    title = sec.get("hook_title") or sec.get("subtitle") or sec.get("narration", "")
+    title   = sec.get("hook_title") or sec.get("subtitle") or sec.get("narration", "")
+    subline = sec.get("hook_subline", "")
+    sub_html = (
+        f'<div style="font-size:30px;font-weight:600;line-height:1.5;color:#e5e7eb;'
+        f'margin-top:22px;">{esc(subline)}</div>'
+        if subline else ""
+    )
 
     if image_path:
         headline_inner = (
             f'<div style="font-size:64px;font-weight:800;line-height:1.4;color:#fff;">'
-            f'{esc(title)}</div>'
+            f'{esc(title)}</div>{sub_html}'
         )
         content = f"""
 <div class="pill" style="background:{PALETTE['accent']};color:#fff;font-size:26px;padding:12px 30px;">KBS 머니올라</div>
@@ -88,6 +94,11 @@ def _build_hook_title(sec, out_dir, visual, image_path):
 """
         html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
     else:
+        sub_html_plain = (
+            f'<div style="font-size:32px;font-weight:600;line-height:1.5;'
+            f'color:{PALETTE["ink"]};max-width:1560px;margin-top:18px;">{esc(subline)}</div>'
+            if subline else ""
+        )
         content = f"""
 <div style="position:absolute;z-index:-1;width:900px;height:900px;border-radius:50%;
   background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
@@ -95,6 +106,7 @@ def _build_hook_title(sec, out_dir, visual, image_path):
 {kbs_badge()}
 <div style="font-size:60px;font-weight:800;line-height:1.45;color:{PALETTE['ink']};
   max-width:1560px;">{esc(title)}</div>
+{sub_html_plain}
 """
         html = centered_shell(content)
 
