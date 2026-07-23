@@ -10,7 +10,7 @@ import csv
 import hashlib
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import List, Optional
 
@@ -109,6 +109,16 @@ def is_duplicate(phash: imagehash.ImageHash, recent: List[imagehash.ImageHash],
 # 스코어링
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _as_naive(dt: datetime) -> datetime:
+    """RFC 2822 pubDate(예: 네이버 뉴스)는 타임존 오프셋이 붙어 aware
+    datetime으로 파싱되는 반면, 이 모듈의 `now`는 항상 naive
+    datetime.now()다. naive/aware를 그대로 빼면 TypeError가 나므로,
+    aware datetime은 UTC 기준 naive로 맞춰 비교 가능하게 만든다."""
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 def score_candidate(candidate: MediaCandidate, keyword_rank: int,
                      width: int, height: int, now: datetime) -> float:
     """관련도(키워드 우선순위) + 최근성 + 가로형 여부 + 사용권을 합산한
@@ -118,7 +128,7 @@ def score_candidate(candidate: MediaCandidate, keyword_rank: int,
     # 순서이므로, 몇 번째 키워드로 찾았는지를 관련도의 근사치로 사용한다.
     score += max(0.0, 0.3 - 0.06 * keyword_rank)
     if candidate.published_at:
-        days = max(0, (now - candidate.published_at).days)
+        days = max(0, (now - _as_naive(candidate.published_at)).days)
         score += max(0.0, 0.2 - 0.02 * days)
     else:
         score += 0.1  # 게시일 정보 없음 → 중립
