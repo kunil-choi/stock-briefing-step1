@@ -19,9 +19,14 @@ from .chart import build_chart_with_insight, build_week_chart
 from .image_fetch import fetch_news_image
 from .panel_avatars import get_avatar_path
 
-_CONCLUSION_BG = os.path.join(
+# 영상 오프닝(훅 타이틀 화면 + 오늘의 한 줄 결론 화면)에 고정으로 쓰는 브랜드
+# 타이틀 카드. 사용자가 직접 디자인해 제공한 이미지이며, 이미 "KBS 머니올라"
+# 브랜딩과 타이틀·설명 문구가 그 안에 다 들어있으므로 이 화면들에서는 별도
+# 텍스트를 얹지 않고 이미지 그대로 전체화면으로 보여준다. 내레이션(훅은
+# 무음, 결론은 MENTION_INTRO_LINE)은 그대로 유지된다 — 화면만 바뀐다.
+_OPENING_TITLE_BG = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "backgrounds",
-    "conclusion_market.jpg",
+    "opening_title.png",
 )
 
 
@@ -68,94 +73,36 @@ def build_opening(data, out_dir):
 # ── 훅 (브랜드 인트로를 대체하는 제목 카드 한 장) ──────────────────────────
 #
 # narrative_reorder._build_hook_section()이 만드는 합성 섹션(id="hook")을
-# 제목 카드 한 장(00_hook_1_title.png)으로 렌더링한다 — 시그니처 질문
-# (hook_title) 한 줄 + 부제(hook_subline). 내레이션/자막 없이 화면만 잠깐
-# 보여주는 제목 화면이다(generate_voice.py/generate_subtitles.py가 이
-# 섹션에 대해 오디오·자막을 만들지 않고, generate_video.py가 무음 프레임으로
-# 처리한다). media_map.json의 선택 이미지(visual)가 있으면 전체화면 배경 사진
-# + 반투명 다크 판(text_plate) 위에 흰 글자를 올리고, 없으면 원형 그라디언트
-# 폴백을 쓴다.
-def _build_hook_title(sec, out_dir, visual, image_path):
-    title   = sec.get("hook_title") or sec.get("subtitle") or sec.get("narration", "")
-    subline = sec.get("hook_subline", "")
-    sub_html = (
-        f'<div style="font-size:30px;font-weight:600;line-height:1.5;color:#e5e7eb;'
-        f'margin-top:22px;">{esc(subline)}</div>'
-        if subline else ""
-    )
-
-    if image_path:
-        headline_inner = (
-            f'<div style="font-size:64px;font-weight:800;line-height:1.4;color:#fff;">'
-            f'{esc(title)}</div>{sub_html}'
-        )
-        content = f"""
-<div class="pill" style="background:{PALETTE['accent']};color:#fff;font-size:26px;padding:12px 30px;">KBS 머니올라</div>
-{text_plate(headline_inner, extra_style="text-align:left;max-width:1560px;")}
-"""
-        html = centered_shell(content, background_image=image_path, credit=visual.get("credit", ""))
-    else:
-        # 사진 후보를 못 찾았을 때의 폴백 디자인. 예전에는 중앙 상단에 원형
-        # 그라디언트 하나 + 중앙 정렬 텍스트뿐이라 밋밋했다 — 우측 세로
-        # 악센트 바(방송 "속보" 느낌)와 비대칭으로 배치한 두 개의 옅은 원,
-        # 헤드라인 위 강조 바를 더해 사진이 없어도 화면에 입체감을 준다.
-        sub_html_plain = (
-            f'<div style="font-size:32px;font-weight:600;line-height:1.5;'
-            f'color:{PALETTE["muted"]};max-width:1560px;margin-top:18px;">{esc(subline)}</div>'
-            if subline else ""
-        )
-        content = f"""
-<div style="position:absolute;z-index:-2;right:-320px;top:-220px;width:1000px;height:1000px;
-  border-radius:50%;background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 72%);"></div>
-<div style="position:absolute;z-index:-2;left:-240px;bottom:80px;width:560px;height:560px;
-  border-radius:50%;background:radial-gradient(circle,{PALETTE['highlight']}55 0%,transparent 72%);"></div>
-<div style="position:absolute;z-index:-1;top:0;right:0;width:28px;height:100%;
-  background:linear-gradient(180deg,{PALETTE['accent']} 0%,{_ACCENT_CYCLE[3]} 100%);"></div>
-{kbs_badge()}
-<div style="width:110px;height:10px;background:{PALETTE['highlight']};border-radius:6px;margin:30px 0 2px;"></div>
-<div style="font-size:60px;font-weight:800;line-height:1.45;color:{PALETTE['ink']};
-  max-width:1560px;">{esc(title)}</div>
-{sub_html_plain}
-"""
-        html = centered_shell(content)
-
+# 제목 카드 한 장(00_hook_1_title.png)으로 렌더링한다. 사용자가 직접 만든
+# 고정 오프닝 타이틀 이미지(_OPENING_TITLE_BG)를 텍스트 오버레이 없이 그대로
+# 전체화면으로 보여준다 — 이미지 자체에 "KBS 머니올라" 브랜딩과 타이틀·설명
+# 문구가 이미 들어있어 hook_title/hook_subline을 따로 얹으면 중복된다.
+# 내레이션/자막 없이 화면만 잠깐 보여주는 제목 화면이다(generate_voice.py/
+# generate_subtitles.py가 이 섹션에 대해 오디오·자막을 만들지 않고,
+# generate_video.py가 무음 프레임으로 처리한다).
+def _build_hook_title(sec, out_dir):
+    html = centered_shell("", background_image=_OPENING_TITLE_BG)
     return render_html_to_png(html, os.path.join(out_dir, "00_hook_1_title.png"))
 
 
 def build_hook(sec, out_dir, visual=None):
-    visual = visual or {}
-    image_path = visual.get("image_path")
-    return [_build_hook_title(sec, out_dir, visual, image_path)]
+    return [_build_hook_title(sec, out_dir)]
 
 
 # ── 오늘의 한 줄 결론 ───────────────────────────────────────────────────────
 #
 # narrative_reorder._build_mention_intro_section()이 만드는 합성 섹션
-# (id="conclusion")을 렌더링한다. 이전에는 흰 카드(headline_card) + 화면 하단
-# 관심종목 티커 조합이었는데, 사용자 피드백에 따라: (1) 하단 티커 밴드를
-# 빼고, (2) 매번 검색에 의존하지 않는 고정 "증권거래소 전광판" 대표 배경
-# (블러 처리된 시세 셀 그리드, generate_conclusion_background.py로 생성)을
-# 깔고, (3) 그 위에 "유튜브에서 가장 많이 언급된 종목 분석" 타이틀과 기존
-# 내레이션 문구를 text_plate로 얹는 방식으로 바꿨다. 타이틀+설명 텍스트를
-# 화면 세로 중앙 쯤으로 내려 한 덩어리로 보이게 하고, 상단바 코너 라벨은
-# 비워 텍스트 판이 화면의 유일한 초점이 되게 한다. 내레이션 자체는 그대로
-# 유지하되(문구 변경 없음), 자막(burn-in)은 이 화면에서만 뺀다
-# (generate_subtitles.py의 conclusion 특수 처리 참고).
+# (id="conclusion")을 렌더링한다. 훅 타이틀 화면과 같은 고정 오프닝 타이틀
+# 이미지(_OPENING_TITLE_BG)를 이어서 그대로 보여준다 — 영상 시작부터 이
+# 화면까지("국내 증시 전일 종가" 설명 직전) 하나의 타이틀 카드로 통일해
+# 보여달라는 요청에 따른 것이다. 내레이션(MENTION_INTRO_LINE)과 자막 없음
+# 처리는 그대로 유지된다(generate_subtitles.py의 conclusion 특수 처리 참고) —
+# 화면만 바뀌고 오디오는 손대지 않았다.
 def build_conclusion(sec, out_dir):
-    headline = sec.get("subtitle") or sec.get("narration", "")
-    inner = (
-        f'<div style="font-size:46px;font-weight:800;color:#fff;line-height:1.3;">'
-        f'유튜브에서 가장 많이 언급된 종목 분석</div>'
-        f'<div style="font-size:28px;font-weight:600;color:#e5e7eb;line-height:1.6;'
-        f'margin-top:22px;">{esc(headline)}</div>'
-    )
-    plate = text_plate(inner, extra_style="text-align:left;max-width:1500px;")
-    content = (
-        f'<div style="display:flex;flex-direction:column;justify-content:center;'
-        f'height:100%;">{plate}</div>'
-    )
-    bg = _CONCLUSION_BG if os.path.isfile(_CONCLUSION_BG) else None
-    html = shell("", content, background_image=bg, suppress_ticker=True)
+    # centered_shell()은 shell()과 달리 상단바(KBS/날짜)·하단 티커를 아예
+    # 그리지 않는다 — 이 오프닝 타이틀 이미지에는 이미 자체 KBS 로고가 있어
+    # shell()의 상단바를 쓰면 브랜딩이 중복돼 보인다.
+    html = centered_shell("", background_image=_OPENING_TITLE_BG)
     return render_html_to_png(html, os.path.join(out_dir, "01_conclusion.png"))
 
 
