@@ -946,7 +946,7 @@ def _generate_stock_section(stock_name: str, briefing_text: str,
   "OOO 연구원은" 등)이나 그 사람의 발언을 절대 넣지 마세요 — 이 필드들은 화면에
   일반 텍스트로 그대로 노출되어(카드 없이) 화자 발언처럼 보이면서도 출처 카드가
   없는 문제가 생깁니다. 특정 인물의 견해·발언은 반드시 channel_summaries
-  안에서만 다루고(quote_bubble 카드로 렌더링됨), corner_summary/summary/
+  안에서만 다루고(chat_bubble 카드로 렌더링됨), corner_summary/summary/
   catalysts/risks는 "시장 전반에서는", "업계에서는"처럼 익명화된 사실/개요
   서술만 담으세요.
 - 가격/등락률은 이 호출에서 다루지 않습니다(별도 실제 시세 데이터로 채워집니다) —
