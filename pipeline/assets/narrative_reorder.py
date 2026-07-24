@@ -368,7 +368,7 @@ def _build_market_indicators_section(market_sec: Optional[dict], importance_by_i
         "importance": round(importance_by_id.get("market_summary", 0.5), 2),
         "entities": entities_by_id.get("market_summary", []),
         "narration": narration, "subtitle": narration,
-        "corner_summary": "국내 증시 전일 종가와 미국 주요 지수", "points": [],
+        "corner_summary": "국내 증시 전일 종가와 미국 주요 지표", "points": [],
     }
 
 

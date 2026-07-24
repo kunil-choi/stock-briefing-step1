@@ -9,6 +9,7 @@ scene_plan.json의 visual_keywords를 입력으로 받아 MediaProvider들에서
 import csv
 import hashlib
 import os
+import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
@@ -185,9 +186,16 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
                        max_candidates: int = MAX_CANDIDATES_PER_SECTION,
                        dedup_threshold: int = DEDUP_HAMMING_THRESHOLD,
                        cache_dir: Optional[str] = None,
-                       manifest_rows: Optional[list] = None) -> Optional[SelectedImage]:
+                       manifest_rows: Optional[list] = None,
+                       expected_name: Optional[str] = None) -> Optional[SelectedImage]:
     """manifest_rows가 주어지면, 검토된 모든 후보(다운로드 성공분 + 권리
-    검수로 건너뛴 분)를 asset-manifest.json용 dict로 append한다."""
+    검수로 건너뛴 분)를 asset-manifest.json용 dict로 append한다.
+
+    expected_name이 주어지면(종목 섹션) 기사 제목(title)에 그 종목명이 없는
+    후보는 아예 스코어링하지 않고 건너뛴다 — 사진 자체의 내용은 검증할 수
+    없지만, 최소한 그 사진이 실린 기사가 해당 종목을 다루고 있는지는 제목
+    으로 확인할 수 있다(연관 없는 사진이 검색 키워드만 우연히 맞아 선택되는
+    문제 방지)."""
     now = now or datetime.now()
     scored = []
     probed = 0
@@ -209,6 +217,8 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
             for cand in provider.search(keyword, count=PROVIDER_SEARCH_COUNT):
                 if probed >= max_candidates:
                     break
+                if expected_name and expected_name not in (cand.title or ""):
+                    continue
                 apply_rights(cand)
 
                 if cand.needs_review:
@@ -307,6 +317,28 @@ def build_asset_manifest(manifest_rows: List[dict], project: str = "stock-briefi
     }
 
 
+# 개별 종목이 아니라 여러 종목을 한 화면에 모아 보여주는 집계 섹션 —
+# scene_plan.py/generate_subtitles.py 등 다른 모듈에도 같은 이름의 상수가
+# 있으나(중복 정의가 이 코드베이스의 기존 패턴), 특정 종목 사진 연관성
+# 검증이 의미 없는 섹션이라 여기서도 별도로 필요하다.
+_AGGREGATE_STOCK_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
+
+
+def _expected_stock_name(sec: dict) -> Optional[str]:
+    """stock_/hidden_ 섹션의 실제 종목명을 돌려준다(집계 섹션·비종목 섹션은
+    None). select_best_image()가 이 이름을 기사 제목(title)과 대조해, 검색
+    키워드로는 걸렸지만 실제로는 그 종목과 무관한 기사의 사진(사용자 보고
+    버그: 삼성전자 설명에 하나은행 사진이 나오는 등)을 걸러내는 데 쓴다."""
+    sid = sec.get("id", "")
+    if sid in _AGGREGATE_STOCK_IDS or not (sid.startswith("stock_") or sid.startswith("hidden_")):
+        return None
+    m = re.match(r"^종목\s*분석\s*-\s*(.+)$", sec.get("label", ""))
+    if m:
+        return m.group(1).strip()
+    prefix = "stock_" if sid.startswith("stock_") else "hidden_"
+    return sid[len(prefix):] or None
+
+
 def _fallback_sector_for_section(section: dict) -> str:
     for e in section.get("entities") or []:
         if e.get("type") == "섹터":
@@ -365,12 +397,17 @@ def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProv
         restrict_to_stock_fallback = needs_data_review and allow_stock_fallback
         keywords = _keywords_for_section(sec, restrict_to_stock_fallback)
         ordered_providers = _order_providers(providers, sec.get("preferredSources") or [])
+        # needsDataReview(오염 의심 종목명) 섹션은 영어 추상 키워드로만 검색해
+        # 애초에 실제 종목명이 노출된 기사를 피하려는 안전장치이므로, 여기서
+        # 종목명 일치를 요구하면 그 취지와 어긋난다 — 이 경우는 검증하지 않는다.
+        expected_name = None if restrict_to_stock_fallback else _expected_stock_name(sec)
 
         selected = None
         if keywords:
             selected = select_best_image(section_id, keywords, ordered_providers, recent_hashes, img_dir, now,
                                           max_candidates=max_candidates, dedup_threshold=dedup_threshold,
-                                          cache_dir=cache_dir, manifest_rows=manifest_rows)
+                                          cache_dir=cache_dir, manifest_rows=manifest_rows,
+                                          expected_name=expected_name)
 
         if selected:
             media_map[section_id] = {
