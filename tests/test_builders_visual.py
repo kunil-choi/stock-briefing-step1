@@ -88,24 +88,20 @@ def test_build_hook_falls_back_without_visual():
     print("✅ build_hook: visual 없이도 타이틀 카드 1장 렌더링(기존처럼 예외 없이 동작)")
 
 
-def test_build_hook_uses_screen_text_with_image():
-    with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-        f.write(b"\xff\xd8\xff" + b"0" * 100)
-        img_path = f.name
-    try:
-        sec = {
-            "id": "hook", "keywords": ["반도체", "실적"],
-            "hook_title": "오늘 투자자들의 관심이 집중될 종목은?",
-            "hook_subline": "지난 24시간 유튜브·증권사 방송을 AI로 분석했습니다",
-        }
-        visual = {"screenText": ["AI 반도체 급락", "오늘 시장의 방향은?"], "image_path": img_path}
-        with tempfile.TemporaryDirectory() as tmp:
-            paths = build_hook(sec, tmp, visual=visual)
-            assert isinstance(paths, list) and len(paths) == 1
-            assert all(os.path.isfile(p) for p in paths)
-    finally:
-        os.unlink(img_path)
-    print("✅ build_hook: screenText+이미지가 있으면 배경 사진 경로로 타이틀 카드 1장 렌더링(예외 없이 완료)")
+def test_build_hook_ignores_visual_and_uses_fixed_opening_image():
+    # 훅은 고정 오프닝 타이틀 이미지(_OPENING_TITLE_BG)를 항상 쓰므로, visual에
+    # 어떤 값이 들어와도(사진/screenText 등) 결과는 동일하게 1장이어야 한다.
+    sec = {
+        "id": "hook", "keywords": ["반도체", "실적"],
+        "hook_title": "오늘 투자자들의 관심이 집중될 종목은?",
+        "hook_subline": "지난 24시간 유튜브·증권사 방송을 AI로 분석했습니다",
+    }
+    visual = {"screenText": ["AI 반도체 급락", "오늘 시장의 방향은?"], "image_path": "/no/such/file.jpg"}
+    with tempfile.TemporaryDirectory() as tmp:
+        paths = build_hook(sec, tmp, visual=visual)
+        assert isinstance(paths, list) and len(paths) == 1
+        assert all(os.path.isfile(p) for p in paths)
+    print("✅ build_hook: visual과 무관하게 고정 오프닝 타이틀 카드 1장 렌더링(예외 없이 완료)")
 
 
 def test_stock_summary_uses_safe_display_name_when_data_review_flagged():
