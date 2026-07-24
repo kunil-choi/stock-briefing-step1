@@ -597,36 +597,34 @@ _MENTION_RULES = """
 이해한 뒤 자연스러운 문장으로 다시 써서 정리하세요. 추임새·군더더기·반복되는 잡담은
 모두 제거하고 투자 판단에 실제로 도움이 되는 내용만 남기세요.
 
-### 카테고리 3종 (해당 데이터가 있는 카테고리만 작성)
-- 아래 별도 제공되는 stock_quotes(JSON)는 각 항목에 channel_type이 "유튜브"/
-  "경제방송"/"증권사" 중 하나로 표시돼 있습니다("증권사"는 증권사가 직접 운영하는
-  유튜브 채널에서 최근 24시간 내 나온 실시간 코멘트입니다). channel_type별로
-  묶어서 각각 하나의 종합 요약을 작성하세요(유튜브 종합 1개, 경제방송 종합 1개,
-  stock_quotes 안의 증권사 발언 종합 1개).
-- 별도 제공되는 stock_brokerage(JSON)가 있으면(애널리스트가 작성한 정식 리포트),
-  그 안의 브로커·투자의견·목표주가·ai_summary도 "증권사" 카테고리에 함께 종합하세요
-  — stock_quotes의 증권사 유튜브 발언과 stock_brokerage의 리포트가 둘 다 있으면
-  하나의 "증권사" 요약 안에 함께 녹여내세요.
-- 해당 카테고리에 데이터가 전혀 없으면 그 카테고리는 channel_summaries 배열에서
-  완전히 생략하세요(빈 요약을 지어내지 마세요).
+### ★ 발언자별 개별 요약 (채널 유형으로 묶지 않음)
+- 시청자 입장에서는 이 발언이 유튜브에서 나왔는지 경제방송에서 나왔는지보다,
+  "누가 무슨 말을 했는지"가 중요합니다. 그러니 channel_type("유튜브"/"경제방송"/
+  "증권사")별로 묶어 종합하지 말고, 실제로 이름이 확인되는 발언자 한 명당
+  channel_summaries 배열 원소를 하나씩 만드세요(같은 사람의 발언 조각이
+  여러 개면 하나로 합쳐서 한 원소로).
+- 중요도·구체성이 높은 순으로 최대 4명까지만 다루세요(전부 다루면 영상이
+  과도하게 길어집니다). 이름/소속이 전혀 식별되지 않는 무명 발언은 생략해도
+  됩니다.
+- 별도 제공되는 stock_brokerage(JSON, 애널리스트 정식 리포트)가 있으면, 리포트를
+  작성한 애널리스트 이름이 있으면 그 이름으로, 없으면 "OOO증권 리서치센터"처럼
+  소속명으로 별도 화자 취급해 마찬가지로 개별 원소를 만드세요.
+- 해당 종목에 대해 확인 가능한 발언자가 전혀 없으면 channel_summaries를 빈
+  배열로 두세요(빈 요약을 지어내지 마세요).
 
 ### 분석·요약 원칙 (반드시 준수)
 - 없는 내용을 지어내지 말고, 제공된 데이터에 실제로 나온 의견·수치·근거만 사용하세요.
-- 단순 나열이 아니라 "종합 분석"이어야 합니다: 여러 발언/리포트의 공통된 시각이나
-  차이점을 짚고, 목표주가·투자의견·구체적 근거·전망을 포함하세요.
-- 채널명/증권사명은 자연스럽게 문장 안에 녹여 언급하세요(예: "삼프로TV와 한국경제TV
-  양쪽에서 모두...", "미래에셋증권과 키움증권은 목표주가를...").
-- ★ 특정 인물(stock_quotes의 speaker)의 발언을 인용할 때는 이름만 말하지 말고
-  "[채널명]에 출연한 [소속/직책] [이름]은" 형식으로 어느 방송에 나온 누구인지
-  구체적으로 밝히세요(예: "이데일리TV에 출연한 권소현 이데일리 마켓in센터장은...",
-  "KBS 1라디오에 출연한 이인철 참좋은경제연구소 소장은..."). 소속/직책 정보가
-  stock_quotes에 없으면 이름과 채널명만이라도 반드시 함께 밝히고, 채널명 없이
-  이름만 단독으로 언급하지 마세요.
-- 분량: 카테고리별 narration 500~640자 내외(공백 포함, 기존 대비 약 2배 —
-  짧은 headline이 아니라 배경·근거·전망까지 충분히 담은 완결된 분석 문단으로
-  작성하세요). 근거가 부족하다고 없는 내용을 지어내 채우지 말고, 실제 제공된
-  내용의 배경과 함의를 충분히 풀어써서 분량을 채우세요.
-- 같은 채널·화자의 stock_quotes 항목은 이미 quote 필드가 발언 조각 리스트로
+- 그 사람의 발언만 다루고 다른 사람 발언과 섞지 마세요 — 목표주가·투자의견·
+  구체적 근거·전망 등 그 사람이 실제로 말한 내용만 포함합니다.
+- ★ 반드시 "[채널명]에 출연한 [소속/직책] [이름]은" 형식으로 어느 방송에 나온
+  누구인지 구체적으로 밝히세요(예: "이데일리TV에 출연한 권소현 이데일리
+  마켓in센터장은...", "KBS 1라디오에 출연한 이인철 참좋은경제연구소 소장은...").
+  소속/직책 정보가 stock_quotes에 없으면 이름과 채널명만이라도 반드시 함께
+  밝히고, 채널명 없이 이름만 단독으로 언급하지 마세요.
+- 분량: 항목당 narration 200~300자 내외(한 사람의 코멘트라 예전 카테고리
+  종합보다는 짧습니다 — 그 사람이 실제로 말한 근거·전망을 압축해 담되,
+  근거 없이 분량만 채우려 늘어쓰지 마세요).
+- 같은 화자의 stock_quotes 항목은 이미 quote 필드가 발언 조각 리스트로
   묶여 있습니다. 이를 하나의 이어지는 코멘트로 이해하고 종합하되, 조각별로
   같은 논지를 반복해서 다시 쓰지 마세요.
 - 발언 중 이 종목과 무관한 다른 종목·일반적인 시장 이야기만 담긴 부분은
@@ -637,24 +635,24 @@ _MENTION_RULES = """
   업종 이슈 등 브리핑 원문 기반의 "개요"만 담당합니다. channel_summaries는
   "누가 어떻게 평가했는지"를 자세히 푸는 "심층 설명"입니다. 이 둘은 이어서
   재생되는 서로 다른 화면이므로, 같은 내용을 두 번 듣는 느낌이 나면 안 됩니다.
-- narration_summary에서 특정 채널·발언자의 평가를 미리 언급해야 한다면, 결론만
-  한 문장으로 짧게 녹이세요(예: "유튜브·경제방송에서는 실적 개선 기대감에
-  주목하고 있습니다" 정도). 그 결론에 이르게 된 구체적 근거·수치·전망·화자별
-  논리는 오직 channel_summaries에서만 처음 소개하세요 — narration_summary에서
-  이미 푼 논리를 channel_summaries에서 다시 그대로 설명하거나, 반대로
-  channel_summaries의 문장을 narration_summary에 미리 요약해 두 곳의 내용이
-  겹치게 하지 마세요.
+- narration_summary에서 특정 발언자의 평가를 미리 언급해야 한다면, 결론만
+  한 문장으로 짧게 녹이세요(예: "전문가들은 실적 개선 기대감에 주목하고
+  있습니다" 정도, 이름은 넣지 마세요). 그 결론에 이르게 된 구체적 근거·수치·
+  전망·화자별 논리는 오직 channel_summaries에서만 처음 소개하세요 —
+  narration_summary에서 이미 푼 논리를 channel_summaries에서 다시 그대로
+  설명하거나, 반대로 channel_summaries의 문장을 narration_summary에 미리
+  요약해 두 곳의 내용이 겹치게 하지 마세요.
 - 개요(corner_summary/summary/catalysts/risks)에서 이미 쓴 문장이나 특정
   발언자의 구체적 논리를 channel_summaries에서 그대로 반복하지 마세요.
-  channel_summaries는 그 개요의 배경이 되는 구체적 근거·수치·전망을 채널별로
+  channel_summaries는 그 개요의 배경이 되는 구체적 근거·수치·전망을 발언자별로
   새롭게 풀어 설명해야 합니다.
 
 ### narration (TTS 낭독용)
 - ★ "[채널 종류] 쪽에서는 (종목명)의 (주제)에 대한 다양한 분석이 나오고
   있습니다" 같은 내용 없는 도입 문구로 시작하지 마세요 — 이런 문구는 매
-  종목마다 반복돼 정보 가치가 없습니다. 도입 인사말 없이 바로 첫 번째
-  화자/채널의 구체적인 발언 소개로 시작하세요(예: "삼프로TV에 출연한 OOO
-  연구원은 ~라고 분석했습니다"로 문장을 바로 시작).
+  종목마다 반복돼 정보 가치가 없습니다. 도입 인사말 없이 바로 그 발언자의
+  구체적인 발언 소개로 시작하세요(예: "삼프로TV에 출연한 OOO 연구원은
+  ~라고 분석했습니다"로 문장을 바로 시작).
 - 종결어미 다양화 (같은 어미 2회 연속 금지):
   "~라고 분석했습니다" | "~다고 평가했습니다" | "~라고 진단했습니다" | "~고 내다봤습니다"
   "~다고 전망했습니다" | "~라고 짚었습니다" | "~고 설명했습니다" | "~다고 판단했습니다"
@@ -663,12 +661,14 @@ _MENTION_RULES = """
 - narration과 문장 수·순서를 동일하게 맞추되, 숫자·영문은 subtitle 표기 규칙(아라비아
   숫자/로마자 원표기)을 따르세요.
 
-## 출력 JSON의 channel_summaries 배열 형식
+## 출력 JSON의 channel_summaries 배열 형식 (발언자 1명 = 원소 1개)
 "channel_summaries": [
-  {"channel_type": "유튜브", "sources": ["채널명1", "채널명2"],
-   "narration": "...(250~320자)", "subtitle": "..."},
-  {"channel_type": "경제방송", "sources": [...], "narration": "...", "subtitle": "..."},
-  {"channel_type": "증권사", "sources": ["증권사명1", "증권사명2"], "narration": "...", "subtitle": "..."}
+  {"speaker": "OOO 연구원", "channel": "삼프로TV", "channel_type": "유튜브",
+   "narration": "...(200~300자)", "subtitle": "..."},
+  {"speaker": "OOO 대표", "channel": "이데일리TV", "channel_type": "경제방송",
+   "narration": "...", "subtitle": "..."},
+  {"speaker": "OOO증권 리서치센터", "channel": "OOO증권", "channel_type": "증권사",
+   "narration": "...", "subtitle": "..."}
 ]
 """
 
@@ -723,22 +723,29 @@ def _mock_core_response(briefing_text: str) -> dict:
 
 
 def _mock_stock_section(stock_name: str, quotes: list, brokerage_mentions: list) -> dict:
-    """실제 quotes의 channel_type 분포를 그대로 반영해(유튜브/경제방송/증권사)
-    channel_summaries 개수·오디오 job 수가 실제 실행과 비슷하게 나오도록 한다."""
-    types_present = {q.get("channel_type") for q in (quotes or [])}
+    """실제 quotes의 발언자를 그대로 반영해 channel_summaries 개수·오디오 job
+    수가 실제 실행과 비슷하게 나오도록 한다(발언자 1명 = 원소 1개, 최대 4명)."""
+    seen_speakers = set()
     channel_summaries = []
-    for ctype in ("유튜브", "경제방송", "증권사"):
-        if ctype not in types_present:
+    for q in (quotes or []):
+        speaker = (q.get("speaker") or "").strip()
+        channel = (q.get("channel") or "").strip()
+        key = (speaker, channel)
+        if key in seen_speakers or len(channel_summaries) >= 4:
             continue
-        sources = list({q["channel"] for q in quotes if q.get("channel_type") == ctype})[:3] or ["[MOCK]채널"]
+        seen_speakers.add(key)
+        ctype = q.get("channel_type", "유튜브")
         channel_summaries.append({
-            "channel_type": ctype, "sources": sources,
-            "narration": f"[MOCK] {ctype} 종합: {stock_name} 관련 더미 분석 문장입니다. " * 6,
-            "subtitle":  f"[MOCK] {ctype} 종합: {stock_name} 관련 더미 분석 문장입니다. " * 6,
+            "speaker": speaker or "[MOCK]발언자", "channel": channel or "[MOCK]채널",
+            "channel_type": ctype,
+            "narration": f"[MOCK] {channel or '채널'}에 출연한 {speaker or '발언자'}는 "
+                         f"{stock_name} 관련 더미 분석을 제시했습니다. " * 3,
+            "subtitle":  f"[MOCK] {channel or '채널'}에 출연한 {speaker or '발언자'}는 "
+                         f"{stock_name} 관련 더미 분석을 제시했습니다. " * 3,
         })
-    if brokerage_mentions and "증권사" not in types_present:
+    if brokerage_mentions and len(channel_summaries) < 4:
         channel_summaries.append({
-            "channel_type": "증권사", "sources": ["[MOCK]증권사"],
+            "speaker": "[MOCK]증권사 리서치센터", "channel": "[MOCK]증권사", "channel_type": "증권사",
             "narration": f"[MOCK] 증권사 리포트 종합: {stock_name} 더미 분석입니다.",
             "subtitle":  f"[MOCK] 증권사 리포트 종합: {stock_name} 더미 분석입니다.",
         })
@@ -931,7 +938,7 @@ def _generate_stock_section(stock_name: str, briefing_text: str,
 
 ## ★ 분량 요구사항 (요구사항: 종목별 설명을 더 자세히)
 - narration_summary 400자 이상.
-- channel_summaries의 각 항목 narration은 500~640자 내외.
+- channel_summaries의 각 항목(발언자 1명) narration은 200~300자 내외.
 - 목표 미달을 절대 허용하지 마세요. "간략히", "요약하면" 표현 금지.
 
 ## ★ 코너 멘트
@@ -959,10 +966,12 @@ def _generate_stock_section(stock_name: str, briefing_text: str,
   "summary": "(예: 반도체 수출 호조와 외국인 매수세로 긍정적 전망)",
   "catalysts": ["촉매1", "촉매2"], "risks": ["리스크1"],
   "channel_summaries": [
-    {{"channel_type": "유튜브", "sources": ["채널명1", "채널명2"],
-      "narration": "...(250~320자)", "subtitle": "..."}},
-    {{"channel_type": "경제방송", "sources": [...], "narration": "...", "subtitle": "..."}},
-    {{"channel_type": "증권사", "sources": ["증권사명1"], "narration": "...", "subtitle": "..."}}
+    {{"speaker": "OOO 연구원", "channel": "채널명1", "channel_type": "유튜브",
+      "narration": "...(200~300자)", "subtitle": "..."}},
+    {{"speaker": "OOO 대표", "channel": "채널명2", "channel_type": "경제방송",
+      "narration": "...", "subtitle": "..."}},
+    {{"speaker": "OOO증권 리서치센터", "channel": "OOO증권", "channel_type": "증권사",
+      "narration": "...", "subtitle": "..."}}
   ]
 }}
 
@@ -1119,6 +1128,7 @@ def generate_script(
     brokerage_reports: dict = None,
     stock_quotes: dict = None,
     stock_market_data: dict = None,
+    ai_strategy_detail: dict = None,
 ) -> dict:
     stock_quotes = stock_quotes or {}
     stock_market_data = stock_market_data or {}
@@ -1183,6 +1193,23 @@ def generate_script(
     market_summary_section = {"id": "market_summary", "label": "시장 요약", **core["market_summary"]}
     sectors_section = {"id": "sectors", "label": "업종 분석", **core["sectors"]}
     ai_strategy_section = {"id": "ai_strategy", "label": "AI 투자 전략", **core["ai_strategy"]}
+
+    # V3-1의 ai_strategy_detail(핵심 시나리오/섹터 로테이션/오늘의 주목 포인트/
+    # 리스크 시나리오/애널리스트 종합 시각 구조화 데이터)을 LLM 재호출 없이
+    # 그대로 옮겨온다 — 이미 V3-1에서 실제 데이터를 근거로 작성된 분석이므로
+    # 다시 요약·재작성하면 원문 충실도만 떨어진다. narrative_reorder.
+    # build_mention_briefing()이 이 중 핵심 시나리오/오늘의 주목 포인트/
+    # 애널리스트 종합 시각 3개만 골라 관심종목 소개 이후에 붙인다(섹터
+    # 로테이션/리스크 시나리오는 요구사항에 따라 제외).
+    ai_strategy_brief_section = None
+    if ai_strategy_detail:
+        ai_strategy_brief_section = {
+            "id": "ai_strategy_brief", "label": "AI 투자 전략",
+            "core_scenario": (ai_strategy_detail.get("core_scenario") or "").strip(),
+            "watch_points": [w for w in (ai_strategy_detail.get("watch_points") or []) if w],
+            "analyst_consensus": (ai_strategy_detail.get("analyst_consensus") or "").strip(),
+        }
+
     closing_section = {
         "id": "closing", "label": "클로징",
         "narration": "__CLOSING__", "subtitle": "__CLOSING_SUBTITLE__",
@@ -1193,6 +1220,7 @@ def generate_script(
         [opening_section, market_summary_section, sectors_section]
         + stock_sections
         + aggregate_sections
+        + ([ai_strategy_brief_section] if ai_strategy_brief_section else [])
         + [ai_strategy_section, closing_section]
     )
     data = {"title": f"{TODAY} KBS 머니올라 주식 브리핑", "date": TODAY, "sections": sections}
@@ -1327,9 +1355,10 @@ def run(lang: str = "KO"):
         print("⚠️ channel_mentions 없음 → mentions는 생략될 수 있음")
 
     stock_market_data = build_stock_market_data(briefing_data)
+    ai_strategy_detail = briefing_data.get("ai_strategy_detail") or None
 
     script = generate_script(briefing_text, market_data, brokerage_reports, stock_quotes,
-                              stock_market_data)
+                              stock_market_data, ai_strategy_detail)
 
     root     = os.path.join(_HERE, "..")
     out_dir  = os.path.join(root, "output", lang, "scripts")

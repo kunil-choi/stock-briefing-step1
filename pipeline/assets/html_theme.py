@@ -351,8 +351,8 @@ def chat_bubble(avatar_uri: str, sender: str, channel_type: str, text: str, colo
         if channel_type else ""
     )
     sender_html = (
-        f'<div style="display:flex;align-items:center;margin-bottom:10px;">'
-        f'{type_html}<span style="font-size:22px;font-weight:800;color:{PALETTE["ink"]};">'
+        f'<div style="display:flex;align-items:center;margin-bottom:12px;">'
+        f'{type_html}<span style="font-size:25px;font-weight:800;color:{PALETTE["ink"]};">'
         f'{esc(sender)}</span></div>'
         if sender else ""
     )
@@ -370,7 +370,7 @@ def chat_bubble(avatar_uri: str, sender: str, channel_type: str, text: str, colo
       border-right:17px solid #fff;"></div>
     <div class="card" style="padding:26px 30px;">
       {sender_html}
-      <div style="font-size:27px;line-height:1.55;font-weight:600;">{esc(text)}</div>
+      <div style="font-size:32px;line-height:1.55;font-weight:600;">{esc(text)}</div>
     </div>
   </div>
 </div>"""

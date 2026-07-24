@@ -410,16 +410,24 @@ def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
     cs = summaries[page_idx] if page_idx < len(summaries) else {}
 
     channel_type = cs.get("channel_type", "")
+    speaker      = (cs.get("speaker") or "").strip()
+    channel      = (cs.get("channel") or "").strip()
+    # 구 스키마(채널 유형별 종합, sources 리스트) 데이터가 섞여 있어도 예외
+    # 없이 표시되도록 폴백을 둔다.
     sources      = [s for s in cs.get("sources", []) if s]
     content      = cs.get("subtitle", "")
     label        = _CHANNEL_TYPE_LABELS.get(channel_type, channel_type or "종합 분석")
-    source_text  = ", ".join(sources) or label
+    sender_text  = (f"{speaker} · {channel}" if speaker and channel else speaker or channel
+                    or ", ".join(sources) or label)
     color        = _ACCENT_CYCLE[page_idx % len(_ACCENT_CYCLE)]
 
-    avatar_path = get_avatar_path(source_text)
+    # 아바타는 발언자 이름으로 고정 배정한다(채널명 기준이면 같은 채널에 다른
+    # 발언자가 나올 때도 아바타가 바뀌지 않는 문제가 생긴다).
+    avatar_key  = speaker or channel or sender_text
+    avatar_path = get_avatar_path(avatar_key)
     avatar_uri  = file_uri(avatar_path) if os.path.isfile(avatar_path) else ""
 
-    card = chat_bubble(avatar_uri, source_text, label, content, color)
+    card = chat_bubble(avatar_uri, sender_text, label, content, color)
 
     body = (f'<div style="display:flex;flex-direction:column;gap:20px;">{card}</div>'
             + page_dots(total_pages, page_idx))
@@ -583,6 +591,69 @@ def build_ai_strategy(data, out_dir):
     content = header + f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
     html = shell("AI 투자 전략", content)
     return render_html_to_png(html, os.path.join(out_dir, "98_ai_strategy.png"))
+
+
+# ── AI 투자 전략(V3-1 발췌) ──────────────────────────────────────────────────
+#
+# narrative_reorder._build_ai_strategy_brief_section()이 만드는 섹션
+# (id="ai_strategy_brief")을 화면 3장으로 나눠 렌더링한다: 1) 핵심 시나리오
+# 2) 오늘의 주목 포인트 3) 애널리스트 종합 시각. V3-1 원문(브릿지 멘트 제외)을
+# 그대로 쓰며, 화면마다 독립된 오디오/자막을 갖는다(generate_voice.py/
+# generate_subtitles.py의 ai_strategy_brief 처리 참고).
+
+def _ai_strategy_header(sub_label: str) -> str:
+    return (
+        f'<div class="card" style="display:flex;align-items:center;gap:20px;padding:22px 28px;'
+        f'margin-bottom:24px;border-left:8px solid {PALETTE["accent"]};">'
+        f'<div class="pill" style="background:{PALETTE["accent"]};color:#fff;font-size:26px;">AI</div>'
+        f'<div style="font-size:32px;font-weight:800;">{esc(sub_label)}</div>'
+        f'</div>'
+    )
+
+
+def _build_ai_strategy_core(sec, out_dir):
+    content = (
+        _ai_strategy_header("핵심 시나리오")
+        + f'<div class="card" style="padding:28px 32px;font-size:28px;line-height:1.6;font-weight:600;">'
+        f'{esc(sec.get("core_scenario", ""))}</div>'
+    )
+    html = shell("AI 투자 전략", content)
+    return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_1_core.png"))
+
+
+def _build_ai_strategy_points(sec, out_dir):
+    points = sec.get("watch_points", [])
+    cards = "".join(
+        point_card(i + 1, p, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
+        for i, p in enumerate(points)
+    )
+    content = (
+        _ai_strategy_header("오늘의 주목 포인트")
+        + f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
+    )
+    html = shell("AI 투자 전략", content)
+    return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_2_points.png"))
+
+
+def _build_ai_strategy_analyst(sec, out_dir):
+    content = (
+        _ai_strategy_header("애널리스트 종합 시각")
+        + f'<div class="card" style="padding:28px 32px;font-size:28px;line-height:1.6;font-weight:600;">'
+        f'{esc(sec.get("analyst_consensus", ""))}</div>'
+    )
+    html = shell("AI 투자 전략", content)
+    return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_3_analyst.png"))
+
+
+def build_ai_strategy_brief(sec, out_dir):
+    paths = []
+    if sec.get("core_scenario"):
+        paths.append(_build_ai_strategy_core(sec, out_dir))
+    if sec.get("watch_points"):
+        paths.append(_build_ai_strategy_points(sec, out_dir))
+    if sec.get("analyst_consensus"):
+        paths.append(_build_ai_strategy_analyst(sec, out_dir))
+    return paths
 
 
 # ── 클로징 ─────────────────────────────────────────────────────────────────

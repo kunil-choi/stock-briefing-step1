@@ -25,6 +25,7 @@ from assets.builders import (
     build_extra_watchlist,
     build_brokerage_report,
     build_ai_strategy,
+    build_ai_strategy_brief,
     build_closing,
 )
 
@@ -195,6 +196,8 @@ def run(lang: str = "KO"):
                 asset_map["frames"].append(build_sector(data, out_dir, visual=visual))
             elif sid == "ai_strategy":
                 asset_map["frames"].append(build_ai_strategy(data, out_dir))
+            elif sid == "ai_strategy_brief":
+                asset_map["frames"].extend(build_ai_strategy_brief(sec, out_dir))
             elif sid in _AGGREGATE_BUILDERS:
                 frame = _AGGREGATE_BUILDERS[sid](data, out_dir, img_dir)
                 if frame:
