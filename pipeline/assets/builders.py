@@ -396,7 +396,12 @@ def _build_stock_chart(sec, out_path, img_dir):
 _CHANNEL_TYPE_LABELS = {"유튜브": "유튜브 종합", "경제방송": "경제방송 종합", "증권사": "증권사 리포트 종합"}
 
 
-def _build_mention_page(sec, out_path, page_idx):
+def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
+    """전문가·방송 언급 화면. 종목 요약/차트 화면과 같은 종목 사진(image_path)을
+    배경으로 재사용한다 — 이 화면이 텍스트 카드 하나만 덩그러니 떠 있어
+    "텍스트만 한가득"으로 보인다는 피드백을 반영해, 다른 종목 화면들과 같은
+    사진 배경 위에 카드를 올리는 방식으로 통일했다(quote_bubble 자체가 이미
+    불투명 흰 카드라 사진 위에 올려도 가독성에는 문제가 없다)."""
     stock_name = sec.get("id", "").replace("stock_", "").replace("hidden_", "")
     summaries  = sec.get("channel_summaries", [])
     total_pages = max(1, len(summaries))
@@ -413,13 +418,15 @@ def _build_mention_page(sec, out_path, page_idx):
     body = (f'<div style="display:flex;flex-direction:column;gap:20px;">{card}</div>'
             + page_dots(total_pages, page_idx))
 
-    html = shell(f"전문가·방송 언급: {stock_name}", body, stock_tag=stock_name)
+    html = shell(f"전문가·방송 언급: {stock_name}", body, stock_tag=stock_name,
+                 background_image=image_path, suppress_ticker=True, credit=credit)
     return render_html_to_png(html, out_path)
 
 
 # ── 종목 카드 묶음 ─────────────────────────────────────────────────────────
 
 def build_stock_cards(sec, out_dir, img_dir, prefix, visual=None):
+    visual = visual or {}
     generated_paths = set()
 
     summary_path = os.path.join(out_dir, f"{prefix}_1_summary.png")
@@ -430,6 +437,8 @@ def build_stock_cards(sec, out_dir, img_dir, prefix, visual=None):
     generated_paths.add(summary_path)
 
     pages = len(sec.get("channel_summaries", []))
+    image_path = visual.get("image_path")
+    credit = visual.get("credit", "")
 
     for p in range(pages):
         mention_path = os.path.join(out_dir, f"{prefix}_3_mention_{p:02d}.png")
@@ -437,7 +446,7 @@ def build_stock_cards(sec, out_dir, img_dir, prefix, visual=None):
             print(f"  ⚠️ 중복 프레임 건너뜀: {os.path.basename(mention_path)}")
             continue
         generated_paths.add(mention_path)
-        paths.append(_build_mention_page(sec, mention_path, p))
+        paths.append(_build_mention_page(sec, mention_path, p, image_path=image_path, credit=credit))
 
     return paths
 
