@@ -78,7 +78,7 @@ def _ensure_silent_audio(mp3_path: str, duration: float) -> str:
         cmd = [
             "ffmpeg", "-y",
             "-f", "lavfi", "-t", f"{duration}", "-i", "anullsrc=r=44100:cl=stereo",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "libmp3lame", "-b:a", "192k",
             mp3_path,
         ]
         subprocess.run(cmd, capture_output=True)
@@ -287,7 +287,10 @@ def _auto_generate_subtitles(lang: str, root: str, sections: list, frames: list,
     sub_dir  = os.path.join(root, "output", lang, "subtitles")
     ass_path = os.path.join(sub_dir, "subtitle.ass")
 
-    if os.path.isfile(ass_path):
+    # time_scale != 1.0이면 (adjust_to_target_duration()이 속도를 보정한 경우)
+    # 이전 CI 단계가 1.0 배속 기준으로 미리 만들어둔 캐시 파일은 새 타임라인과
+    # 맞지 않으므로 재사용하지 않고 다시 생성한다.
+    if time_scale == 1.0 and os.path.isfile(ass_path):
         print(f"  [subtitle] 기존 ASS 파일 사용: {ass_path}")
         return ass_path
 

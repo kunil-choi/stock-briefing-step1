@@ -116,8 +116,12 @@ def build_market_summary(data, out_dir, visual=None):
     image_path = visual.get("image_path")
     screen_lines = [l for l in (visual.get("screenText") or []) if l]
     # headline_card()는 이미 불투명 흰 카드 안에 텍스트를 담으므로 배경 사진이
-    # 있어도 별도 색상 처리 없이 그대로 안전하게 읽힌다.
-    headline_text = "\n".join(screen_lines) if screen_lines else corner_summary
+    # 있어도 별도 색상 처리 없이 그대로 안전하게 읽힌다. screenText는
+    # compress_to_screen_text()가 18자로 하드 컷한 결과라 corner_summary처럼
+    # 이미 짧게 다듬어진 완성 문구를 오히려 어색하게 잘라버릴 수 있다(사용자
+    # 보고 버그: "국내 증시 전일 종가와 미국"에서 "주요 지표"가 잘림) —
+    # corner_summary가 있으면 그쪽을 우선한다.
+    headline_text = corner_summary or "\n".join(screen_lines)
 
     rows = [
         ("코스피",    sec.get("kospi_value", ""),  sec.get("kospi_change", ""),  sec.get("kospi_change_positive", True)),

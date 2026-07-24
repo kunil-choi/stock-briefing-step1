@@ -234,14 +234,12 @@ def _build_subtitle_map(sections: list, lang: str):
             if sub:
                 subtitle_map[f"{sid}_summary"] = (narr, sub)
 
-            # channel_summaries: 종목당 최대 3개(유튜브/경제방송/증권사) 카테고리별
-            # 종합 분석 요약 — builders.py/voice.py와 동일하게 배열 인덱스를 그대로
-            # _mention_{p:02d} 페이지 번호로 사용한다.
-            for p, cs in enumerate(section.get("channel_summaries", [])):
-                sub  = cs.get("subtitle", "")
-                narr = cs.get("narration", "")
-                if sub:
-                    subtitle_map[f"{sid}_mention_{p:02d}"] = (narr, sub)
+            # channel_summaries(전문가/패널 언급 카드)는 채팅 말풍선 이미지 안에
+            # 발언 텍스트가 이미 표시되므로(builders._build_mention_page 참고)
+            # 내레이션이 그 텍스트를 그대로 읽어줄 뿐이다 — 하단 자막까지 넣으면
+            # 화면에 같은 문구가 두 번(말풍선 + 자막) 겹쳐 보인다는 사용자 지적으로
+            # 자막은 넣지 않는다. 내레이션 오디오는 그대로 유지된다.
+            continue
 
         elif sid == "closing":
             # 클로징 슬라이드는 투자 유의사항 전문을 화면에 이미 글자로 표시하므로
