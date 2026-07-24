@@ -10,13 +10,14 @@ from .config import BROKERAGE_FIRMS
 from .render import render_html_to_png
 from .html_theme import (
     esc, file_uri, shell, centered_shell, kbs_badge, stat_table,
-    point_card, point_card_img, bullet_column, quote_bubble, page_dots,
+    point_card, point_card_img, bullet_column, chat_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
     headline_card, report_card, risk_card, sector_heatmap,
     autofit_text, text_plate,
 )
 from .chart import build_chart_with_insight, build_week_chart
 from .image_fetch import fetch_news_image
+from .panel_avatars import get_avatar_path
 
 _CONCLUSION_BG = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "..", "..", "assets", "backgrounds",
@@ -398,22 +399,35 @@ _CHANNEL_TYPE_LABELS = {"유튜브": "유튜브 종합", "경제방송": "경제
 
 def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
     """전문가·방송 언급 화면. 종목 요약/차트 화면과 같은 종목 사진(image_path)을
-    배경으로 재사용한다 — 이 화면이 텍스트 카드 하나만 덩그러니 떠 있어
-    "텍스트만 한가득"으로 보인다는 피드백을 반영해, 다른 종목 화면들과 같은
-    사진 배경 위에 카드를 올리는 방식으로 통일했다(quote_bubble 자체가 이미
-    불투명 흰 카드라 사진 위에 올려도 가독성에는 문제가 없다)."""
+    전체 배경으로 깔고, 그 위에 발언자 자리를 일반화된 일러스트 아바타
+    (panel_avatars.get_avatar_path — 실제 인물 사진이 아니며 닮음 여부는
+    고려하지 않음) + 카카오톡 대화창 스타일 말풍선(chat_bubble)으로 보여준다.
+    예전에는 텍스트 카드 하나만 덩그러니 떠 있어 "텍스트만 한가득"으로
+    보인다는 피드백이 반복됐다."""
     stock_name = sec.get("id", "").replace("stock_", "").replace("hidden_", "")
     summaries  = sec.get("channel_summaries", [])
     total_pages = max(1, len(summaries))
     cs = summaries[page_idx] if page_idx < len(summaries) else {}
 
     channel_type = cs.get("channel_type", "")
+    speaker      = (cs.get("speaker") or "").strip()
+    channel      = (cs.get("channel") or "").strip()
+    # 구 스키마(채널 유형별 종합, sources 리스트) 데이터가 섞여 있어도 예외
+    # 없이 표시되도록 폴백을 둔다.
     sources      = [s for s in cs.get("sources", []) if s]
     content      = cs.get("subtitle", "")
     label        = _CHANNEL_TYPE_LABELS.get(channel_type, channel_type or "종합 분석")
-    source_text  = ", ".join(sources)
+    sender_text  = (f"{speaker} · {channel}" if speaker and channel else speaker or channel
+                    or ", ".join(sources) or label)
+    color        = _ACCENT_CYCLE[page_idx % len(_ACCENT_CYCLE)]
 
-    card = quote_bubble(source_text, "", content, _ACCENT_CYCLE[page_idx % len(_ACCENT_CYCLE)], label)
+    # 아바타는 발언자 이름으로 고정 배정한다(채널명 기준이면 같은 채널에 다른
+    # 발언자가 나올 때도 아바타가 바뀌지 않는 문제가 생긴다).
+    avatar_key  = speaker or channel or sender_text
+    avatar_path = get_avatar_path(avatar_key)
+    avatar_uri  = file_uri(avatar_path) if os.path.isfile(avatar_path) else ""
+
+    card = chat_bubble(avatar_uri, sender_text, label, content, color)
 
     body = (f'<div style="display:flex;flex-direction:column;gap:20px;">{card}</div>'
             + page_dots(total_pages, page_idx))
@@ -577,6 +591,69 @@ def build_ai_strategy(data, out_dir):
     content = header + f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
     html = shell("AI 투자 전략", content)
     return render_html_to_png(html, os.path.join(out_dir, "98_ai_strategy.png"))
+
+
+# ── AI 투자 전략(V3-1 발췌) ──────────────────────────────────────────────────
+#
+# narrative_reorder._build_ai_strategy_brief_section()이 만드는 섹션
+# (id="ai_strategy_brief")을 화면 3장으로 나눠 렌더링한다: 1) 핵심 시나리오
+# 2) 오늘의 주목 포인트 3) 애널리스트 종합 시각. V3-1 원문(브릿지 멘트 제외)을
+# 그대로 쓰며, 화면마다 독립된 오디오/자막을 갖는다(generate_voice.py/
+# generate_subtitles.py의 ai_strategy_brief 처리 참고).
+
+def _ai_strategy_header(sub_label: str) -> str:
+    return (
+        f'<div class="card" style="display:flex;align-items:center;gap:20px;padding:22px 28px;'
+        f'margin-bottom:24px;border-left:8px solid {PALETTE["accent"]};">'
+        f'<div class="pill" style="background:{PALETTE["accent"]};color:#fff;font-size:26px;">AI</div>'
+        f'<div style="font-size:32px;font-weight:800;">{esc(sub_label)}</div>'
+        f'</div>'
+    )
+
+
+def _build_ai_strategy_core(sec, out_dir):
+    content = (
+        _ai_strategy_header("핵심 시나리오")
+        + f'<div class="card" style="padding:28px 32px;font-size:28px;line-height:1.6;font-weight:600;">'
+        f'{esc(sec.get("core_scenario", ""))}</div>'
+    )
+    html = shell("AI 투자 전략", content)
+    return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_1_core.png"))
+
+
+def _build_ai_strategy_points(sec, out_dir):
+    points = sec.get("watch_points", [])
+    cards = "".join(
+        point_card(i + 1, p, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
+        for i, p in enumerate(points)
+    )
+    content = (
+        _ai_strategy_header("오늘의 주목 포인트")
+        + f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
+    )
+    html = shell("AI 투자 전략", content)
+    return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_2_points.png"))
+
+
+def _build_ai_strategy_analyst(sec, out_dir):
+    content = (
+        _ai_strategy_header("애널리스트 종합 시각")
+        + f'<div class="card" style="padding:28px 32px;font-size:28px;line-height:1.6;font-weight:600;">'
+        f'{esc(sec.get("analyst_consensus", ""))}</div>'
+    )
+    html = shell("AI 투자 전략", content)
+    return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_3_analyst.png"))
+
+
+def build_ai_strategy_brief(sec, out_dir):
+    paths = []
+    if sec.get("core_scenario"):
+        paths.append(_build_ai_strategy_core(sec, out_dir))
+    if sec.get("watch_points"):
+        paths.append(_build_ai_strategy_points(sec, out_dir))
+    if sec.get("analyst_consensus"):
+        paths.append(_build_ai_strategy_analyst(sec, out_dir))
+    return paths
 
 
 # ── 클로징 ─────────────────────────────────────────────────────────────────

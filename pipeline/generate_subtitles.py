@@ -14,6 +14,9 @@ ASS(Advanced SubStation Alpha) 자막 파일 생성 모듈
   10_삼성전자_1_summary.png  → stock_삼성전자_summary.mp3
   10_삼성전자_3_mention.png  → stock_삼성전자_mention.mp3
   10_삼성전자_3_mention_00.png → stock_삼성전자_mention_00.mp3
+  95_ai_strategy_1_core.png     → ai_strategy_core.mp3
+  95_ai_strategy_2_points.png   → ai_strategy_points.mp3
+  95_ai_strategy_3_analyst.png  → ai_strategy_analyst.mp3
   99_closing.png             → closing.mp3
 
 (구 8단계/롱폼 구성에서만 쓰이던 00_opening/01_market_00/02_sector/
@@ -121,6 +124,9 @@ def _frame_stem_to_audio_id(stem: str, sections: list) -> str:
         (r'^90_extra_watchlist$',   'stock_추가관심종목'),
         (r'^91_today_pick$',        'stock_오늘의픽'),
         (r'^92_brokerage_report$',  'stock_증권사리포트'),
+        (r'^95_ai_strategy_1_core$',    'ai_strategy_core'),
+        (r'^95_ai_strategy_2_points$',  'ai_strategy_points'),
+        (r'^95_ai_strategy_3_analyst$', 'ai_strategy_analyst'),
         (r'^98_ai_strategy',        'ai_strategy'),
         (r'^99_closing',            'closing'),
     ]
@@ -252,6 +258,16 @@ def _build_subtitle_map(sections: list, lang: str):
             # 훅 타이틀 화면은 제목 카드처럼 텍스트만 보여주고 자막은 넣지
             # 않는다(narrative_reorder._build_hook_section 참고).
             continue
+
+        elif sid == "ai_strategy_brief":
+            for key, audio_name in (
+                ("core_narration", "ai_strategy_core"),
+                ("points_narration", "ai_strategy_points"),
+                ("analyst_narration", "ai_strategy_analyst"),
+            ):
+                text = section.get(key, "")
+                if text:
+                    subtitle_map[audio_name] = (text, text)
 
         else:
             # 일반 섹션

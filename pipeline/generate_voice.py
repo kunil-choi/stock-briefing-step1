@@ -64,6 +64,18 @@ def _build_jobs(sections: list, lang: str) -> list:
             # 않는다(narrative_reorder._build_hook_section 참고) — 오디오를
             # 합성하지 않으며, generate_video.py가 무음 프레임으로 처리한다.
             continue
+        elif sid == "ai_strategy_brief":
+            # 화면 3장(핵심 시나리오/포인트/애널리스트)마다 오디오를 하나씩
+            # 따로 합성한다(narrative_reorder._build_ai_strategy_brief_section,
+            # builders.build_ai_strategy_brief 참고).
+            for key, audio_name in (
+                ("core_narration", "ai_strategy_core"),
+                ("points_narration", "ai_strategy_points"),
+                ("analyst_narration", "ai_strategy_analyst"),
+            ):
+                text = section.get(key, "")
+                if text:
+                    jobs.append((text, f"{audio_base}/{audio_name}.mp3", f"{label} [{audio_name}]"))
         else:
             narration = section.get("narration", "")
             if narration:

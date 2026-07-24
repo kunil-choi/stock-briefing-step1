@@ -340,33 +340,39 @@ def bullet_column(title: str, items: list, color: str) -> str:
 </div>"""
 
 
-def quote_bubble(channel: str, speaker: str, text: str, color: str,
-                  channel_type: str = "") -> str:
+def chat_bubble(avatar_uri: str, sender: str, channel_type: str, text: str, color: str) -> str:
+    """카카오톡 대화창처럼 왼쪽 원형 아바타 + 꼬리 달린 말풍선으로 발언을
+    보여준다(builders._build_mention_page 전용). avatar_uri는 실제 인물
+    사진이 아니라 panel_avatars.get_avatar_path()가 고른 일반화된 일러스트
+    아바타다 — 실제 발언자와의 닮음 여부는 고려 대상이 아니다."""
     type_html = (
         f'<span class="pill" style="background:{PALETTE["ink"]};color:#fff;'
-        f'font-size:18px;padding:4px 14px;margin-right:10px;">{esc(channel_type)}</span>'
+        f'font-size:16px;padding:3px 12px;margin-right:8px;">{esc(channel_type)}</span>'
         if channel_type else ""
     )
-    channel_html = (
-        f'<span class="pill" style="background:{color}1a;color:{color};'
-        f'font-size:22px;padding:6px 18px;">{esc(channel)}</span>'
-        if channel else ""
+    sender_html = (
+        f'<div style="display:flex;align-items:center;margin-bottom:12px;">'
+        f'{type_html}<span style="font-size:25px;font-weight:800;color:{PALETTE["ink"]};">'
+        f'{esc(sender)}</span></div>'
+        if sender else ""
     )
-    speaker_html = (
-        f'<span style="font-size:28px;font-weight:800;color:{PALETTE["ink"]};margin-left:14px;">'
-        f'{esc(speaker)}</span>'
-        if speaker else ""
-    )
-    header_html = (
-        f'<div style="display:flex;align-items:center;margin-bottom:16px;">'
-        f'{type_html}{channel_html}{speaker_html}</div>'
-        if (channel_type or channel or speaker) else ""
+    avatar_html = (
+        f'<img src="{avatar_uri}" style="width:120px;height:120px;border-radius:50%;'
+        f'border:4px solid {color};flex-shrink:0;box-shadow:0 8px 20px rgba(0,0,0,.28);">'
+        if avatar_uri else ""
     )
     return f"""
-<div class="card" style="border-left:8px solid {color};padding:26px 30px;position:relative;">
-  <div style="position:absolute;top:14px;right:26px;font-size:52px;color:{color}33;font-weight:800;">&rdquo;</div>
-  {header_html}
-  <div style="font-size:27px;line-height:1.55;font-weight:600;">{esc(text)}</div>
+<div style="display:flex;align-items:flex-start;gap:22px;">
+  {avatar_html}
+  <div style="position:relative;flex:1;">
+    <div style="position:absolute;left:-15px;top:38px;width:0;height:0;
+      border-top:15px solid transparent;border-bottom:15px solid transparent;
+      border-right:17px solid #fff;"></div>
+    <div class="card" style="padding:26px 30px;">
+      {sender_html}
+      <div style="font-size:32px;line-height:1.55;font-weight:600;">{esc(text)}</div>
+    </div>
+  </div>
 </div>"""
 
 

@@ -372,6 +372,50 @@ def _build_market_indicators_section(market_sec: Optional[dict], importance_by_i
     }
 
 
+# 관심종목 소개가 끝난 뒤 AI 투자 전략으로 넘어가는 브릿지 멘트(고정 문구).
+_AI_STRATEGY_BRIDGE = "자, 그럼 AI가 추천하는 오늘의 투자 전략을 확인해보겠습니다."
+
+
+def _build_ai_strategy_brief_section(sec: Optional[dict], importance_by_id: dict,
+                                      entities_by_id: dict) -> Optional[dict]:
+    """V3-1의 ai_strategy_detail(핵심 시나리오/오늘의 주목 포인트/애널리스트
+    종합 시각)을 3개 화면으로 나눠 보여준다. LLM 재작성 없이 V3-1 원문을
+    그대로 쓴다(generate_script.py 참고) — 화면 3장(핵심 시나리오/포인트/
+    애널리스트) + 오디오 3개로 나뉘므로(builders.build_ai_strategy_brief,
+    generate_voice.py/generate_subtitles.py 참고) 세 서브내레이션을 미리
+    각각 만들어 둔다. 데이터가 전혀 없으면 섹션 자체를 건너뛴다(반환값 None)."""
+    if not sec:
+        return None
+    core_scenario = (sec.get("core_scenario") or "").strip()
+    watch_points = [w for w in (sec.get("watch_points") or []) if w][:4]
+    analyst_consensus = (sec.get("analyst_consensus") or "").strip()
+    if not (core_scenario or watch_points or analyst_consensus):
+        return None
+
+    core_narration = (_AI_STRATEGY_BRIDGE + " " + core_scenario).strip() if core_scenario else _AI_STRATEGY_BRIDGE
+    points_narration = (
+        "오늘의 주목 포인트는 다음과 같습니다. "
+        + " ".join((w.rstrip(".") + ".") for w in watch_points)
+    ).strip() if watch_points else ""
+    analyst_narration = (
+        "애널리스트들의 종합 시각입니다. " + analyst_consensus
+    ).strip() if analyst_consensus else ""
+
+    full_narration = " ".join(
+        n for n in (core_narration, points_narration, analyst_narration) if n
+    )
+
+    return {
+        "id": "ai_strategy_brief", "label": "AI 투자 전략", "section_type": "ai_strategy_brief",
+        "importance": round(importance_by_id.get("ai_strategy_brief", 0.55), 2),
+        "entities": entities_by_id.get("ai_strategy_brief", []),
+        "narration": full_narration, "subtitle": full_narration,
+        "core_narration": core_narration, "core_scenario": core_scenario,
+        "points_narration": points_narration, "watch_points": watch_points,
+        "analyst_narration": analyst_narration, "analyst_consensus": analyst_consensus,
+    }
+
+
 def build_mention_briefing(script_data: dict) -> dict:
     """"종목 언급 중심" 구성으로 재정렬한다(reorder_sections()와 독립적).
 
@@ -396,9 +440,10 @@ def build_mention_briefing(script_data: dict) -> dict:
         # 추정한다.
         leaders, others = stock_candidates[:2], stock_candidates[2:]
 
-    market_sec    = by_id.get("market_summary")
-    watchlist_sec = by_id.get("stock_추가관심종목")
-    closing_sec   = by_id.get("closing")
+    market_sec       = by_id.get("market_summary")
+    watchlist_sec    = by_id.get("stock_추가관심종목")
+    ai_strategy_sec  = by_id.get("ai_strategy_brief")
+    closing_sec      = by_id.get("closing")
 
     ordered = [
         _build_hook_section(),
@@ -421,6 +466,9 @@ def build_mention_briefing(script_data: dict) -> dict:
         watchlist_group[0] = _prefix_narration(watchlist_group[0], _WATCHLIST_TRANSITION)
         ordered += watchlist_group
 
+    ai_strategy_brief = _build_ai_strategy_brief_section(ai_strategy_sec, importance_by_id, entities_by_id)
+    if ai_strategy_brief:
+        ordered.append(ai_strategy_brief)
 
     if closing_sec:
         ordered.append(_annotate(closing_sec, "closing", importance_by_id, entities_by_id))
