@@ -1122,6 +1122,38 @@ def _warn_cross_stock_contamination(aggregate_sections: list) -> None:
                           f"포함되어 있습니다 — {sec.get('id', '')} 섹션을 확인하세요.")
 
 
+def partition_major_stocks(core: dict, stock_market_data: dict) -> tuple:
+    """market_leaders/top_stocks를 개별 카드로 다룰 종목(major_stocks)과, 실시간
+    시세가 없어 카드를 만들 수 없는 종목(no_price_stocks)으로 나눈다.
+    (major_stocks, tier_by_name, no_price_stocks) 튜플을 반환한다.
+
+    ★ NO-PRICE-STOCK-DOWNGRADE: _generate_core()의 LLM은 브리핑 원문에서 비중
+    있게 "언급된" 종목명을 market_leaders/top_stocks로 분류하는데, 이때 실제로는
+    다른 종목 설명 안에 등장한 이름(예: SK하이닉스의 HBM 공급 계약 상대방으로
+    언급된 "엔비디아")까지 대형 주도주로 뽑아오는 경우가 있다. stock_market_data는
+    V3_1 원본이 실제로 시세를 추적하는 종목(국내 상장사)에만 존재하므로, 그런
+    이름은 market_data가 비어 있어 price/change가 빈 문자열로 남고 그대로
+    화면에 노출될 뻔한 사고(quality_gate가 잡아낸 placeholder)로 이어진다.
+    개별 종목 카드는 실제 시세가 있는 종목만 만들고, 시세가 없는 이름은
+    price/change가 필요 없는 집계 섹션(추가 관심종목)으로 내려보낸다."""
+    seen = set()
+    major_stocks = []
+    tier_by_name = {}
+    no_price_stocks = []
+    for tier, names in (("market_leader", core["market_leaders"]), ("top_stock", core["top_stocks"])):
+        for name in names:
+            norm = normalize_stock_name(name)
+            if not norm or norm in seen:
+                continue
+            seen.add(norm)
+            if not stock_market_data.get(norm, {}).get("price"):
+                no_price_stocks.append(norm)
+                continue
+            major_stocks.append(norm)
+            tier_by_name[norm] = tier
+    return major_stocks, tier_by_name, no_price_stocks
+
+
 def generate_script(
     briefing_text: str,
     market_data: dict = None,
@@ -1143,21 +1175,9 @@ def generate_script(
     # 개별 섹션으로 다룰 종목 목록 (대형 주도주 + 상위 관심종목, 중복 제거).
     # tier_by_name은 narrative_reorder.build_mention_briefing()이 "대형 주도주"
     # 그룹을 importance 재랭킹 없이 정확히 골라내도록 종목별로 심어주는 태그다.
-    seen = set()
-    major_stocks = []
-    tier_by_name = {}
-    for name in core["market_leaders"]:
-        norm = normalize_stock_name(name)
-        if norm and norm not in seen:
-            seen.add(norm)
-            major_stocks.append(norm)
-            tier_by_name[norm] = "market_leader"
-    for name in core["top_stocks"]:
-        norm = normalize_stock_name(name)
-        if norm and norm not in seen:
-            seen.add(norm)
-            major_stocks.append(norm)
-            tier_by_name[norm] = "top_stock"
+    major_stocks, tier_by_name, no_price_stocks = partition_major_stocks(core, stock_market_data)
+    if no_price_stocks:
+        print(f"   ⚠️ 실시간 시세 데이터 없음 → 개별 종목 카드 대신 집계 섹션으로 이동: {no_price_stocks}")
 
     print(f"\n🧩 2/3 — 종목별 상세 섹션 생성 중... ({len(major_stocks)}개)")
     stock_sections = []
@@ -1172,12 +1192,17 @@ def generate_script(
         else:
             print(f"   ⚠️ {stock_name} 섹션 생성 실패 — 건너뜁니다")
 
-    # 개별 섹션에서 다룬 종목은 추가 관심 종목 목록에서 제외
+    # 개별 섹션에서 다룬 종목은 추가 관심 종목 목록에서 제외.
+    # 시세가 없어 개별 카드에서 내려온 종목(no_price_stocks)은 여기서 다시
+    # 다뤄지도록 합류시킨다(집계 섹션은 price/change 필드가 없어 안전함).
     covered = set(major_stocks)
     remaining_stocks = [
         normalize_stock_name(n) for n in core["remaining_stocks"]
         if normalize_stock_name(n) not in covered
     ]
+    for norm in no_price_stocks:
+        if norm not in covered and norm not in remaining_stocks:
+            remaining_stocks.append(norm)
 
     print(f"\n🧩 3/3 — 집계 섹션(추가 관심종목/증권사리포트) 생성 중...")
     aggregate_sections = _generate_aggregate_sections(
