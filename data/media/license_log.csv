@@ -21,3 +21,6 @@ date,section_id,keyword,provider,url,license,phash,width,height,score
 2026-07-26,stock_SK하이닉스,삼성전자,naver_discovery,https://img7.yna.co.kr/photo/yna/YH/2026/05/27/PYH2026052715450006100_P4.jpg,editorial_search,b111cfdce5c3862c,1200,842,1.08
 2026-07-26,stock_추가관심종목,semiconductor,naver_discovery,https://img8.yna.co.kr/etc/inner/EN/2026/07/26/AEN20260726000800320_02_i_P4.jpg,editorial_search,be10cfeb814cd495,500,322,0.78
 2026-07-26,ai_strategy_brief,SK Hynix,naver_discovery,https://img9.yna.co.kr/photo/yna/YH/2026/07/24/PYH2026072412160001300_P4.jpg,editorial_search,b8cda2572ad52ad4,1200,528,0.78
+2026-07-27,stock_삼성전자,반도체,naver_discovery,https://img0.yna.co.kr/etc/inner/KR/2026/07/27/AKR20260727036300003_02_i_P4.jpg,editorial_search,ecd2168b32f9076c,800,600,0.96
+2026-07-27,stock_추가관심종목,NH투자증권,naver_discovery,https://img7.yna.co.kr/etc/inner/KR/2026/07/27/AKR20260727020400008_02_i_P4.jpg,editorial_search,e19b9a64659a9a65,800,400,0.96
+2026-07-27,ai_strategy_brief,증권 이사,naver_discovery,https://img7.yna.co.kr/etc/inner/KR/2026/07/27/AKR20260727026700008_01_i_P4.jpg,editorial_search,8a301dcfa5cbc90f,500,281,0.78
