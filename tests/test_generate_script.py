@@ -25,7 +25,7 @@ if _PIPELINE not in sys.path:
 
 from generate_script import (  # noqa: E402
     build_stock_market_data, build_synthetic_mentions, build_stock_quotes,
-    _is_unfilled_stock_section, _merge_quotes_by_speaker,
+    _is_unfilled_stock_section, _merge_quotes_by_speaker, partition_major_stocks,
 )
 
 
@@ -125,6 +125,43 @@ def test_stock_quotes_merges_before_capping_at_nine():
     print("✅ build_stock_quotes: 같은 화자는 병합, 서로 다른 화자는 9명 캡으로 폭넓게 유지 확인")
 
 
+def test_partition_major_stocks_downgrades_names_without_price():
+    # "엔비디아"는 다른 종목(SK하이닉스)의 브리핑 원문에서 언급만 됐을 뿐 V3_1이
+    # 자체 시세를 추적하는 종목이 아니므로 stock_market_data에 값이 없는 경우를
+    # 재현한다(2026-07-27 실제 사고 재현: quality_gate가 stock_엔비디아.price=''
+    # 를 잡아냈다).
+    core = {
+        "market_leaders": ["삼성전자", "엔비디아"],
+        "top_stocks": ["현대차"],
+    }
+    stock_market_data = {
+        "삼성전자": {"price": "279,500", "change": "+0.00%"},
+        "현대차":   {"price": "434,000", "change": "+1.23%"},
+        # "엔비디아": 항목 자체가 없음 (V3_1이 시세를 추적하지 않음)
+    }
+    major_stocks, tier_by_name, no_price_stocks = partition_major_stocks(core, stock_market_data)
+    assert major_stocks == ["삼성전자", "현대차"], (
+        f"시세가 없는 '엔비디아'는 개별 카드 목록에서 빠져야 함: {major_stocks}"
+    )
+    assert tier_by_name == {"삼성전자": "market_leader", "현대차": "top_stock"}
+    assert no_price_stocks == ["엔비디아"], (
+        f"시세 없는 종목은 no_price_stocks로 분리돼야 함: {no_price_stocks}"
+    )
+    print("✅ partition_major_stocks: 실시간 시세 없는 종목이 개별 카드에서 안전하게 제외됨")
+
+
+def test_partition_major_stocks_keeps_all_when_price_present():
+    core = {"market_leaders": ["삼성전자"], "top_stocks": ["현대차"]}
+    stock_market_data = {
+        "삼성전자": {"price": "279,500", "change": "+0.00%"},
+        "현대차":   {"price": "434,000", "change": "+1.23%"},
+    }
+    major_stocks, tier_by_name, no_price_stocks = partition_major_stocks(core, stock_market_data)
+    assert major_stocks == ["삼성전자", "현대차"]
+    assert no_price_stocks == []
+    print("✅ partition_major_stocks: 시세가 모두 있으면 아무것도 내려가지 않음")
+
+
 def test_unfilled_stock_section_detected():
     assert _is_unfilled_stock_section(
         {"corner_summary": "현대차 한줄 요약", "summary": "한줄 요약"}, "현대차"
@@ -142,5 +179,7 @@ if __name__ == "__main__":
     test_stock_quotes_channel_type_mapping()
     test_merge_quotes_by_speaker_combines_same_speaker_fragments()
     test_stock_quotes_merges_before_capping_at_nine()
+    test_partition_major_stocks_downgrades_names_without_price()
+    test_partition_major_stocks_keeps_all_when_price_present()
     test_unfilled_stock_section_detected()
     print("\n✅ generate_script 테스트 전체 통과")
