@@ -161,6 +161,10 @@ def main(lang: str = "KO"):
     duration = media_duration(video_path)
     print(f"final.mp4 duration={duration:.2f}s")
     if not (TARGET_MIN_SECONDS <= duration <= TARGET_MAX_SECONDS):
+        # generate_video.py가 이미 배속 보정(최대 atempo.max_speed배) + 우선순위
+        # 낮은 콘텐츠 자동 삭제(trim_to_fit_budget)까지 시도한 뒤에도 여전히
+        # 범위를 벗어난 경우다 — 핵심 콘텐츠만으로도 목표를 못 맞출 만큼
+        # 스크립트 분량 자체에 문제가 있다는 뜻이라 여기서 실패 처리한다.
         raise SystemExit(f"최종 영상 길이가 목표 범위를 벗어남: {duration:.2f}s")
 
     check_metadata()
