@@ -109,42 +109,42 @@ def get_audio_duration(mp3_path: str) -> float:
 # 목표 최대 길이(TARGET_MAX)를 못 맞출 만큼 스크립트 분량이 많을 때, 예전에는
 # quality_gate.py가 최종적으로 실패 처리했다. 이제는 그 전에 우선순위가 낮은
 # 콘텐츠부터 하나씩 빼서 다시 계산해, 배속 보정만으로 목표를 맞출 수 있는
-# 수준까지 분량을 줄인다. 삭제 우선순위(낮을수록 먼저 빠짐):
+# 수준까지 분량을 줄인다.
+#
+# ★ 원칙: 대형 주도주/관심종목의 "개수"는 절대 줄이지 않는다 — 어떤 종목을
+# 통째로 들어내거나(개별 요약 삭제) 관심종목 집계 카드를 통째로 빼는 방식은
+# 쓰지 않고, 각 종목에 딸린 세부 항목(패널/채널 언급 코멘트, AI 부가 설명)만
+# 조금씩 줄인다(사용자 요청 — 길이가 문제라도 다루는 종목 수는 그대로 유지).
+#
+# 삭제 우선순위(낮을수록 먼저 빠짐), 전부 라운드로빈으로 하나씩:
 #   0. 대형 주도주가 아닌 종목의 채널 언급(멘션) 페이지 — "이 종목이
 #      유튜브/경제방송/증권사에서 이렇게 언급됐다"는 부가 코멘트라, 정보량
 #      대비 분량이 가장 크다. 특정 종목의 패널 코멘트를 통째로 먼저 없애는
-#      대신, 라운드로빈으로 뺀다: 아직 하나도 안 뺀 종목이 있으면 그 종목의
+#      대신 라운드로빈으로 뺀다: 아직 하나도 안 뺀 종목이 있으면 그 종목의
 #      (가장 뒤 페이지) 멘션을, 그중에서도 importance가 낮은 종목을 먼저
-#      뺀다 — 모든 종목이 1개씩 빠진 뒤에야 다시 2번째 페이지를 빼기 시작한다
-#      (한 종목만 패널 코멘트가 통째로 사라지는 것을 피하기 위함, 사용자 요청).
-#   1. 관심종목/증권사 리포트 집계 카드 전체.
-#   2. AI 히든픽의 부가 설명(애널리스트 코멘트 → 포인트) — 핵심 시나리오는
+#      뺀다 — 모든 종목이 1개씩 빠진 뒤에야 다시 2번째 페이지를 빼기 시작한다.
+#   1. AI 히든픽의 부가 설명(애널리스트 코멘트 → 포인트) — 핵심 시나리오는
 #      끝까지 남긴다.
-#   3. 대형 주도주가 아닌 개별 종목의 요약 전체(위 0번에서 멘션은 이미 빠진
-#      상태).
-#   4. 대형 주도주의 멘션 페이지 — 그 외 모든 종목의 멘션/요약과 집계
-#      카드/AI 부가 설명을 다 빼고도 부족할 때만 건드린다(주도주 자체는
-#      이 방송의 핵심이라 마지막까지 최대한 지킨다).
-# 훅/채널언급 인트로/시장 지표/대형 주도주 요약/AI 히든픽 핵심 시나리오/
-# 클로징은 절대 빼지 않는다 — 그래도 목표를 못 맞추면 quality_gate.py가
-# 최종 안전장치로 남아 실패 처리한다.
+#   2. 대형 주도주의 멘션 페이지 — 그 외 모든 종목의 멘션과 AI 부가 설명을
+#      다 빼고도 부족할 때만 건드린다(0번과 같은 라운드로빈 규칙 공유).
+# 훅/채널언급 인트로/시장 지표/개별 종목 요약(주도주·관심종목 모두)/관심종목·
+# 증권사 리포트 집계 카드/AI 히든픽 핵심 시나리오/클로징은 절대 빼지 않는다
+# (= 종목 개수와 각 종목의 핵심 요약은 항상 보존됨) — 그래도 목표를 못
+# 맞추면 quality_gate.py가 최종 안전장치로 남아 실패 처리한다.
 
 _DROP_TIER_MINOR_MENTION = 0
-_DROP_TIER_AGGREGATE = 1
-_DROP_TIER_AI_STRATEGY_EXTRA = 2
-_DROP_TIER_MINOR_STOCK_SUMMARY = 3
-_DROP_TIER_LEADER_MENTION = 4
+_DROP_TIER_AI_STRATEGY_EXTRA = 1
+_DROP_TIER_LEADER_MENTION = 2
 
 _MENTION_ID_RE = re.compile(r"^(.+)_mention_(\d+)$")
-_STOCK_SUMMARY_ID_RE = re.compile(r"^(stock_.+|hidden_.+)_summary$")
-_AGGREGATE_STOCK_AUDIO_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
 def _classify_drop_candidate(audio_id: str, leader_ids: set, importance_by_sid: dict,
                               mention_rounds: dict):
     """audio_id가 분량 초과 시 삭제 후보면 (tier, 정렬키)를, 핵심 콘텐츠라
     삭제 금지면 None을 반환한다. tier가 낮을수록, 정렬키가 작을수록 먼저
-    삭제된다.
+    삭제된다. 종목 요약/집계 카드는 어떤 경우에도 삭제 후보가 아니다(종목
+    개수를 줄이지 않는다는 원칙).
 
     mention_rounds: {종목id: 이번 트림에서 이미 뺀 멘션 개수}. 멘션 페이지의
     정렬키 맨 앞자리로 써서, 한 종목의 멘션을 다 빼기 전에 다른 종목들의
@@ -161,15 +161,6 @@ def _classify_drop_candidate(audio_id: str, leader_ids: set, importance_by_sid: 
     if audio_id in ("ai_strategy_analyst", "ai_strategy_points"):
         rank = 0 if audio_id == "ai_strategy_analyst" else 1
         return (_DROP_TIER_AI_STRATEGY_EXTRA, (rank,))
-
-    if audio_id in _AGGREGATE_STOCK_AUDIO_IDS:
-        return (_DROP_TIER_AGGREGATE, (audio_id,))
-
-    sm = _STOCK_SUMMARY_ID_RE.match(audio_id)
-    if sm:
-        sid = sm.group(1)
-        if sid not in leader_ids:
-            return (_DROP_TIER_MINOR_STOCK_SUMMARY, (importance_by_sid.get(sid, 0.0),))
 
     return None
 

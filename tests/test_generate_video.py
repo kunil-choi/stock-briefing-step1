@@ -147,44 +147,40 @@ def test_classify_drop_candidate_tiers():
     assert hyundai_p0_round0[1] < kakao_p0_round1[1], \
         "라운드로빈: 아직 안 빠진 종목이 이미 1개 빠진 종목보다 먼저 빠져야 함"
 
-    # tier 1: 집계 카드
-    assert _classify_drop_candidate("stock_추가관심종목", leaders, importance, {})[0] == 1
-    assert _classify_drop_candidate("stock_증권사리포트", leaders, importance, {})[0] == 1
-
-    # tier 2: AI 히든픽 부가 설명 (애널리스트 → 포인트 순)
+    # tier 1: AI 히든픽 부가 설명 (애널리스트 → 포인트 순)
     analyst = _classify_drop_candidate("ai_strategy_analyst", leaders, importance, {})
     points = _classify_drop_candidate("ai_strategy_points", leaders, importance, {})
-    assert analyst[0] == points[0] == 2
+    assert analyst[0] == points[0] == 1
     assert analyst[1] < points[1]
 
-    # tier 3: 대형 주도주가 아닌 종목의 요약 전체
-    assert _classify_drop_candidate("stock_카카오_summary", leaders, importance, {})[0] == 3
-    hyundai_summary = _classify_drop_candidate("stock_현대차_summary", leaders, importance, {})
-    kakao_summary = _classify_drop_candidate("stock_카카오_summary", leaders, importance, {})
-    assert kakao_summary[1] < hyundai_summary[1], "importance가 낮은 종목의 요약이 먼저 빠져야 함"
-
-    # tier 4: 대형 주도주의 멘션 페이지 — 다른 모든 티어(0~3)보다 나중에 빠져야 함
+    # tier 2: 대형 주도주의 멘션 페이지 — 다른 모든 티어(0~1)보다 나중에 빠져야 함
     leader_p1 = _classify_drop_candidate("stock_삼성전자_mention_01", leaders, importance, {})
     leader_p0 = _classify_drop_candidate("stock_삼성전자_mention_00", leaders, importance, {})
-    assert leader_p1[0] == leader_p0[0] == 4
-    assert leader_p1[0] > hyundai_summary[0], "주도주 멘션은 비주도주 요약보다도 나중에 빠져야 함"
+    assert leader_p1[0] == leader_p0[0] == 2
+    assert leader_p1[0] > points[0], "주도주 멘션은 AI 부가 설명보다도 나중에 빠져야 함"
     assert leader_p1[1] < leader_p0[1], "같은 주도주면 페이지 번호가 큰 쪽이 먼저"
-    print("✅ _classify_drop_candidate: 티어/정렬 순서(비주도주 멘션→집계→AI 부가→비주도주 "
-          "요약→주도주 멘션) + 멘션 라운드로빈 확인")
+    print("✅ _classify_drop_candidate: 티어/정렬 순서(비주도주 멘션→AI 부가→주도주 멘션) "
+          "+ 멘션 라운드로빈 확인")
 
 
 def test_classify_drop_candidate_protects_core_content():
+    """종목 개수를 줄이지 않는다는 원칙 — 개별 종목 요약(주도주/비주도주 모두)과
+    관심종목/증권사 리포트 집계 카드는 어떤 경우에도 삭제 후보가 되면 안 된다."""
     leaders = {"stock_삼성전자"}
-    importance = {"stock_삼성전자": 0.9}
+    importance = {"stock_삼성전자": 0.9, "stock_현대차": 0.5}
     protected_ids = [
         "hook_title", "mention_intro", "market_indicators",
-        "stock_삼성전자_summary",  # 대형 주도주 요약은 삭제 금지
+        "stock_삼성전자_summary",   # 대형 주도주 요약
+        "stock_현대차_summary",     # 비주도주 요약도 보호(종목 개수 유지 원칙)
+        "stock_추가관심종목",       # 관심종목 집계 카드
+        "stock_증권사리포트",       # 증권사 리포트 집계 카드
         "ai_strategy_core", "closing",
     ]
     for audio_id in protected_ids:
         assert _classify_drop_candidate(audio_id, leaders, importance, {}) is None, \
             f"{audio_id}는 핵심 콘텐츠라 삭제 후보가 되면 안 됨"
-    print("✅ _classify_drop_candidate: 훅/인트로/지표/주도주 요약/AI 핵심/클로징은 삭제 후보에서 제외")
+    print("✅ _classify_drop_candidate: 훅/인트로/지표/종목 요약(전체)/집계 카드/AI 핵심/"
+          "클로징은 삭제 후보에서 제외(종목 개수 유지 원칙)")
 
 
 def _pair(stem: str, duration: float) -> tuple:
@@ -207,8 +203,12 @@ def test_trim_to_fit_budget_noop_when_already_fits():
     print("✅ trim_to_fit_budget: 이미 목표 길이 안이면 아무것도 빼지 않음")
 
 
-def test_trim_to_fit_budget_drops_by_priority_and_stops_once_it_fits():
-    pairs = [
+def _sample_pairs():
+    """모든 트림 통합 테스트가 공유하는 기준 시나리오. 총 430s, 삭제 가능한
+    분량은 135s(0번 티어 45s + 1번 35s + 2번 55s)뿐 — 개별 종목 요약(80+60+50)
+    /관심종목 집계 카드(40)/AI 핵심(30)/클로징(20)/매핑 안 되는 고정 프레임(15)
+    합 295s는 어떤 target_max에도 항상 남아야 한다."""
+    return [
         _pair("10_삼성전자_1_summary", 80.0),
         _pair("10_삼성전자_3_mention_00", 30.0),
         _pair("10_삼성전자_3_mention_01", 25.0),
@@ -224,62 +224,88 @@ def test_trim_to_fit_budget_drops_by_priority_and_stops_once_it_fits():
         _pair("99_closing", 20.0),
         _pair("01_mention_intro", 15.0),  # 고정 매핑에 없는 스템 → 매핑 실패로 원문 그대로
     ]
-    total_before = sum(d for _, _, d in pairs)
-    assert total_before == 430.0
 
-    result = trim_to_fit_budget(pairs, _sample_sections(), target_max=200.0,
+
+_PROTECTED_STEMS = (
+    "10_삼성전자_1_summary", "11_현대차_1_summary", "12_카카오_1_summary",
+    "90_extra_watchlist", "95_ai_strategy_1_core", "99_closing", "01_mention_intro",
+)
+
+
+def test_trim_to_fit_budget_partial_tier0_only():
+    """살짝만 넘칠 때(30s만 빼면 됨)는 0번 티어(비주도주 멘션) 일부만 빠지고,
+    종목 요약/집계 카드/AI 핵심/주도주 멘션은 전혀 건드리지 않아야 한다."""
+    pairs = _sample_pairs()
+    assert sum(d for _, _, d in pairs) == 430.0
+
+    result = trim_to_fit_budget(pairs, _sample_sections(), target_max=400.0,
                                  atempo_max_speed=1.0, transition_duration=0.0)
-
     remaining_ids = {os.path.splitext(os.path.basename(p[0]))[0] for p in result}
     total_after = sum(d for _, _, d in result)
 
-    assert total_after <= 200.0, f"목표(200s) 안으로 줄어야 하는데 {total_after}s"
-    # 핵심 콘텐츠(주도주 요약/멘션, 클로징, 매핑 안 되는 고정 프레임)는 끝까지 남아야 함
-    for keep in ("10_삼성전자_1_summary", "10_삼성전자_3_mention_00", "10_삼성전자_3_mention_01",
-                 "99_closing", "01_mention_intro"):
-        assert keep in remaining_ids, f"핵심 콘텐츠 {keep}가 삭제되면 안 됨"
-    # 가장 먼저 빠져야 할 것들(비주도주 멘션 전부, 집계 카드, AI 부가 설명)은 없어야 함
-    for dropped in ("12_카카오_3_mention_00", "12_카카오_3_mention_01", "11_현대차_3_mention_00",
-                    "90_extra_watchlist", "95_ai_strategy_2_points", "95_ai_strategy_3_analyst"):
-        assert dropped not in remaining_ids, f"{dropped}는 우선순위상 먼저 빠졌어야 함"
-    print(f"✅ trim_to_fit_budget: 우선순위대로 삭제하며 목표 길이({total_after:.0f}s ≤ 200s) 안으로 "
-          f"줄이고 핵심 콘텐츠는 보존함")
+    assert total_after <= 400.0, f"목표(400s) 안으로 줄어야 하는데 {total_after}s"
+    for keep in _PROTECTED_STEMS + ("10_삼성전자_3_mention_00", "10_삼성전자_3_mention_01",
+                                     "12_카카오_3_mention_00"):
+        assert keep in remaining_ids, f"{keep}는 이 정도로 살짝 넘칠 땐 안 빠져야 함"
+    for dropped in ("11_현대차_3_mention_00", "12_카카오_3_mention_01"):
+        assert dropped not in remaining_ids, f"{dropped}는 0번 티어 라운드로빈으로 빠졌어야 함"
+    print(f"✅ trim_to_fit_budget: 살짝 초과({total_after:.0f}s ≤ 400s)면 0번 티어(비주도주 "
+          f"멘션) 일부만 라운드로빈으로 빠지고 종목 요약/집계 카드는 그대로 보존")
+
+
+def test_trim_to_fit_budget_exhausts_tier0_then_tier1():
+    """0번 티어(비주도주 멘션 45s)를 다 빼도 부족하면 1번 티어(AI 부가 설명)까지
+    빠지지만, 종목 요약/집계 카드/주도주 멘션은 여전히 보존돼야 한다."""
+    result = trim_to_fit_budget(_sample_pairs(), _sample_sections(), target_max=350.0,
+                                 atempo_max_speed=1.0, transition_duration=0.0)
+    remaining_ids = {os.path.splitext(os.path.basename(p[0]))[0] for p in result}
+    total_after = sum(d for _, _, d in result)
+
+    assert total_after <= 350.0, f"목표(350s) 안으로 줄어야 하는데 {total_after}s"
+    for keep in _PROTECTED_STEMS + ("10_삼성전자_3_mention_00", "10_삼성전자_3_mention_01"):
+        assert keep in remaining_ids, f"{keep}는 종목 요약/주도주 멘션이라 보존돼야 함"
+    for dropped in ("11_현대차_3_mention_00", "12_카카오_3_mention_00", "12_카카오_3_mention_01",
+                    "95_ai_strategy_2_points", "95_ai_strategy_3_analyst"):
+        assert dropped not in remaining_ids, f"{dropped}는 0~1번 티어라 다 빠졌어야 함"
+    print(f"✅ trim_to_fit_budget: 0번 티어를 다 빼도 부족하면 1번 티어(AI 부가 설명)까지 "
+          f"빠지되({total_after:.0f}s ≤ 350s), 종목 요약/집계 카드/주도주 멘션은 보존")
 
 
 def test_trim_to_fit_budget_touches_leader_mentions_only_as_last_resort():
-    """0~3번 티어를 다 빼도 부족할 만큼 목표가 빡빡하면(target_max=150), 그때만
-    대형 주도주의 멘션(4번 티어)까지 빠지고, 주도주 요약/AI 핵심/클로징/매핑 안
-    되는 고정 프레임은 그래도 끝까지 남아야 한다."""
-    pairs = [
-        _pair("10_삼성전자_1_summary", 80.0),
-        _pair("10_삼성전자_3_mention_00", 30.0),
-        _pair("10_삼성전자_3_mention_01", 25.0),
-        _pair("11_현대차_1_summary", 60.0),
-        _pair("11_현대차_3_mention_00", 20.0),
-        _pair("12_카카오_1_summary", 50.0),
-        _pair("12_카카오_3_mention_00", 15.0),
-        _pair("12_카카오_3_mention_01", 10.0),
-        _pair("90_extra_watchlist", 40.0),
-        _pair("95_ai_strategy_1_core", 30.0),
-        _pair("95_ai_strategy_2_points", 20.0),
-        _pair("95_ai_strategy_3_analyst", 15.0),
-        _pair("99_closing", 20.0),
-        _pair("01_mention_intro", 15.0),
-    ]
-
-    result = trim_to_fit_budget(pairs, _sample_sections(), target_max=150.0,
+    """0~1번 티어(비주도주 멘션 + AI 부가 설명, 총 80s)를 다 빼도 부족할 만큼
+    목표가 빡빡하면(target_max=300, 135s 전부 삭제 필요) 그때만 대형 주도주의
+    멘션(2번 티어)까지 빠지고, 종목 요약/집계 카드/AI 핵심/클로징은 그래도
+    끝까지 남아야 한다(= 종목 개수는 항상 유지)."""
+    result = trim_to_fit_budget(_sample_pairs(), _sample_sections(), target_max=300.0,
                                  atempo_max_speed=1.0, transition_duration=0.0)
     remaining_ids = {os.path.splitext(os.path.basename(p[0]))[0] for p in result}
     total_after = sum(d for _, _, d in result)
 
-    assert total_after <= 150.0, f"목표(150s) 안으로 줄어야 하는데 {total_after}s"
+    assert total_after <= 300.0, f"목표(300s) 안으로 줄어야 하는데 {total_after}s"
     assert "10_삼성전자_3_mention_00" not in remaining_ids and \
            "10_삼성전자_3_mention_01" not in remaining_ids, \
            "이 정도로 빡빡한 목표에서는 주도주 멘션까지 빠져야 함(최후 수단)"
-    for keep in ("10_삼성전자_1_summary", "95_ai_strategy_1_core", "99_closing", "01_mention_intro"):
-        assert keep in remaining_ids, f"{keep}는 어떤 경우에도 삭제되면 안 됨"
-    print(f"✅ trim_to_fit_budget: 다른 티어를 다 빼도 부족하면 최후 수단으로 주도주 "
-          f"멘션까지 빼되({total_after:.0f}s ≤ 150s), 주도주 요약/AI 핵심/클로징은 보존함")
+    for keep in _PROTECTED_STEMS:
+        assert keep in remaining_ids, f"{keep}는 어떤 경우에도 삭제되면 안 됨(종목 개수 유지 원칙)"
+    print(f"✅ trim_to_fit_budget: 0~1번 티어를 다 빼도 부족하면 최후 수단으로 주도주 "
+          f"멘션까지 빼되({total_after:.0f}s ≤ 300s), 종목 요약/집계 카드/AI 핵심/클로징은 보존")
+
+
+def test_trim_to_fit_budget_never_drops_below_protected_floor():
+    """삭제 가능한 135s를 전부 빼도(잔여 295s) 목표(200s)를 못 맞추는 극단적인
+    경우, 더 뺄 후보가 없다는 경고만 찍고 멈춘다 — 종목 요약/집계 카드 등
+    보호 대상은 quality_gate가 최종 실패 처리하는 한이 있어도 자동으로는
+    건드리지 않는다."""
+    result = trim_to_fit_budget(_sample_pairs(), _sample_sections(), target_max=200.0,
+                                 atempo_max_speed=1.0, transition_duration=0.0)
+    remaining_ids = {os.path.splitext(os.path.basename(p[0]))[0] for p in result}
+    total_after = sum(d for _, _, d in result)
+
+    assert total_after == 295.0, f"삭제 가능한 135s를 전부 빼고 남는 보호 콘텐츠 총합(295s)이어야 하는데 {total_after}s"
+    assert total_after > 200.0, "이 케이스는 자동 삭제만으로는 목표를 못 맞추는 게 정상(quality_gate가 최종 처리)"
+    assert remaining_ids == set(_PROTECTED_STEMS), "보호 콘텐츠만 남아야 함(종목 요약/집계 카드 포함)"
+    print(f"✅ trim_to_fit_budget: 삭제 가능한 콘텐츠를 다 빼도 부족하면({total_after:.0f}s > 200s) "
+          f"더 건드리지 않고 멈춤(종목 요약/집계 카드는 끝까지 보존)")
 
 
 def test_trim_to_fit_budget_mentions_round_robin_across_stocks():
@@ -335,7 +361,9 @@ if __name__ == "__main__":
     test_classify_drop_candidate_tiers()
     test_classify_drop_candidate_protects_core_content()
     test_trim_to_fit_budget_noop_when_already_fits()
-    test_trim_to_fit_budget_drops_by_priority_and_stops_once_it_fits()
+    test_trim_to_fit_budget_partial_tier0_only()
+    test_trim_to_fit_budget_exhausts_tier0_then_tier1()
     test_trim_to_fit_budget_touches_leader_mentions_only_as_last_resort()
+    test_trim_to_fit_budget_never_drops_below_protected_floor()
     test_trim_to_fit_budget_mentions_round_robin_across_stocks()
     print("\n✅ generate_video 테스트 전체 통과")
