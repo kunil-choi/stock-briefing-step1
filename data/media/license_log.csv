@@ -28,3 +28,7 @@ date,section_id,keyword,provider,url,license,phash,width,height,score
 2026-08-01,market_summary,미국,naver_discovery,https://img6.yna.co.kr/etc/inner/KR/2026/08/01/AKR20260801031100009_01_i_P4.jpg,editorial_search,989a336667d36626,500,281,0.9
 2026-08-01,stock_추가관심종목,급등,naver_discovery,http://news.kbs.co.kr/data/news/title_image/newsmp4/news12/2026/08/01/20_8626069.jpg,editorial_search,ad82abaad2bac2d8,1920,1080,0.84
 2026-08-01,ai_strategy_brief,자동차,naver_discovery,http://news.kbs.co.kr/data/news/title_image/newsmp4/news12/2026/08/01/60_8626074.jpg,editorial_search,843a71c75ca92fd4,1920,1080,0.78
+2026-08-01,conclusion,semiconductor,naver_discovery,https://img2.yna.co.kr/photo/yna/YH/2026/07/24/PYH2026072405380006100_P4.jpg,editorial_search,fc22dd6315366649,1200,835,0.78
+2026-08-01,market_summary,semiconductor,naver_discovery,https://img9.yna.co.kr/photo/yna/YH/2022/07/07/PYH2022070705930000300_P4.jpg,editorial_search,c5851f59a63fc826,1024,668,0.76
+2026-08-01,stock_추가관심종목,energy,naver_discovery,https://img7.yna.co.kr/etc/inner/EN/2026/08/01/AEN20260801001100315_01_i_P4.jpg,editorial_search,b13393cb6434c38f,500,368,0.78
+2026-08-01,ai_strategy_brief,부품,naver_discovery,https://img7.yna.co.kr/photo/etc/epa/2026/08/01/PEP20260801114301009_P4.jpg,editorial_search,c14b2f96783f906a,1200,847,0.84
