@@ -112,8 +112,11 @@ def get_audio_duration(mp3_path: str) -> float:
 # 수준까지 분량을 줄인다. 삭제 우선순위(낮을수록 먼저 빠짐):
 #   0. 대형 주도주가 아닌 종목의 채널 언급(멘션) 페이지 — "이 종목이
 #      유튜브/경제방송/증권사에서 이렇게 언급됐다"는 부가 코멘트라, 정보량
-#      대비 분량이 가장 크다. importance(entities/분량 기반 점수)가 낮은
-#      종목부터, 같은 종목이면 페이지 번호가 큰 것부터 뺀다.
+#      대비 분량이 가장 크다. 특정 종목의 패널 코멘트를 통째로 먼저 없애는
+#      대신, 라운드로빈으로 뺀다: 아직 하나도 안 뺀 종목이 있으면 그 종목의
+#      (가장 뒤 페이지) 멘션을, 그중에서도 importance가 낮은 종목을 먼저
+#      뺀다 — 모든 종목이 1개씩 빠진 뒤에야 다시 2번째 페이지를 빼기 시작한다
+#      (한 종목만 패널 코멘트가 통째로 사라지는 것을 피하기 위함, 사용자 요청).
 #   1. 관심종목/증권사 리포트 집계 카드 전체.
 #   2. AI 히든픽의 부가 설명(애널리스트 코멘트 → 포인트) — 핵심 시나리오는
 #      끝까지 남긴다.
@@ -137,16 +140,23 @@ _STOCK_SUMMARY_ID_RE = re.compile(r"^(stock_.+|hidden_.+)_summary$")
 _AGGREGATE_STOCK_AUDIO_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
 
-def _classify_drop_candidate(audio_id: str, leader_ids: set, importance_by_sid: dict):
+def _classify_drop_candidate(audio_id: str, leader_ids: set, importance_by_sid: dict,
+                              mention_rounds: dict):
     """audio_id가 분량 초과 시 삭제 후보면 (tier, 정렬키)를, 핵심 콘텐츠라
     삭제 금지면 None을 반환한다. tier가 낮을수록, 정렬키가 작을수록 먼저
-    삭제된다."""
+    삭제된다.
+
+    mention_rounds: {종목id: 이번 트림에서 이미 뺀 멘션 개수}. 멘션 페이지의
+    정렬키 맨 앞자리로 써서, 한 종목의 멘션을 다 빼기 전에 다른 종목들의
+    멘션을 1개씩 먼저 빼는 라운드로빈이 되게 한다(호출부(trim_to_fit_budget)가
+    한 프레임을 뺄 때마다 그 종목의 카운트를 올려준다)."""
     m = _MENTION_ID_RE.match(audio_id)
     if m:
         sid, page = m.group(1), int(m.group(2))
         importance = importance_by_sid.get(sid, 0.0)
         tier = _DROP_TIER_LEADER_MENTION if sid in leader_ids else _DROP_TIER_MINOR_MENTION
-        return (tier, (importance, -page))
+        round_ = mention_rounds.get(sid, 0)
+        return (tier, (round_, importance, -page))
 
     if audio_id in ("ai_strategy_analyst", "ai_strategy_points"):
         rank = 0 if audio_id == "ai_strategy_analyst" else 1
@@ -185,6 +195,7 @@ def trim_to_fit_budget(frame_audio_pairs: list, sections: list, target_max: floa
 
     leader_ids = {s.get("id", "") for s in sections if s.get("stock_tier") == "market_leader"}
     importance_by_sid = {s.get("id", ""): s.get("importance", 0.0) for s in sections}
+    mention_rounds: dict = {}  # sid -> 이번 트림에서 이미 뺀 멘션 개수(라운드로빈용)
 
     pairs = list(frame_audio_pairs)
     dropped_labels = []
@@ -194,7 +205,7 @@ def trim_to_fit_budget(frame_audio_pairs: list, sections: list, target_max: floa
         for frame_path, mp3_path, duration in pairs:
             stem = os.path.splitext(os.path.basename(frame_path))[0]
             audio_id = _frame_stem_to_audio_id(stem, sections)
-            classified = _classify_drop_candidate(audio_id, leader_ids, importance_by_sid)
+            classified = _classify_drop_candidate(audio_id, leader_ids, importance_by_sid, mention_rounds)
             if classified:
                 tier, sort_key = classified
                 candidates.append((tier, sort_key, frame_path, duration, audio_id))
@@ -210,6 +221,11 @@ def trim_to_fit_budget(frame_audio_pairs: list, sections: list, target_max: floa
         pairs = [p for p in pairs if p[0] != drop_frame]
         dropped_labels.append(f"{drop_audio_id}({drop_dur:.1f}s)")
         dropped_seconds += drop_dur
+
+        mention_match = _MENTION_ID_RE.match(drop_audio_id)
+        if mention_match:
+            sid = mention_match.group(1)
+            mention_rounds[sid] = mention_rounds.get(sid, 0) + 1
 
     if dropped_labels:
         print(f"  ✂️ 배속 보정만으로 목표 길이를 못 맞춰 우선순위 낮은 콘텐츠 "
