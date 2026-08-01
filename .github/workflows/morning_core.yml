@@ -156,6 +156,13 @@ jobs:
         # 놓치지 않도록 stock_images/ 전체를 함께 본다.
         if: ${{ !inputs.dry_run }}
         run: |
+          # assets/stock_images/는 검토 대기 종목이 하나도 없으면(예: 이번
+          # 실행에서 모든 종목이 이미 확정 이미지를 쓴 경우) 아예 생성되지
+          # 않는다. git status/add에 존재하지 않는 경로를 pathspec으로 주면
+          # "did not match any files"로 fatal error가 나므로, 항상 먼저
+          # 만들어(빈 디렉터리는 git이 어차피 추적하지 않으므로 무해함) 이
+          # 경로가 항상 존재하게 만든다.
+          mkdir -p assets/stock_images
           if [ -n "$(git status --porcelain data/media/license_log.csv assets/stock_images/ 2>/dev/null)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
