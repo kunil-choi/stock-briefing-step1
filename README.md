@@ -505,7 +505,7 @@ assets/stock_images/{종목명}/{1,2}.jpg  # 종목별 확정 이미지(최신 2
 assets/stock_images/_pending/{종목명}/  # 검토 대기 후보(레포에 커밋 유지, confirm 후 정리됨)
 output/YYYY-MM-DD/
   metadata.json                # 아래 스키마
-  final.mp4                    # output/KO/video/final.mp4 사본
+  final_YYMMDD.mp4              # output/KO/video/final.mp4 사본, 파일명에 날짜 포함(예: final_260801.mp4)
   thumbnail.png
   script.json                  # output/KO/scripts/script.json 사본
   scene_plan.json              # Phase D: output/KO/scripts/scene_plan.json 사본(렌더링 결과물과 함께 보관)
@@ -529,7 +529,7 @@ output/YYYY-MM-DD/
   "warnings": ["..."],
   "title": "...", "description": "...", "tags": ["..."],
   "thumbnail_path": "thumbnail.png",
-  "video_path": "final.mp4",
+  "video_path": "final_260801.mp4",
   "script_path": "script.json",
   "scene_plan_path": "scene_plan.json",
   "audio_report_path": "audio_report.json",
