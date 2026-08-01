@@ -44,6 +44,15 @@ def _kdate_to_iso(date_str: str) -> str:
     return f"{y}-{int(mo):02d}-{int(d):02d}"
 
 
+def video_filename(date_iso: str) -> str:
+    """최종 영상 파일명. 날짜를 YYMMDD로 넣어(예: final_260801.mp4) 여러
+    산출물을 한 곳에 모아두거나 파일만 따로 내려받아도 어떤 날짜 것인지
+    바로 구분되게 한다(사용자 요청 — output/{date_iso}/ 폴더 자체도 날짜별
+    이지만, 폴더 밖에서도 구분 가능해야 함)."""
+    yymmdd = datetime.strptime(date_iso, "%Y-%m-%d").strftime("%y%m%d")
+    return f"final_{yymmdd}.mp4"
+
+
 def _template_key(video_format: str) -> str:
     if BRIEFING_TYPE == "morning_core":
         return "morning_core"
@@ -178,9 +187,9 @@ def run(lang: str = "KO"):
     video_dst_rel = None
     duration_seconds = 0.0
     if os.path.exists(video_src):
-        video_dst = os.path.join(out_dir, "final.mp4")
+        video_dst = os.path.join(out_dir, video_filename(date_iso))
         shutil.copy2(video_src, video_dst)
-        video_dst_rel = "final.mp4"
+        video_dst_rel = os.path.basename(video_dst)
         duration_seconds = get_video_duration_seconds(video_src)
     else:
         warnings.append(f"{video_src} 없음 — video 단계가 아직 실행되지 않았을 수 있음")
