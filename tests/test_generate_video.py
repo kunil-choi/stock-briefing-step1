@@ -128,37 +128,49 @@ def test_classify_drop_candidate_tiers():
     importance = {"stock_삼성전자": 0.9, "stock_현대차": 0.5, "stock_카카오": 0.3}
 
     # tier 0: 비주도주 멘션 페이지. 낮은 importance가 먼저, 같은 종목이면
-    # 페이지 번호가 큰 쪽이 먼저(정렬키가 더 작아야 함).
-    kakao_p1 = _classify_drop_candidate("stock_카카오_mention_01", leaders, importance)
-    kakao_p0 = _classify_drop_candidate("stock_카카오_mention_00", leaders, importance)
-    hyundai_p0 = _classify_drop_candidate("stock_현대차_mention_00", leaders, importance)
+    # 페이지 번호가 큰 쪽이 먼저(정렬키가 더 작아야 함). mention_rounds가
+    # 비어 있으면(아직 아무것도 안 뺀 상태) 모든 종목이 라운드 0으로 동일.
+    kakao_p1 = _classify_drop_candidate("stock_카카오_mention_01", leaders, importance, {})
+    kakao_p0 = _classify_drop_candidate("stock_카카오_mention_00", leaders, importance, {})
+    hyundai_p0 = _classify_drop_candidate("stock_현대차_mention_00", leaders, importance, {})
     assert kakao_p1[0] == kakao_p0[0] == hyundai_p0[0] == 0
     assert kakao_p1[1] < kakao_p0[1] < hyundai_p0[1]
 
+    # 라운드로빈: 카카오가 이미 1개 빠진 상태(mention_rounds)면, 아직 하나도
+    # 안 뺀 현대차의 멘션이 카카오의 다음 멘션보다 먼저 나와야 한다(importance는
+    # 카카오가 더 낮지만, 라운드가 더 중요한 1순위 기준).
+    rounds_after_one_kakao_drop = {"stock_카카오": 1}
+    kakao_p0_round1 = _classify_drop_candidate("stock_카카오_mention_00", leaders, importance,
+                                                rounds_after_one_kakao_drop)
+    hyundai_p0_round0 = _classify_drop_candidate("stock_현대차_mention_00", leaders, importance,
+                                                  rounds_after_one_kakao_drop)
+    assert hyundai_p0_round0[1] < kakao_p0_round1[1], \
+        "라운드로빈: 아직 안 빠진 종목이 이미 1개 빠진 종목보다 먼저 빠져야 함"
+
     # tier 1: 집계 카드
-    assert _classify_drop_candidate("stock_추가관심종목", leaders, importance)[0] == 1
-    assert _classify_drop_candidate("stock_증권사리포트", leaders, importance)[0] == 1
+    assert _classify_drop_candidate("stock_추가관심종목", leaders, importance, {})[0] == 1
+    assert _classify_drop_candidate("stock_증권사리포트", leaders, importance, {})[0] == 1
 
     # tier 2: AI 히든픽 부가 설명 (애널리스트 → 포인트 순)
-    analyst = _classify_drop_candidate("ai_strategy_analyst", leaders, importance)
-    points = _classify_drop_candidate("ai_strategy_points", leaders, importance)
+    analyst = _classify_drop_candidate("ai_strategy_analyst", leaders, importance, {})
+    points = _classify_drop_candidate("ai_strategy_points", leaders, importance, {})
     assert analyst[0] == points[0] == 2
     assert analyst[1] < points[1]
 
     # tier 3: 대형 주도주가 아닌 종목의 요약 전체
-    assert _classify_drop_candidate("stock_카카오_summary", leaders, importance)[0] == 3
-    hyundai_summary = _classify_drop_candidate("stock_현대차_summary", leaders, importance)
-    kakao_summary = _classify_drop_candidate("stock_카카오_summary", leaders, importance)
+    assert _classify_drop_candidate("stock_카카오_summary", leaders, importance, {})[0] == 3
+    hyundai_summary = _classify_drop_candidate("stock_현대차_summary", leaders, importance, {})
+    kakao_summary = _classify_drop_candidate("stock_카카오_summary", leaders, importance, {})
     assert kakao_summary[1] < hyundai_summary[1], "importance가 낮은 종목의 요약이 먼저 빠져야 함"
 
     # tier 4: 대형 주도주의 멘션 페이지 — 다른 모든 티어(0~3)보다 나중에 빠져야 함
-    leader_p1 = _classify_drop_candidate("stock_삼성전자_mention_01", leaders, importance)
-    leader_p0 = _classify_drop_candidate("stock_삼성전자_mention_00", leaders, importance)
+    leader_p1 = _classify_drop_candidate("stock_삼성전자_mention_01", leaders, importance, {})
+    leader_p0 = _classify_drop_candidate("stock_삼성전자_mention_00", leaders, importance, {})
     assert leader_p1[0] == leader_p0[0] == 4
     assert leader_p1[0] > hyundai_summary[0], "주도주 멘션은 비주도주 요약보다도 나중에 빠져야 함"
     assert leader_p1[1] < leader_p0[1], "같은 주도주면 페이지 번호가 큰 쪽이 먼저"
     print("✅ _classify_drop_candidate: 티어/정렬 순서(비주도주 멘션→집계→AI 부가→비주도주 "
-          "요약→주도주 멘션) 확인")
+          "요약→주도주 멘션) + 멘션 라운드로빈 확인")
 
 
 def test_classify_drop_candidate_protects_core_content():
@@ -170,7 +182,7 @@ def test_classify_drop_candidate_protects_core_content():
         "ai_strategy_core", "closing",
     ]
     for audio_id in protected_ids:
-        assert _classify_drop_candidate(audio_id, leaders, importance) is None, \
+        assert _classify_drop_candidate(audio_id, leaders, importance, {}) is None, \
             f"{audio_id}는 핵심 콘텐츠라 삭제 후보가 되면 안 됨"
     print("✅ _classify_drop_candidate: 훅/인트로/지표/주도주 요약/AI 핵심/클로징은 삭제 후보에서 제외")
 
@@ -270,6 +282,44 @@ def test_trim_to_fit_budget_touches_leader_mentions_only_as_last_resort():
           f"멘션까지 빼되({total_after:.0f}s ≤ 150s), 주도주 요약/AI 핵심/클로징은 보존함")
 
 
+def test_trim_to_fit_budget_mentions_round_robin_across_stocks():
+    """세 종목이 각각 멘션 2개씩 있고, 그중 3개만 빼면 목표를 맞출 수 있는
+    상황에서, 한 종목의 멘션을 통째로(2개 다) 먼저 빼는 대신 세 종목 모두
+    1개씩 먼저 빠져야 한다(사용자 요청: 특정 종목 패널 코멘트가 통째로
+    사라지지 않게 라운드로빈으로 줄이기)."""
+    sections = [
+        {"id": "stock_가", "importance": 0.2},
+        {"id": "stock_나", "importance": 0.5},
+        {"id": "stock_다", "importance": 0.8},
+    ]
+    pairs = [
+        _pair("99_closing", 100.0),  # 보호 대상, 절대 안 빠짐
+        _pair("10_가_3_mention_00", 10.0),
+        _pair("10_가_3_mention_01", 10.0),
+        _pair("11_나_3_mention_00", 10.0),
+        _pair("11_나_3_mention_01", 10.0),
+        _pair("12_다_3_mention_00", 10.0),
+        _pair("12_다_3_mention_01", 10.0),
+    ]
+    total_before = sum(d for _, _, d in pairs)
+    assert total_before == 160.0
+
+    # 30초만 빼면 되는 목표(정확히 멘션 3개 분량) — 라운드로빈이면 각 종목의
+    # "01"(뒤 페이지) 하나씩만 빠지고, 종목별 "00" 페이지는 전부 남아야 한다.
+    result = trim_to_fit_budget(pairs, sections, target_max=130.0,
+                                 atempo_max_speed=1.0, transition_duration=0.0)
+    remaining_ids = {os.path.splitext(os.path.basename(p[0]))[0] for p in result}
+    total_after = sum(d for _, _, d in result)
+
+    assert total_after <= 130.0
+    for keep in ("99_closing", "10_가_3_mention_00", "11_나_3_mention_00", "12_다_3_mention_00"):
+        assert keep in remaining_ids, f"{keep}는 라운드로빈이면 남아있어야 함(각 종목 1개씩만 빠짐)"
+    for dropped in ("10_가_3_mention_01", "11_나_3_mention_01", "12_다_3_mention_01"):
+        assert dropped not in remaining_ids, f"{dropped}는 라운드로빈 1순번으로 빠졌어야 함"
+    print("✅ trim_to_fit_budget: 멘션 삭제가 한 종목을 통째로 비우지 않고 종목마다 "
+          "1개씩 라운드로빈으로 빠짐 확인")
+
+
 if __name__ == "__main__":
     test_trusts_measurement_when_close_to_expected()
     test_falls_back_to_expected_when_measurement_is_way_off()
@@ -287,4 +337,5 @@ if __name__ == "__main__":
     test_trim_to_fit_budget_noop_when_already_fits()
     test_trim_to_fit_budget_drops_by_priority_and_stops_once_it_fits()
     test_trim_to_fit_budget_touches_leader_mentions_only_as_last_resort()
+    test_trim_to_fit_budget_mentions_round_robin_across_stocks()
     print("\n✅ generate_video 테스트 전체 통과")
