@@ -14,6 +14,7 @@ _frame_stem_to_audio_id() docstring을 참고(중복 구현 방지를 위해 이
   - 자막 텍스트: subtitle 필드 (한글 맞춤법, 숫자 원문, 용어 설명 병기)
 """
 import os
+import re
 import sys
 import json
 import subprocess
@@ -100,6 +101,121 @@ def get_audio_duration(mp3_path: str) -> float:
         return dur if dur > 0 else 3.0
     except Exception:
         return 3.0
+
+
+# ── 목표 길이 초과 시 우선순위에 따른 콘텐츠 삭제 ──────────────────────────
+#
+# adjust_to_target_duration()의 배속 보정(최대 ATEMPO_MAX_SPEED배)만으로는
+# 목표 최대 길이(TARGET_MAX)를 못 맞출 만큼 스크립트 분량이 많을 때, 예전에는
+# quality_gate.py가 최종적으로 실패 처리했다. 이제는 그 전에 우선순위가 낮은
+# 콘텐츠부터 하나씩 빼서 다시 계산해, 배속 보정만으로 목표를 맞출 수 있는
+# 수준까지 분량을 줄인다. 삭제 우선순위(낮을수록 먼저 빠짐):
+#   0. 대형 주도주가 아닌 종목의 채널 언급(멘션) 페이지 — "이 종목이
+#      유튜브/경제방송/증권사에서 이렇게 언급됐다"는 부가 코멘트라, 정보량
+#      대비 분량이 가장 크다. importance(entities/분량 기반 점수)가 낮은
+#      종목부터, 같은 종목이면 페이지 번호가 큰 것부터 뺀다.
+#   1. 관심종목/증권사 리포트 집계 카드 전체.
+#   2. AI 히든픽의 부가 설명(애널리스트 코멘트 → 포인트) — 핵심 시나리오는
+#      끝까지 남긴다.
+#   3. 대형 주도주가 아닌 개별 종목의 요약 전체(위 0번에서 멘션은 이미 빠진
+#      상태).
+#   4. 대형 주도주의 멘션 페이지 — 그 외 모든 종목의 멘션/요약과 집계
+#      카드/AI 부가 설명을 다 빼고도 부족할 때만 건드린다(주도주 자체는
+#      이 방송의 핵심이라 마지막까지 최대한 지킨다).
+# 훅/채널언급 인트로/시장 지표/대형 주도주 요약/AI 히든픽 핵심 시나리오/
+# 클로징은 절대 빼지 않는다 — 그래도 목표를 못 맞추면 quality_gate.py가
+# 최종 안전장치로 남아 실패 처리한다.
+
+_DROP_TIER_MINOR_MENTION = 0
+_DROP_TIER_AGGREGATE = 1
+_DROP_TIER_AI_STRATEGY_EXTRA = 2
+_DROP_TIER_MINOR_STOCK_SUMMARY = 3
+_DROP_TIER_LEADER_MENTION = 4
+
+_MENTION_ID_RE = re.compile(r"^(.+)_mention_(\d+)$")
+_STOCK_SUMMARY_ID_RE = re.compile(r"^(stock_.+|hidden_.+)_summary$")
+_AGGREGATE_STOCK_AUDIO_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
+
+
+def _classify_drop_candidate(audio_id: str, leader_ids: set, importance_by_sid: dict):
+    """audio_id가 분량 초과 시 삭제 후보면 (tier, 정렬키)를, 핵심 콘텐츠라
+    삭제 금지면 None을 반환한다. tier가 낮을수록, 정렬키가 작을수록 먼저
+    삭제된다."""
+    m = _MENTION_ID_RE.match(audio_id)
+    if m:
+        sid, page = m.group(1), int(m.group(2))
+        importance = importance_by_sid.get(sid, 0.0)
+        tier = _DROP_TIER_LEADER_MENTION if sid in leader_ids else _DROP_TIER_MINOR_MENTION
+        return (tier, (importance, -page))
+
+    if audio_id in ("ai_strategy_analyst", "ai_strategy_points"):
+        rank = 0 if audio_id == "ai_strategy_analyst" else 1
+        return (_DROP_TIER_AI_STRATEGY_EXTRA, (rank,))
+
+    if audio_id in _AGGREGATE_STOCK_AUDIO_IDS:
+        return (_DROP_TIER_AGGREGATE, (audio_id,))
+
+    sm = _STOCK_SUMMARY_ID_RE.match(audio_id)
+    if sm:
+        sid = sm.group(1)
+        if sid not in leader_ids:
+            return (_DROP_TIER_MINOR_STOCK_SUMMARY, (importance_by_sid.get(sid, 0.0),))
+
+    return None
+
+
+def _fits_within_target(frame_audio_pairs: list, target_max: float,
+                         atempo_max_speed: float, transition_duration: float) -> bool:
+    """adjust_to_target_duration()이 실제로 적용할 계산(속도 = min(길이/IDEAL,
+    상한), 조정 후 길이 = 길이/속도)과 동일한 식으로, 지금 프레임 구성이
+    배속 보정만으로 target_max 이내에 들어올 수 있는지 미리 판단한다."""
+    if not frame_audio_pairs:
+        return True
+    total = sum(d for _, _, d in frame_audio_pairs)
+    expected = total + max(0, len(frame_audio_pairs) - 1) * transition_duration
+    return expected / atempo_max_speed <= target_max
+
+
+def trim_to_fit_budget(frame_audio_pairs: list, sections: list, target_max: float,
+                        atempo_max_speed: float, transition_duration: float) -> list:
+    """frame_audio_pairs가 최대 배속으로도 target_max를 못 맞추면, 우선순위가
+    낮은 프레임부터 하나씩 빼며 다시 계산한다. 이미 맞으면 그대로 반환."""
+    if _fits_within_target(frame_audio_pairs, target_max, atempo_max_speed, transition_duration):
+        return frame_audio_pairs
+
+    leader_ids = {s.get("id", "") for s in sections if s.get("stock_tier") == "market_leader"}
+    importance_by_sid = {s.get("id", ""): s.get("importance", 0.0) for s in sections}
+
+    pairs = list(frame_audio_pairs)
+    dropped_labels = []
+    dropped_seconds = 0.0
+    while not _fits_within_target(pairs, target_max, atempo_max_speed, transition_duration) and pairs:
+        candidates = []
+        for frame_path, mp3_path, duration in pairs:
+            stem = os.path.splitext(os.path.basename(frame_path))[0]
+            audio_id = _frame_stem_to_audio_id(stem, sections)
+            classified = _classify_drop_candidate(audio_id, leader_ids, importance_by_sid)
+            if classified:
+                tier, sort_key = classified
+                candidates.append((tier, sort_key, frame_path, duration, audio_id))
+
+        if not candidates:
+            print("  ⚠️ 목표 길이를 맞추기 위한 삭제 후보가 더 없습니다(핵심 콘텐츠만 "
+                  "남음) — 배속 보정 결과가 여전히 목표를 넘으면 quality_gate에서 "
+                  "최종 실패 처리됩니다.")
+            break
+
+        candidates.sort(key=lambda c: (c[0], c[1]))
+        _, _, drop_frame, drop_dur, drop_audio_id = candidates[0]
+        pairs = [p for p in pairs if p[0] != drop_frame]
+        dropped_labels.append(f"{drop_audio_id}({drop_dur:.1f}s)")
+        dropped_seconds += drop_dur
+
+    if dropped_labels:
+        print(f"  ✂️ 배속 보정만으로 목표 길이를 못 맞춰 우선순위 낮은 콘텐츠 "
+              f"{len(dropped_labels)}개(총 {dropped_seconds:.1f}초)를 뺐습니다: "
+              f"{', '.join(dropped_labels)}")
+    return pairs
 
 
 # ── 장면 영상 생성 (PNG + MP3 → Ken Burns 클립) + 전환 삽입 ────────────────
@@ -371,6 +487,13 @@ def run(lang: str = "KO"):
 
         dur = get_audio_duration(mp3_path)
         frame_audio_pairs.append((frame_path, mp3_path, dur))
+
+    # 배속 보정(최대 ATEMPO_MAX_SPEED배)만으로는 목표 최대 길이를 못 맞출
+    # 만큼 분량이 많으면, 여기서 우선순위 낮은 콘텐츠부터 미리 줄인다(실제
+    # ffmpeg 합성 전에 걸러내 불필요한 렌더링도 피한다).
+    frame_audio_pairs = trim_to_fit_budget(
+        frame_audio_pairs, sections, TARGET_MAX, ATEMPO_MAX_SPEED, TRANSITION_DURATION,
+    )
 
     section_videos, rendered_pairs = build_scene_clips(frame_audio_pairs, video_dir)
 
