@@ -22,10 +22,21 @@ REQUIRED_METADATA_FIELDS = [
 ]
 
 
-def check_metadata(root: str = ".") -> None:
+def check_metadata(root: str = ".", date_iso: str = None) -> None:
     """output/{date}/metadata.json이 존재하고 필수 필드를 갖췄는지 검증한다.
-    generate_metadata.py가 실패(status="failed")로 남긴 경우도 여기서 걸러진다."""
-    today_dir = os.path.join(root, "output", datetime.now(KST).strftime("%Y-%m-%d"))
+    generate_metadata.py가 실패(status="failed")로 남긴 경우도 여기서 걸러진다.
+
+    date_iso: generate_metadata.py가 실제로 파일을 저장한 날짜(스크립트의
+    "date" 필드 기준, generate_metadata._kdate_to_iso와 동일한 계산)를 호출부
+    (main())가 넘겨줘야 한다. 예전에는 여기서 datetime.now(KST)로 "오늘" 날짜를
+    독자적으로 계산했는데, generate_metadata.py는 실행 시각이 아니라 브리핑이
+    다루는 데이터 날짜로 저장하기 때문에(워크플로우가 자정 근처에 실행되는 등
+    두 시각이 어긋나면) 정상적으로 만들어진 metadata.json을 못 찾는 사고가 있었다
+    (예: 데이터는 8/1자인데 실행 시각은 8/2 KST로 넘어간 경우). date_iso가 없으면
+    (단독 호출 등 하위 호환) 예전처럼 오늘 날짜로 폴백한다."""
+    if date_iso is None:
+        date_iso = datetime.now(KST).strftime("%Y-%m-%d")
+    today_dir = os.path.join(root, "output", date_iso)
     meta_path = os.path.join(today_dir, "metadata.json")
     if not os.path.isfile(meta_path):
         raise SystemExit(f"metadata.json 없음: {meta_path}")
@@ -138,8 +149,15 @@ def main(lang: str = "KO"):
     # (예: "10_삼성전자_3_mention_00" → 잘못된 "stock_삼성전자_3_mention_00")
     # 실제로 존재하는 mp3와 이름이 달라 "누락 오디오"로 오판하는 버그가 있었다.
     from generate_subtitles import _frame_stem_to_audio_id
+    # generate_metadata.py와 완전히 동일한 방식(_kdate_to_iso)으로 날짜를
+    # 계산해야 check_metadata()가 그 모듈이 실제로 저장한 output/{date}/
+    # 폴더를 정확히 찾는다(datetime.now(KST)로 독자 계산하면 실행 시각과
+    # 데이터 날짜가 어긋날 때 metadata.json을 못 찾는 사고가 난다).
+    from generate_metadata import _kdate_to_iso
 
-    sections = json.load(open(script_path, encoding="utf-8")).get("sections", [])
+    script_data = json.load(open(script_path, encoding="utf-8"))
+    sections = script_data.get("sections", [])
+    date_iso = _kdate_to_iso(script_data.get("date", ""))
     frames = json.load(open(asset_map, encoding="utf-8")).get("frames", [])
     missing = []
     for frame in frames:
@@ -167,7 +185,7 @@ def main(lang: str = "KO"):
         # 스크립트 분량 자체에 문제가 있다는 뜻이라 여기서 실패 처리한다.
         raise SystemExit(f"최종 영상 길이가 목표 범위를 벗어남: {duration:.2f}s")
 
-    check_metadata()
+    check_metadata(date_iso=date_iso)
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "KO")

@@ -14,13 +14,15 @@ pytest 미사용, 다른 tests/*.py와 동일하게 순수 assert 기반.
 import json
 import os
 import sys
+import tempfile
+from datetime import datetime, timedelta
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _PIPELINE = os.path.join(_HERE, "..", "pipeline")
 if _PIPELINE not in sys.path:
     sys.path.insert(0, _PIPELINE)
 
-from quality_gate import check_no_placeholder_content  # noqa: E402
+from quality_gate import check_no_placeholder_content, check_metadata, KST  # noqa: E402
 
 
 def _write_script(tmp_path, stock_overrides):
@@ -115,6 +117,54 @@ def test_aggregate_sections_not_flagged():
     print("✅ 집계 섹션(stock_추가관심종목/stock_증권사리포트)은 price/change/summary 검사에서 제외됨")
 
 
+def _write_metadata(out_dir, **overrides):
+    os.makedirs(out_dir, exist_ok=True)
+    meta = {
+        "briefing_type": "morning_core", "video_format": "longform",
+        "briefing_date": "2026-08-01", "status": "success",
+        "title": "t", "description": "d", "tags": ["a"],
+        **overrides,
+    }
+    with open(os.path.join(out_dir, "metadata.json"), "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False)
+
+
+def test_check_metadata_uses_given_date_iso_not_wall_clock_today():
+    """실제 사고 재현: generate_metadata.py는 브리핑 데이터 날짜(예: 8/1)로
+    저장하는데, 실행 시각이 자정을 넘겨 KST 기준 다음 날(8/2)로 바뀌면
+    datetime.now(KST) 기준으로 찾던 예전 코드는 못 찾았다. date_iso를
+    명시적으로 넘기면 실행 시각과 무관하게 그 날짜 폴더를 찾아야 한다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        data_date = "2026-08-01"
+        _write_metadata(os.path.join(tmp, "output", data_date))
+
+        # 오늘 날짜(어떤 값이든)와 무관하게 date_iso로 지정한 폴더를 찾아야 함
+        wrong_today = (datetime.now(KST) + timedelta(days=5)).strftime("%Y-%m-%d")
+        assert wrong_today != data_date
+        check_metadata(root=tmp, date_iso=data_date)  # SystemExit이 나면 테스트 실패
+    print("✅ check_metadata: date_iso로 지정한 날짜 폴더를 실행 시각과 무관하게 찾음"
+          "(자정 근처 실행 시 데이터 날짜/실행 날짜 어긋남 버그 재현/고정)")
+
+
+def test_check_metadata_falls_back_to_today_when_date_iso_omitted():
+    """하위 호환: date_iso를 안 주면 예전처럼 오늘(KST) 날짜로 폴백한다."""
+    with tempfile.TemporaryDirectory() as tmp:
+        today = datetime.now(KST).strftime("%Y-%m-%d")
+        _write_metadata(os.path.join(tmp, "output", today))
+        check_metadata(root=tmp)  # date_iso 생략 → 오늘 날짜 폴백
+    print("✅ check_metadata: date_iso를 생략하면 오늘(KST) 날짜로 폴백")
+
+
+def test_check_metadata_missing_at_given_date_still_fails():
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            check_metadata(root=tmp, date_iso="2026-01-01")
+            assert False, "존재하지 않는 날짜 폴더인데 통과함"
+        except SystemExit as e:
+            assert "metadata.json 없음" in str(e)
+    print("✅ check_metadata: 지정한 날짜 폴더에 metadata.json이 없으면 여전히 실패 처리")
+
+
 if __name__ == "__main__":
     test_real_zero_percent_change_not_flagged()
     test_placeholder_price_detected()
@@ -122,4 +172,7 @@ if __name__ == "__main__":
     test_placeholder_corner_summary_detected()
     test_empty_price_detected()
     test_aggregate_sections_not_flagged()
+    test_check_metadata_uses_given_date_iso_not_wall_clock_today()
+    test_check_metadata_falls_back_to_today_when_date_iso_omitted()
+    test_check_metadata_missing_at_given_date_still_fails()
     print("\n✅ quality_gate placeholder 테스트 전체 통과")
