@@ -162,7 +162,7 @@ def test_asset_search_service_end_to_end_mock():
         img_dir = os.path.join(tmp, "media")
         log_path = os.path.join(tmp, "license_log.csv")
         service = AssetSearchService(mock_mode=True)
-        media_map, manifest = service.build_for_scene_plan(scene_plan, img_dir, log_path)
+        media_map, manifest, needs_curation = service.build_for_scene_plan(scene_plan, img_dir, log_path)
 
         assert "stock_삼성전자" in media_map
         assert manifest["assets"], "asset_manifest에 검토된 후보가 기록돼야 함"

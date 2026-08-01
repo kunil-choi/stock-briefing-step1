@@ -17,12 +17,14 @@ if _PIPELINE not in sys.path:
     sys.path.insert(0, _PIPELINE)
 
 from assets.media_providers import MockProvider  # noqa: E402
+from assets import media_pipeline as media_pipeline_module  # noqa: E402
 from assets.media_pipeline import (  # noqa: E402
     append_license_log, build_scene_images, is_duplicate, load_license_log,
     score_candidate,
 )
 from assets.media_providers import MediaCandidate  # noqa: E402
 from assets.scene_plan import build_scene_plan  # noqa: E402
+from assets import stock_image_store as store  # noqa: E402
 
 
 def _load_scene_plan():
@@ -110,6 +112,50 @@ def test_build_scene_images_with_mock_and_dedup():
         shutil.rmtree(tmp_dir)
 
 
+def test_build_scene_images_prefers_curated_store_over_search():
+    """assets/stock_images/에 종목의 확정 이미지가 있으면, 실시간 검색(MockProvider
+    포함) 없이 그 이미지를 바로 써야 한다 — 검색 결과가 매번 달라져도(얼굴이
+    크게 나온 사진, 종목과 무관한 사진 등) 확정 이미지가 있는 한 결과가
+    흔들리지 않아야 한다는 게 이 기능의 핵심 목적이다."""
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        fake_manifest = os.path.join(tmp_dir, "manifest.json")
+        fake_store_dir = os.path.join(tmp_dir, "stock_images")
+        curated_path = store.confirm_stock_image(
+            "삼성전자", b"curated-image-bytes", credit="사용자 확정",
+            manifest_path=fake_manifest, store_dir=fake_store_dir,
+        )
+
+        real_pick = media_pipeline_module.pick_curated_image
+        media_pipeline_module.pick_curated_image = (
+            lambda name, now: real_pick(name, now, manifest_path=fake_manifest, store_dir=fake_store_dir)
+        )
+        try:
+            img_dir = os.path.join(tmp_dir, "media")
+            log_path = os.path.join(tmp_dir, "data", "media", "license_log.csv")
+            scene_plan = _load_scene_plan()
+            needs_curation: dict = {}
+            media_map = build_scene_images(
+                scene_plan, img_dir, [MockProvider()], log_path,
+                now=datetime(2026, 7, 9), needs_curation_out=needs_curation,
+            )
+        finally:
+            media_pipeline_module.pick_curated_image = real_pick
+
+        entry = media_map["stock_삼성전자"]
+        assert entry["source"] == "curated_store"
+        assert entry["image_path"] == curated_path
+        assert entry["credit"] == "사용자 확정"
+        assert "삼성전자" not in needs_curation, "확정 이미지가 있는 종목은 검토 갤러리 대상이 아니어야 함"
+
+        log_rows = load_license_log(log_path)
+        assert not any(r["section_id"] == "stock_삼성전자" for r in log_rows), \
+            "확정 저장소를 쓴 섹션은 license_log(실시간 검색 기록)에 남지 않아야 함"
+        print("✅ 확정 저장소에 이미지가 있으면 실시간 검색 없이 그 이미지를 바로 사용")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
 def test_sector_fallback_when_no_keywords():
     tmp_dir = tempfile.mkdtemp()
     try:
@@ -163,6 +209,7 @@ if __name__ == "__main__":
     test_score_prefers_landscape_and_recent()
     test_license_log_roundtrip()
     test_build_scene_images_with_mock_and_dedup()
+    test_build_scene_images_prefers_curated_store_over_search()
     test_sector_fallback_when_no_keywords()
     test_is_duplicate_threshold()
     print("\n✅ media_pipeline 테스트 전체 통과")
