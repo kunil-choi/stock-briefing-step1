@@ -27,7 +27,7 @@ from assets.video_renderer import FFmpegVideoRenderer, TRANSITION_DURATION
 from assets.audio_post import mix_bgm_with_ducking
 from config_audio import (
     BGM_INTRO_VOLUME, BGM_BODY_VOLUME, BGM_OUTRO_VOLUME,
-    BGM_DUCKING_THRESHOLD_DB, BGM_DUCKING_RATIO,
+    BGM_DUCKING_THRESHOLD_DB, BGM_DUCKING_RATIO, ATEMPO_MAX_SPEED,
 )
 from config_schedule import duration_for
 from generate_subtitles import _frame_stem_to_audio_id
@@ -116,11 +116,18 @@ def get_audio_duration(mp3_path: str) -> float:
 _renderer = FFmpegVideoRenderer()
 
 
-def build_scene_clips(frame_audio_pairs: list, video_dir: str) -> list:
+def build_scene_clips(frame_audio_pairs: list, video_dir: str) -> tuple:
     """[(frame_path, mp3_path, duration), ...] → Ken Burns 클립과 전환 클립을
     번갈아 만든 파일 경로 리스트를 반환한다. 장면 합성이 실패하면 그 장면만
-    건너뛰고(기존 build_section_video() 실패 시 동작과 동일하게) 계속 진행한다."""
+    건너뛰고(기존 build_section_video() 실패 시 동작과 동일하게) 계속 진행한다.
+
+    반환값: (clips, rendered_pairs). rendered_pairs는 실제로 최종 영상에
+    포함된 (frame_path, mp3_path, duration)만 담은 부분집합이다 — 호출부가
+    자막/BGM 구간 계산을 "계획된 프레임 전체"가 아니라 "실제로 렌더링된
+    장면"에 맞춰야, 합성 실패로 빠진 장면 때문에 이후 자막 타임라인 전체가
+    밀리는 문제(FIX-SCENE-SUBTITLE-DRIFT-1)를 피할 수 있다."""
     clips = []
+    rendered_pairs = []
     prev_frame = None
     for i, (frame_path, mp3_path, duration) in enumerate(frame_audio_pairs):
         frame_stem = os.path.splitext(os.path.basename(frame_path))[0]
@@ -135,6 +142,7 @@ def build_scene_clips(frame_audio_pairs: list, video_dir: str) -> list:
         clip = _renderer.compose_scene(frame_path, mp3_path, scene_path, duration, scene_index=i)
         if clip:
             clips.append(clip)
+            rendered_pairs.append((frame_path, mp3_path, duration))
             prev_frame = frame_path
         else:
             print(f"  ⚠️ 장면 합성 실패 — 건너뜀: {frame_stem}")
@@ -144,7 +152,7 @@ def build_scene_clips(frame_audio_pairs: list, video_dir: str) -> list:
             if transition_added:
                 clips.pop()
 
-    return clips
+    return clips, rendered_pairs
 
 
 def concat_videos(video_list: list, out_path: str) -> bool:
@@ -207,10 +215,11 @@ def adjust_to_target_duration(input_path: str, output_path: str,
         ]
         speed = 1.0
     else:
-        # 속도 조정으로 줄이기 (최대 10% 빠르게)
+        # 속도 조정으로 줄이기 (config/audio.yml의 atempo.max_speed로 상한 clamp —
+        # 이전에는 여기서 1.1을 하드코딩해 config 값과 실제 동작이 어긋나 있었다)
         speed = current_duration / TARGET_IDEAL
-        if speed > 1.1:
-            speed = 1.1
+        if speed > ATEMPO_MAX_SPEED:
+            speed = ATEMPO_MAX_SPEED
         print(f"  ⏱ 영상이 길음 ({current_duration:.0f}초) → {speed:.3f}배속으로 조정")
         cmd = [
             "ffmpeg", "-y",
@@ -287,13 +296,13 @@ def _auto_generate_subtitles(lang: str, root: str, sections: list, frames: list,
     sub_dir  = os.path.join(root, "output", lang, "subtitles")
     ass_path = os.path.join(sub_dir, "subtitle.ass")
 
-    # time_scale != 1.0이면 (adjust_to_target_duration()이 속도를 보정한 경우)
-    # 이전 CI 단계가 1.0 배속 기준으로 미리 만들어둔 캐시 파일은 새 타임라인과
-    # 맞지 않으므로 재사용하지 않고 다시 생성한다.
-    if time_scale == 1.0 and os.path.isfile(ass_path):
-        print(f"  [subtitle] 기존 ASS 파일 사용: {ass_path}")
-        return ass_path
-
+    # CI에서 generate_subtitles.py를 먼저 돌려 만들어둔 캐시 파일이 있어도
+    # 항상 여기서 다시 생성한다 — 그 사전 단계는 asset_map.json의 계획된
+    # 프레임 전체를 기준으로 만들어지므로, 이 시점에 실제로 오디오가 없거나
+    # 합성에 실패해 최종 영상에서 빠진 장면이 하나라도 있으면(호출부가 넘기는
+    # frames는 이미 그걸 걸러낸 목록) 캐시 파일의 타임라인은 어긋나 있다
+    # (FIX-SCENE-SUBTITLE-DRIFT-1). ASS 생성 자체는 ffmpeg 인코딩 없는
+    # 가벼운 텍스트 작업이라 매번 다시 만들어도 비용이 거의 없다.
     print(f"  [subtitle] ASS 자막 자동 생성 중...")
     try:
         sys.path.insert(0, os.path.join(root, "pipeline"))
@@ -343,7 +352,6 @@ def run(lang: str = "KO"):
     print(f"\n🎬 장면 영상 생성 시작 (Ken Burns + crossfade/push 전환)\n")
 
     missing_audio = []
-    total_audio_duration = 0.0
     frame_audio_pairs = []
 
     for frame_path in frames:
@@ -362,10 +370,9 @@ def run(lang: str = "KO"):
                 continue
 
         dur = get_audio_duration(mp3_path)
-        total_audio_duration += dur
         frame_audio_pairs.append((frame_path, mp3_path, dur))
 
-    section_videos = build_scene_clips(frame_audio_pairs, video_dir)
+    section_videos, rendered_pairs = build_scene_clips(frame_audio_pairs, video_dir)
 
     if missing_audio:
         print("\n⚠️  누락된 오디오가 있어 해당 섹션을 건너뜁니다.")
@@ -375,6 +382,16 @@ def run(lang: str = "KO"):
     if not section_videos:
         print("❌ 생성된 섹션 영상 없음"); sys.exit(1)
 
+    dropped = len(frame_audio_pairs) - len(rendered_pairs)
+    if dropped:
+        print(f"\n⚠️  장면 합성 실패로 {dropped}개 프레임이 최종 영상에서 빠졌습니다 — "
+              f"자막/BGM 타임라인은 실제로 렌더링된 장면 기준으로 다시 계산합니다.")
+
+    # 자막/BGM 구간 계산은 asset_map.json에 계획된 프레임 전체가 아니라, 실제로
+    # 최종 영상에 들어간 장면(rendered_pairs)만 기준으로 해야 한다 — 그래야
+    # 오디오 누락/합성 실패로 빠진 장면 때문에 그 뒤 모든 자막 타임코드가
+    # 밀려버리는 문제(FIX-SCENE-SUBTITLE-DRIFT-1)가 생기지 않는다.
+    total_audio_duration = sum(d for _, _, d in rendered_pairs)
     total_mins = int(total_audio_duration // 60)
     total_secs = int(total_audio_duration % 60)
     print(f"\n📊 총 오디오 길이: {total_mins}분 {total_secs}초")
@@ -405,7 +422,8 @@ def run(lang: str = "KO"):
     print(f"\n📝 자막 처리 중...\n")
     # 영상이 배속 조정됐다면 자막 타임라인도 동일 비율로 압축해야 나레이션과 어긋나지 않음
     subtitle_time_scale = 1.0 / speed_factor if speed_factor else 1.0
-    ass_path = _auto_generate_subtitles(lang, root, sections, frames, subtitle_time_scale)
+    rendered_frames = [p for p, _, _ in rendered_pairs]
+    ass_path = _auto_generate_subtitles(lang, root, sections, rendered_frames, subtitle_time_scale)
     subtitled_path = os.path.join(video_dir, "with_subtitles.mp4")
 
     if ass_path and os.path.isfile(ass_path):
@@ -429,7 +447,7 @@ def run(lang: str = "KO"):
     # 잘못 계산할 수 있다).
     bgm_total_duration = get_audio_duration(source_for_bgm)
     intro_end, outro_start = compute_bgm_bounds(
-        frame_audio_pairs, transition_count, time_scale=subtitle_time_scale
+        rendered_pairs, transition_count, time_scale=subtitle_time_scale
     )
     if not mix_bgm_with_ducking(
         source_for_bgm, bgm_path, final_path,
