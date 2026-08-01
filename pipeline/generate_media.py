@@ -23,6 +23,8 @@ if _HERE not in sys.path:
 
 import config_media
 from assets.asset_search_service import AssetSearchService
+from assets.image_review_gallery import render_gallery_html, save_pending_candidates
+from assets.stock_image_store import STOCK_IMAGE_DIR
 
 
 def run(lang: str = "KO"):
@@ -44,7 +46,7 @@ def run(lang: str = "KO"):
     service = AssetSearchService(config_media.PROVIDER_NAMES, mock_mode=config_media.MOCK_MODE)
     if config_media.MOCK_MODE:
         print("  [media] MOCK_MODE=on → MockProvider만 사용")
-    media_map, asset_manifest = service.build_for_scene_plan(
+    media_map, asset_manifest, needs_curation = service.build_for_scene_plan(
         scene_plan, img_dir, log_path,
         cache_dir=config_media.ASSET_CACHE_DIR,
         dedup_window_days=config_media.DEDUP_WINDOW_DAYS,
@@ -59,11 +61,23 @@ def run(lang: str = "KO"):
         json.dump(asset_manifest, f, ensure_ascii=False, indent=2)
 
     resolved = sum(1 for v in media_map.values() if v.get("source") != "fallback")
+    curated = sum(1 for v in media_map.values() if v.get("source") == "curated_store")
     fallback = len(media_map) - resolved
     needs_review = sum(1 for a in asset_manifest["assets"] if a["needsReview"])
-    print(f"✅ media_map 생성 완료! 총 {len(media_map)}개 섹션 (검색 성공 {resolved} / 폴백 {fallback}) → {map_path}")
+    print(f"✅ media_map 생성 완료! 총 {len(media_map)}개 섹션 "
+          f"(확정 저장소 {curated} / 검색 성공 {resolved - curated} / 폴백 {fallback}) → {map_path}")
     print(f"✅ asset_manifest 생성 완료! 검토된 후보 {len(asset_manifest['assets'])}개 "
           f"(검수 대기 {needs_review}개) → {manifest_path}")
+
+    if needs_curation:
+        pending_dir = os.path.join(STOCK_IMAGE_DIR, "_pending")
+        pending_meta = save_pending_candidates(needs_curation, pending_dir)
+        gallery_path = os.path.join(img_dir, "image_review_gallery.html")
+        render_gallery_html(pending_meta, gallery_path)
+        print(f"🖼️ 확정 이미지가 없는 종목 {len(needs_curation)}개 → 검토 갤러리 생성: {gallery_path}")
+        print(f"   (사진을 고른 뒤 갤러리 카드에 적힌 python pipeline/confirm_stock_image.py "
+              f"명령을 실행하면 다음부터 검색 없이 그 사진을 재사용합니다)")
+
     return media_map
 
 

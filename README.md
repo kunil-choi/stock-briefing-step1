@@ -107,6 +107,41 @@ KRX 인증 문제로 실패하면 조용히 수동 목록으로 대체). 별도 
 샘플: `tests/test_media_pipeline.py`(`MockProvider`만 사용, 네트워크 없이 실행,
 `python tests/test_media_pipeline.py`).
 
+### 종목별 확정 이미지 저장소 (assets/stock_images/)
+
+실시간 뉴스 이미지 검색은 얼굴이 크게 나온 사진이나 종목과 무관한 사진이 섞여
+나오는 문제가 있었습니다. 종목 섹션(`stock_*`/`hidden_*`)은 매번 자동으로
+검색하는 대신, 사람이 한 번 확인해 확정한 사진을 재사용합니다.
+
+- **저장 구조**: `assets/stock_images/manifest.json`(`{종목명: [항목, ...]}`) +
+  `assets/stock_images/{종목명}/{1,2}.jpg`(실제 파일, 종목당 최신 2장 유지).
+- **우선순위**: `build_scene_images()`가 종목 섹션마다 먼저
+  `pick_curated_image()`(`pipeline/assets/stock_image_store.py`)로 확정 이미지가
+  있는지 확인합니다. 있으면 검색을 아예 건너뛰고 그 사진을 바로 씁니다
+  (`media_map`의 `source: "curated_store"`) — 같은 날 여러 번 재실행해도
+  날짜+종목명 시드로 항상 같은 사진을 고릅니다.
+- **없으면 그날만 임시 검색**: 확정 이미지가 없는 종목은 기존처럼 실시간
+  검색으로 채우되(오늘 하루만), 점수 상위 후보들을
+  `assets/stock_images/_pending/{종목명}/`(이미지 + `meta.json`)에 저장하고
+  `output/{lang}/media/image_review_gallery.html`(자체완결 HTML, 외부 리소스
+  없이 base64로 이미지 임베드)이라는 검토 갤러리를 만듭니다.
+- **확정**: 갤러리 카드에 적힌 명령을 그대로 실행하면 됩니다.
+  ```
+  python pipeline/confirm_stock_image.py "삼성전자" --index 0
+  ```
+  확정 즉시 `assets/stock_images/{종목명}/`에 저장되고(최대 2장, 초과하면
+  가장 오래된 항목부터 교체) 대기 후보는 정리됩니다. 다음 실행부터는 검색 없이
+  그 사진이 재사용됩니다.
+- **CI에서의 영속성**: `assets` 잡의 러너는 매번 새로 뜨는 일회용 환경이라,
+  `assets/stock_images/_pending/`(검토 갤러리가 참조하는 원본 후보)을 커밋해두지
+  않으면 로컬에서 `confirm_stock_image.py`를 돌릴 대상이 없습니다. `license_log.csv`와
+  같은 스텝에서 `assets/stock_images/`를 함께 커밋합니다(`.github/workflows/morning_core.yml`).
+
+샘플: `tests/test_stock_image_store.py`(저장/조회/교체/검토 갤러리/확정 CLI 전체 플로우,
+네트워크 없이 실행), `tests/test_media_pipeline.py`의
+`test_build_scene_images_prefers_curated_store_over_search`(확정 이미지가 있으면
+검색을 건너뛰는지 확인).
+
 ### AssetSearchService / asset_manifest.json / 권리 검수 (2차 작업)
 
 `pipeline/assets/asset_search_service.py`의 `AssetSearchService`가 `generate_media.py`의
@@ -461,9 +496,13 @@ TOP5 선정 + 집계 섹션 제외, 쇼츠 45초 상한 적용을 검증 — OHL
 output/KO/scripts/scene_plan.json   # Phase B: 개체명/priority_score/visual_type/visual_keywords
 output/KO/scripts/reordered_script.json  # Phase E: 종목 언급 중심 재정렬 결과(훅→채널언급인트로→주요지표→대형주도주→관심종목→AI히든픽→클로징) — voice/assets/video/subtitles/quality_gate가 실제로 이 파일을 읽음
 output/KO/media/media_map.json      # Phase C: 섹션별 선택 이미지 경로/출처/사용권
+output/KO/media/image_review_gallery.html  # 확정 이미지 없는 종목의 검토 갤러리(자체완결 HTML)
 output/KO/audio_report.json         # Phase H: TTS provider/실측 음량/과장 표현 경고 리포트
 output/KO/...                 # 기존과 동일한 중간 산출물(scripts/audio/frames/subtitles/video)
 data/media/license_log.csv    # Phase C: 이미지 사용 이력(7일 중복 감지용, 레포에 커밋 유지)
+assets/stock_images/manifest.json      # 종목별 확정 이미지 메타데이터(레포에 커밋 유지)
+assets/stock_images/{종목명}/{1,2}.jpg  # 종목별 확정 이미지(최신 2장)
+assets/stock_images/_pending/{종목명}/  # 검토 대기 후보(레포에 커밋 유지, confirm 후 정리됨)
 output/YYYY-MM-DD/
   metadata.json                # 아래 스키마
   final.mp4                    # output/KO/video/final.mp4 사본
