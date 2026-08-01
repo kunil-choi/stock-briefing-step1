@@ -223,7 +223,15 @@ jobs:
         run: python pipeline/quality_gate.py KO
       - name: 📦 배포 산출물 업로드 (output/YYYY-MM-DD/)
         run: |
-          DATE_DIR=$(TZ='Asia/Seoul' date +'%Y-%m-%d')
+          # generate_metadata.py는 실행 시각이 아니라 script.json의 "date"
+          # 필드(브리핑이 다루는 데이터 날짜, _kdate_to_iso)를 폴더명으로 쓴다.
+          # 여기서 TZ='Asia/Seoul' date로 "오늘"을 독자 계산하면, 실행 시각과
+          # 데이터 날짜가 어긋날 때(quality_gate.py에서 이미 한 번 겪은 것과
+          # 동일한 문제) 존재하지 않는 폴더를 가리켜 업로드가 조용히 비게 된다
+          # (actions/upload-artifact의 기본 if-no-files-found=warn이라 스텝
+          # 자체는 실패하지 않고 그냥 아티팩트가 안 만들어짐 — 실제로 재현됨).
+          # 반드시 generate_metadata.py와 동일한 계산으로 날짜를 구한다.
+          DATE_DIR=$(python3 -c "import json, sys; sys.path.insert(0, 'pipeline'); from generate_metadata import _kdate_to_iso; print(_kdate_to_iso(json.load(open('output/KO/scripts/script.json', encoding='utf-8')).get('date', '')))")
           echo "DATE_DIR=${DATE_DIR}" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with:
