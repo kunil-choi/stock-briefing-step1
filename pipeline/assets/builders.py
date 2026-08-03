@@ -16,7 +16,6 @@ from .html_theme import (
     autofit_text, text_plate,
 )
 from .chart import build_chart_with_insight, build_week_chart
-from .image_fetch import fetch_news_image
 from .panel_avatars import get_avatar_path
 
 # 영상 오프닝(훅 타이틀 화면 + 오늘의 한 줄 결론 화면)에 고정으로 쓰는 브랜드
@@ -89,20 +88,25 @@ def build_hook(sec, out_dir, visual=None):
     return [_build_hook_title(sec, out_dir)]
 
 
-# ── 오늘의 한 줄 결론 ───────────────────────────────────────────────────────
+# ── 오늘의 한 줄 결론(= 영상의 첫 화면, 채널 언급 인트로) ──────────────────
 #
 # narrative_reorder._build_mention_intro_section()이 만드는 합성 섹션
-# (id="conclusion")을 렌더링한다. 훅 타이틀 화면과 같은 고정 오프닝 타이틀
-# 이미지(_OPENING_TITLE_BG)를 이어서 그대로 보여준다 — 영상 시작부터 이
-# 화면까지("국내 증시 전일 종가" 설명 직전) 하나의 타이틀 카드로 통일해
-# 보여달라는 요청에 따른 것이다. 내레이션(MENTION_INTRO_LINE)과 자막 없음
-# 처리는 그대로 유지된다(generate_subtitles.py의 conclusion 특수 처리 참고) —
-# 화면만 바뀌고 오디오는 손대지 않았다.
+# (id="conclusion")을 렌더링한다. 고정 오프닝 타이틀 이미지(_OPENING_TITLE_BG)를
+# 전체화면으로 보여준다 — 이 화면이 영상에서 타이틀 이미지가 나오는 유일한
+# 지점이다(예전엔 내레이션 없는 "훅" 화면이 따로 앞에 붙어 같은 이미지가 두
+# 장면처럼 보였는데, narrative_reorder.build_mention_briefing()에서 훅을
+# 없애 이제 여기 한 번만 나온다). 내레이션(MENTION_INTRO_LINE)과 자막 없음
+# 처리는 그대로 유지된다(generate_subtitles.py의 conclusion 특수 처리 참고).
 def build_conclusion(sec, out_dir):
     # centered_shell()은 shell()과 달리 상단바(KBS/날짜)·하단 티커를 아예
     # 그리지 않는다 — 이 오프닝 타이틀 이미지에는 이미 자체 KBS 로고가 있어
     # shell()의 상단바를 쓰면 브랜딩이 중복돼 보인다.
-    html = centered_shell("", background_image=_OPENING_TITLE_BG)
+    # darkness=0.1: background_layer()의 기본 어두운 그라디언트(0.72, 사진 위
+    # 텍스트 가독성용)는 이 이미지엔 필요 없다 — 이미 자체적으로 완성된
+    # 디자인이라 그 위에 짙은 그라디언트를 덧씌우면 불필요하게 어두워진다
+    # (사용자 보고 버그: "화면이 너무 어둡다"). 완전히 0으로 하지 않고 아주
+    # 살짝(0.1)만 남겨 자막존 경계가 부자연스럽게 뚝 끊기지 않게 한다.
+    html = centered_shell("", background_image=_OPENING_TITLE_BG, darkness=0.1)
     return render_html_to_png(html, os.path.join(out_dir, "01_conclusion.png"))
 
 
@@ -194,7 +198,6 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
     risks          = sec.get("risks", [])[:4]
     corner_summary = sec.get("corner_summary", "")
     is_hidden      = sec.get("id", "").startswith("hidden_")
-    image_path     = visual.get("image_path")
     screen_lines   = [l for l in (visual.get("screenText") or []) if l]
 
     hidden_badge = (
@@ -203,8 +206,7 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
         if is_hidden else ""
     )
 
-    # 사진 배경 위에서는 accent(민트)보다 흰색 숫자가 대비가 안정적이다.
-    price_number_color = "#ffffff" if image_path else PALETTE["accent"]
+    price_number_color = PALETTE["accent"]
     price_html = ""
     if price:
         color = PALETTE["up"] if positive else PALETTE["down"]
@@ -258,40 +260,8 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
     if cols:
         lower_html = f'<div style="display:flex;gap:24px;margin-top:28px;align-items:stretch;">{cols}</div>'
 
-    if image_path:
-        # 배경 이미지가 있으면 150px 원형 로고 대신 전체화면 배경을 쓰고,
-        # 이름/가격/헤드라인을 반투명 다크 판 안에 흰 글자로 담는다.
-        title_block = (
-            f'{hidden_badge}'
-            f'<div style="font-size:72px;font-weight:800;color:#fff;">{esc(display_name)}</div>'
-            f'{price_html}'
-        )
-        summary_html = (
-            f'<div style="font-size:28px;font-weight:700;color:#fff;margin-top:18px;'
-            f'line-height:1.5;white-space:pre-line;">{esc(summary_text)}</div>'
-            if summary_text else ""
-        )
-        content = f"""
-<div>
-  {text_plate(title_block + summary_html, extra_style="display:block;max-width:1400px;")}
-  {lower_html}
-</div>
-"""
-        bar_label = f"숨은 종목 분석: {display_name}" if is_hidden else f"종목 분석: {display_name}"
-        html = shell(bar_label, content, stock_tag=display_name, background_image=image_path,
-                     suppress_ticker=True, credit=visual.get("credit", ""))
-        return render_html_to_png(html, out_path)
-
-    # ── 배경 이미지가 없을 때(기존 동작, 회귀 없음) ──────────────────────────
-    # needsDataReview(오염 의심 종목명)면 그 이름으로 로고를 검색하는 것 자체가
-    # 무의미하므로 건너뛴다(실패로 끝날 헛된 외부 요청을 만들지 않음).
-    logo_path = None if visual.get("needsDataReview") else fetch_news_image(stock_name, img_dir, [])
-    logo_html = (
-        f'<img src="{file_uri(logo_path)}" style="width:150px;height:150px;'
-        f'border-radius:50%;object-fit:cover;border:4px solid {PALETTE["accent"]};'
-        f'position:absolute;top:0;right:0;">'
-        if logo_path else ""
-    )
+    # 사용자 요청(2번): 연합뉴스/KBS에서 긁어온 종목 관련 사진을 배경/로고로
+    # 쓰지 않는다 — 데이터로 생성된 이미지(차트)와 텍스트만으로 구성한다.
     summary_html = (
         f'<div class="corner-summary" style="margin-top:24px;white-space:pre-line;">{esc(summary_text)}</div>'
         if summary_text else ""
@@ -299,7 +269,6 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
     content = f"""
 <div>
   <div style="position:relative;">
-    {logo_html}
     {hidden_badge}
     <div style="font-size:72px;font-weight:800;">{esc(display_name)}</div>
     {price_html}
@@ -348,18 +317,25 @@ def _build_stock_chart(sec, out_path, img_dir):
 _CHANNEL_TYPE_LABELS = {"유튜브": "유튜브 종합", "경제방송": "경제방송 종합", "증권사": "증권사 리포트 종합"}
 
 
-def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
-    """전문가·방송 언급 화면. 종목 요약/차트 화면과 같은 종목 사진(image_path)을
-    전체 배경으로 깔고, 그 위에 발언자 자리를 일반화된 일러스트 아바타
-    (panel_avatars.get_avatar_path — 실제 인물 사진이 아니며 닮음 여부는
-    고려하지 않음) + 카카오톡 대화창 스타일 말풍선(chat_bubble)으로 보여준다.
-    예전에는 텍스트 카드 하나만 덩그러니 떠 있어 "텍스트만 한가득"으로
-    보인다는 피드백이 반복됐다."""
-    stock_name = sec.get("id", "").replace("stock_", "").replace("hidden_", "")
-    summaries  = sec.get("channel_summaries", [])
-    total_pages = max(1, len(summaries))
-    cs = summaries[page_idx] if page_idx < len(summaries) else {}
+# 한 화면에 동시에 보여줄 언급 카드 최대 개수(사용자 요청). 그 이상은
+# 화면이 붐벼 보이므로, 그 개수를 넘으면 가장 최근 것들만 창(window)으로
+# 남긴다.
+_MAX_VISIBLE_MENTION_CARDS = 3
 
+
+def _visible_mention_cards(summaries: list, page_idx: int,
+                            max_visible: int = _MAX_VISIBLE_MENTION_CARDS) -> list:
+    """이 페이지(page_idx)까지 누적해서 화면에 함께 보여줄 (전체 목록 기준
+    인덱스, 항목) 쌍의 리스트를 반환한다. 최대 max_visible개까지 창(window)
+    으로 유지하며, 넘치면 가장 오래된 것부터 화면에서 빠진다(가장 최근
+    max_visible개만 남음). 순수 함수라 렌더링 없이 테스트할 수 있다."""
+    total = len(summaries)
+    visible_count = min(page_idx + 1, max_visible, total)
+    start = max(0, page_idx + 1 - visible_count)
+    return list(enumerate(summaries))[start:page_idx + 1]
+
+
+def _mention_card_html(cs: dict, abs_idx: int) -> str:
     channel_type = cs.get("channel_type", "")
     speaker      = (cs.get("speaker") or "").strip()
     channel      = (cs.get("channel") or "").strip()
@@ -370,7 +346,9 @@ def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
     label        = _CHANNEL_TYPE_LABELS.get(channel_type, channel_type or "종합 분석")
     sender_text  = (f"{speaker} · {channel}" if speaker and channel else speaker or channel
                     or ", ".join(sources) or label)
-    color        = _ACCENT_CYCLE[page_idx % len(_ACCENT_CYCLE)]
+    # 색상은 화면에 몇 번째로 누적됐는지가 아니라 전체 목록에서의 실제 순번
+    # (abs_idx)으로 고정한다 — 그래야 같은 발언자가 페이지마다 색이 안 바뀐다.
+    color = _ACCENT_CYCLE[abs_idx % len(_ACCENT_CYCLE)]
 
     # 아바타는 발언자 이름으로 고정 배정한다(채널명 기준이면 같은 채널에 다른
     # 발언자가 나올 때도 아바타가 바뀌지 않는 문제가 생긴다).
@@ -378,10 +356,46 @@ def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
     avatar_path = get_avatar_path(avatar_key)
     avatar_uri  = file_uri(avatar_path) if os.path.isfile(avatar_path) else ""
 
-    card = chat_bubble(avatar_uri, sender_text, label, content, color)
+    return chat_bubble(avatar_uri, sender_text, label, content, color)
 
-    body = (f'<div style="display:flex;flex-direction:column;gap:20px;">{card}</div>'
-            + page_dots(total_pages, page_idx))
+
+def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
+    """전문가·방송 언급 화면. 카카오톡 대화창 스타일 말풍선(chat_bubble)을
+    한 화면에 순차적으로 쌓아 보여준다 — 이 페이지(page_idx)까지 언급된
+    카드를 전부(최대 _MAX_VISIBLE_MENTION_CARDS개) 누적해서 함께 띄운다
+    (사용자 요청: 한 화면에 패널 코멘트가 차례차례 덧붙는 형태).
+
+    화면에 카드가 1개면 화면 상하 중앙에, 2~3개면 flex:1로 동일한 비율의
+    구역을 나눠 각 구역 안에서 카드를 세로 중앙 정렬한다 — 개수와 무관하게
+    "flex:1 + 세로 중앙 정렬"만 적용하면 세 가지 배치 규칙이 저절로
+    성립한다(카드 1개=전체 높이 안에서 중앙, 2개=위아래 절반씩, 3개=삼등분).
+
+    예전에는 페이지마다 카드 1개만 화면 전체를 차지하고 다음 페이지에서
+    완전히 다른 화면으로 컷 전환됐는데, "텍스트만 한가득"으로 보인다는
+    피드백과 함께 언급이 여러 개일 때 화면이 계속 바뀌어 산만하다는 피드백이
+    있었다."""
+    stock_name = sec.get("id", "").replace("stock_", "").replace("hidden_", "")
+    summaries  = sec.get("channel_summaries", [])
+    total_pages = max(1, len(summaries))
+
+    visible = _visible_mention_cards(summaries, page_idx)
+
+    cards = "".join(
+        f'<div style="flex:1;min-height:0;display:flex;align-items:center;">'
+        f'{_mention_card_html(cs, abs_idx)}</div>'
+        for abs_idx, cs in visible
+    )
+
+    # page_dots는 flex:1로 늘어나는 카드 구역과 별도로, 항상 고정 높이로
+    # 맨 아래 한 줄만 차지해야 한다 — 카드 구역과 같은 flex 컨테이너에
+    # 나란히 두면(flex:1이 아닌 채로) dots 자신의 높이만큼만 차지하고,
+    # 카드 구역(flex:1)이 나머지 전체를 차지해 위아래로 넘치지 않는다.
+    body = f"""
+<div style="display:flex;flex-direction:column;height:100%;">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:24px;">{cards}</div>
+  {page_dots(total_pages, page_idx)}
+</div>
+"""
 
     html = shell(f"전문가·방송 언급: {stock_name}", body, stock_tag=stock_name,
                  background_image=image_path, suppress_ticker=True, credit=credit)
@@ -450,9 +464,11 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
         body_html = f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
     elif items:
         # FIX-WATCHLIST-CARD-1: 종목명+설명을 하나의 텍스트 줄로 뭉쳐 보여주던
-        # point_card() 대신, 종목마다 썸네일을 곁들인 카드형 레이아웃
-        # (point_card_img())으로 바꿔 화면과 자막이 겹쳐 보이던 문제(자막이
-        # 화면 텍스트를 그대로 반복)를 시각적으로도 구분되게 했다.
+        # point_card() 대신, 종목마다 카드형 레이아웃(point_card_img())으로
+        # 바꿔 화면과 자막이 겹쳐 보이던 문제(자막이 화면 텍스트를 그대로
+        # 반복)를 시각적으로도 구분되게 했다. 사용자 요청(2번)으로 연합뉴스/
+        # KBS 썸네일 검색은 제거했고, point_card_img()는 image_uri가 비어있으면
+        # 기존 point_card()와 동일한 레이아웃으로 자동 폴백한다.
         cards = ""
         for i, it in enumerate(items):
             if isinstance(it, dict):
@@ -460,12 +476,7 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
                 text = (it.get("text") or "").strip()
             else:
                 name, text = "", str(it)
-            img_uri = ""
-            if name and img_dir is not None:
-                img_path = fetch_news_image(name, img_dir, [])
-                if img_path:
-                    img_uri = file_uri(img_path)
-            cards += point_card_img(i + 1, name, text, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)], img_uri)
+            cards += point_card_img(i + 1, name, text, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)], "")
         layout = "grid;grid-template-columns:1fr 1fr" if len(items) > 3 else "flex;flex-direction:column"
         body_html = f'<div style="display:{layout};gap:14px;">{cards}</div>'
     else:

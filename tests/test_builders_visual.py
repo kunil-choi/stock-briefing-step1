@@ -18,7 +18,9 @@ from assets.html_theme import (  # noqa: E402
     background_layer, text_plate, news_ticker, shell, centered_shell,
     set_ticker_text,
 )
-from assets.builders import build_hook, _build_stock_summary  # noqa: E402
+from assets.builders import (  # noqa: E402
+    build_hook, _build_stock_summary, _visible_mention_cards, _MAX_VISIBLE_MENTION_CARDS,
+)
 from generate_assets import _resolve_visual, _compute_ticker  # noqa: E402
 
 
@@ -157,6 +159,43 @@ def test_compute_ticker_ranks_by_priority_and_dedupes():
     print("✅ _compute_ticker: 종목 섹션만 priority_score 순으로 모으고 집계 섹션은 제외")
 
 
+def test_visible_mention_cards_accumulates_up_to_max():
+    """사용자 요청: 한 화면에 패널 코멘트가 차례차례 덧붙는 형태 — 최대
+    _MAX_VISIBLE_MENTION_CARDS(3)개까지 누적되고, 그 이상은 창이 밀려야
+    한다."""
+    summaries = [{"speaker": f"s{i}"} for i in range(5)]
+
+    # page_idx=0: 1개만(가운데 배치)
+    v0 = _visible_mention_cards(summaries, 0)
+    assert [i for i, _ in v0] == [0]
+
+    # page_idx=1: 2개 누적(위아래 절반)
+    v1 = _visible_mention_cards(summaries, 1)
+    assert [i for i, _ in v1] == [0, 1]
+
+    # page_idx=2: 3개 누적(삼등분) — 최대치
+    v2 = _visible_mention_cards(summaries, 2)
+    assert [i for i, _ in v2] == [0, 1, 2]
+
+    # page_idx=3: 최대(3)를 넘으면 가장 오래된 것(0번)이 창에서 빠지고
+    # 최근 3개(1,2,3)만 남아야 함
+    v3 = _visible_mention_cards(summaries, 3)
+    assert [i for i, _ in v3] == [1, 2, 3]
+    assert len(v3) == _MAX_VISIBLE_MENTION_CARDS
+
+    v4 = _visible_mention_cards(summaries, 4)
+    assert [i for i, _ in v4] == [2, 3, 4]
+    print("✅ _visible_mention_cards: 최대 3개까지 누적, 초과 시 최근 3개로 창 유지")
+
+
+def test_visible_mention_cards_single_item():
+    """언급이 1개뿐인 종목은 항상 그 1개만(중앙 배치용) 보여야 한다."""
+    summaries = [{"speaker": "only"}]
+    v = _visible_mention_cards(summaries, 0)
+    assert [i for i, _ in v] == [0]
+    print("✅ _visible_mention_cards: 언급 1개뿐이면 그 1개만 반환")
+
+
 if __name__ == "__main__":
     test_background_layer_empty_without_valid_file()
     test_background_layer_present_for_real_file()
@@ -165,8 +204,10 @@ if __name__ == "__main__":
     test_shell_ticker_global_and_suppress()
     test_shell_background_image_param()
     test_build_hook_falls_back_without_visual()
-    test_build_hook_uses_screen_text_with_image()
+    test_build_hook_ignores_visual_and_uses_fixed_opening_image()
     test_stock_summary_uses_safe_display_name_when_data_review_flagged()
     test_resolve_visual_join_and_missing_file_guard()
     test_compute_ticker_ranks_by_priority_and_dedupes()
+    test_visible_mention_cards_accumulates_up_to_max()
+    test_visible_mention_cards_single_item()
     print("\n✅ builders_visual 테스트 전체 통과")

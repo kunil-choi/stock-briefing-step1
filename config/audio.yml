@@ -27,9 +27,19 @@ providers:
     # ELEVENLABS_VOICE_ID → 프리셋 → 기본값 순)를 그대로 사용한다.
     voice_id: ""
     model_id: eleven_multilingual_v2
-    stability: 0.72
+    # FIX-VOICE-TOO-DEEP-1: 예전 값(stability 0.72 / style 미설정 → API
+    # 호출에서 style/use_speaker_boost가 통째로 빠짐)이 사용자의 실제 학습
+    # 목소리보다 굵고 느리고 개성 없는 "뉴스 앵커" 톤으로 나온다는 보고가
+    # 있었다. stability를 낮춰 원본의 억양·에너지 변화를 더 살리고, style을
+    # 올려 표현력(밝기/가벼움)을 더하고, use_speaker_boost를 명시적으로 켜서
+    # 원본 목소리 유사도 보정이 실제로 적용되게 했다. 실제 음성은 이 세션
+    # 환경에서 들어볼 수 없으니, 다음 실제 실행에서 사람이 직접 확인 후
+    # 필요하면 이 값들을 더 조정해야 한다.
+    stability: 0.45           # 0.0~1.0: 낮을수록 원본의 억양 변화가 더 살아남(기존 0.72 → 0.45)
     similarity_boost: 0.88
-    speaking_rate: 1.0        # voice_settings.speed (0.7~1.2 범위)
+    style: 0.35                # 0.0~1.0: 표현력/에너지(기존 0.10 → 0.35, 더 밝고 가벼운 느낌)
+    use_speaker_boost: true    # 원본 목소리 유사도 보정 — 예전엔 코드 버그로 API에 전달 안 됐음
+    speaking_rate: 1.05        # voice_settings.speed (0.7~1.2 범위, 기존 1.0 → 1.05로 살짝 경쾌하게)
     output_format: mp3_44100_128
 
 # TTS 합성 후 최종 영상 나레이션 속도를 맞추는 ffmpeg atempo 배속의 허용 범위.

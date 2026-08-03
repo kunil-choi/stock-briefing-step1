@@ -149,11 +149,14 @@ def test_cached_download_avoids_repeat_download():
 
 
 def test_asset_search_service_end_to_end_mock():
+    # 종목(stock_*) 섹션은 사용자 요청으로 검색을 아예 건너뛰므로(text_only),
+    # 이 테스트는 여전히 실시간 검색을 쓰는 비종목 섹션(market_summary)으로
+    # media_map/asset_manifest 생성 경로를 검증한다.
     scene_plan = {
         "title": "테스트", "date": "2026-07-21",
         "sections": [
-            {"id": "stock_삼성전자", "label": "종목 분석 - 삼성전자",
-             "visual_keywords": ["삼성전자"], "visualKeywordsEn": ["Samsung Electronics"],
+            {"id": "market_summary", "label": "시장 요약",
+             "visual_keywords": ["코스피"], "visualKeywordsEn": ["KOSPI"],
              "preferredSources": [], "needsDataReview": False,
              "assetRequirements": {"allowStockFallback": True}, "entities": []},
         ],
@@ -162,14 +165,14 @@ def test_asset_search_service_end_to_end_mock():
         img_dir = os.path.join(tmp, "media")
         log_path = os.path.join(tmp, "license_log.csv")
         service = AssetSearchService(mock_mode=True)
-        media_map, manifest, needs_curation = service.build_for_scene_plan(scene_plan, img_dir, log_path)
+        media_map, manifest = service.build_for_scene_plan(scene_plan, img_dir, log_path)
 
-        assert "stock_삼성전자" in media_map
+        assert "market_summary" in media_map
         assert manifest["assets"], "asset_manifest에 검토된 후보가 기록돼야 함"
         selected_rows = [a for a in manifest["assets"] if a["selected"]]
         assert len(selected_rows) == 1
-        assert selected_rows[0]["sceneId"] == "stock_삼성전자"
-        assert selected_rows[0]["localPath"] == media_map["stock_삼성전자"]["image_path"]
+        assert selected_rows[0]["sceneId"] == "market_summary"
+        assert selected_rows[0]["localPath"] == media_map["market_summary"]["image_path"]
         for a in manifest["assets"]:
             assert set(a.keys()) >= {
                 "assetId", "sceneId", "source", "type", "title", "credit", "sourceUrl",

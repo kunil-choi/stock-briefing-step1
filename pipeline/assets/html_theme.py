@@ -242,10 +242,16 @@ def shell(topbar_label: str, content_html: str, stock_tag: str = "",
 </div></body></html>"""
 
 
-def centered_shell(content_html: str, background_image=None, credit: str = "") -> str:
+def centered_shell(content_html: str, background_image=None, credit: str = "",
+                    darkness: float = 0.72) -> str:
     # background_layer()는 .stage 전체(화면 전체 높이)를 덮어야 자막존 경계에서
     # 이미지가 끊기지 않으므로, .center-wrap 안이 아니라 .stage의 형제로 둔다.
-    bg_html = background_layer(background_image, credit=credit)
+    # darkness 기본값(0.72)은 사진 위에 텍스트를 얹을 때 가독성을 위한 어두운
+    # 그라디언트다 — 오프닝 타이틀 이미지처럼 이미 자체적으로 읽기 쉬운 완성된
+    # 디자인 위에는 이 그라디언트가 불필요하게 화면을 어둡게 만든다(사용자
+    # 보고 버그: "화면이 너무 어둡다"). build_conclusion()이 낮은 값을 넘겨
+    # 이 오버레이를 사실상 끈다.
+    bg_html = background_layer(background_image, darkness=darkness, credit=credit)
     return f"""<!doctype html><html><head><meta charset="utf-8"><style>{BASE_CSS}
 .center-wrap{{
   position:absolute; left:0; top:0; width:{W}px; height:{H - SUBTITLE_BAR_H}px;

@@ -78,9 +78,12 @@ def test_order_and_excluded_sections():
     reordered = build_mention_briefing(script_data)
     ids = [s["id"] for s in reordered["sections"]]
 
-    assert ids[0] == "hook"
-    assert ids[1] == "conclusion"
-    assert ids[2] == "market_summary"
+    # 예전에는 ids[0]이 무음 "hook" 타이틀 화면이었는데, 인트로(conclusion)와
+    # 화면 디자인이 완전히 같아 "타이틀 이미지가 두 번 나온다"는 사용자 보고
+    # 버그가 있었다(build_mention_briefing 참고) — hook을 없애고 인트로부터
+    # 시작하도록 바꿨다.
+    assert ids[0] == "conclusion"
+    assert ids[1] == "market_summary"
     assert ids[-1] == "closing"
     assert "sectors" not in ids, "sectors는 이 구성에서 제외되어야 함"
     assert "ai_strategy" not in ids, "ai_strategy는 이 구성에서 제외되어야 함"

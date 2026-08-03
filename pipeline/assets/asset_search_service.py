@@ -66,11 +66,7 @@ class AssetSearchService:
                               dedup_window_days: Optional[int] = None,
                               dedup_threshold: Optional[int] = None,
                               max_candidates: Optional[int] = None) -> tuple:
-        """(media_map, asset_manifest, needs_curation) 튜플을 반환한다.
-        needs_curation은 {종목명: [검토 후보, ...]} — assets/stock_images에
-        확정 이미지가 없어 오늘 실시간 검색으로 채운 종목들의 후보 목록이다
-        (image_review_gallery.render_gallery_html에 그대로 넘기면 검토 갤러리를
-        만들 수 있다)."""
+        """(media_map, asset_manifest) 튜플을 반환한다."""
         kwargs = {}
         if dedup_window_days is not None:
             kwargs["dedup_window_days"] = dedup_window_days
@@ -80,11 +76,9 @@ class AssetSearchService:
             kwargs["max_candidates"] = max_candidates
 
         manifest_rows: list = []
-        needs_curation: dict = {}
         media_map = build_scene_images(
             scene_plan, img_dir, self.providers, log_path,
-            cache_dir=cache_dir, manifest_rows=manifest_rows,
-            needs_curation_out=needs_curation, **kwargs,
+            cache_dir=cache_dir, manifest_rows=manifest_rows, **kwargs,
         )
         asset_manifest = build_asset_manifest(manifest_rows)
-        return media_map, asset_manifest, needs_curation
+        return media_map, asset_manifest

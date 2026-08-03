@@ -2,10 +2,10 @@
 """
 MediaProvider 추상화 — scene_plan.json의 visual_keywords로 연합뉴스/KBS에서
 뉴스 이미지를 검색하는 provider들과, 네트워크 없이 테스트 가능한 MockProvider.
-
-기존 image_fetch.py(종목명 단일 키워드로 첫 성공 이미지를 즉시 다운로드하는
-방식)와 달리, 여기서는 search()가 후보 목록(메타데이터만)을 반환하고
-media_pipeline.py가 여러 후보를 점수화해 최적 이미지를 선택한다.
+search()가 후보 목록(메타데이터만)을 반환하고 media_pipeline.py가 여러 후보를
+점수화해 최적 이미지를 선택한다. market_summary/sectors 등 비종목 섹션에서만
+쓰인다 — 종목(stock_/hidden_) 섹션은 media_pipeline.build_scene_images()가
+이 provider들을 아예 호출하지 않는다(사용자 요청으로 종목 배경사진 제거).
 """
 import hashlib
 import os
