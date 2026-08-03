@@ -43,9 +43,13 @@ ENABLE_KEN_BURNS = os.environ.get("ENABLE_KEN_BURNS", "false").strip().lower() =
 # 피한다. (cx, cy)는 줌 중심을 이미지의 어느 지점(0~1 비율)에 둘지를 뜻한다.
 _PAN_CYCLE = [(0.5, 0.5), (0.3, 0.4), (0.7, 0.4), (0.5, 0.65)]
 
-# crossfade(fade)와 push(slideleft/slideright)를 번갈아 사용해 화면 전환에
-# 변화를 준다. 이름은 모두 ffmpeg xfade 필터가 기본 제공하는 transition 값이다.
-_TRANSITION_CYCLE = ["fade", "slideleft", "fade", "slideright"]
+# 화면 전환을 하나로 통일한다: 기존 화면이 왼쪽으로 빠지고 새 화면이 오른쪽에서
+# 들어오는 slideleft만 쓴다(사용자 요청 — 예전에는 fade/slideleft/slideright를
+# 번갈아 써서 장면마다 전환 방향/방식이 달라 산만하다는 피드백이 있었다).
+# 이름은 ffmpeg xfade 필터가 기본 제공하는 transition 값이다. 리스트 형태는
+# 그대로 유지해(요소 1개) build_transition()의 순환 인덱싱 코드를 바꾸지 않아도
+# 되게 했다.
+_TRANSITION_CYCLE = ["slideleft"]
 
 
 def _run(cmd: List[str], label: str) -> bool:

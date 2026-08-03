@@ -419,8 +419,16 @@ def _build_ai_strategy_brief_section(sec: Optional[dict], importance_by_id: dict
 def build_mention_briefing(script_data: dict) -> dict:
     """"종목 언급 중심" 구성으로 재정렬한다(reorder_sections()와 독립적).
 
-    훅 → 채널 언급 인트로(고정) → 주요 지표(있으면) → 대형 주도주 →
-    관심종목 → AI 히든픽(있으면) → 클로징."""
+    채널 언급 인트로(고정) → 주요 지표(있으면) → 대형 주도주 → 관심종목 →
+    AI 히든픽(있으면) → 클로징.
+
+    ★ 예전에는 이 인트로 앞에 내레이션 없는 "훅" 타이틀 화면(_build_hook_section)을
+    따로 붙였다. 훅과 인트로가 화면 디자인(_OPENING_TITLE_BG)이 완전히 같아서,
+    둘을 이어붙이면 같은 타이틀 화면이 (무음 3초 + 내레이션 구간) 연속으로
+    두 장면처럼 잡혀 사용자에게는 "타이틀 이미지가 두 번 나온다"로 보였다
+    (사용자 보고 버그). 인트로 장면 하나만으로도 같은 타이틀 이미지가 내레이션
+    길이만큼 화면에 유지되므로, 훅을 아예 빼고 인트로부터 시작한다 — 화면에
+    보이는 타이틀 이미지/문구는 그대로고, 장면 수만 하나로 줄었다."""
     scene_plan = build_scene_plan(script_data)
     importance_by_id = {s.id: s.priority_score for s in scene_plan.sections}
     entities_by_id = {s.id: [e.model_dump() for e in s.entities] for s in scene_plan.sections}
@@ -446,7 +454,6 @@ def build_mention_briefing(script_data: dict) -> dict:
     closing_sec      = by_id.get("closing")
 
     ordered = [
-        _build_hook_section(),
         _build_mention_intro_section(importance_by_id, entities_by_id),
     ]
 

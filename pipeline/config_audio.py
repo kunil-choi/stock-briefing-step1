@@ -93,9 +93,19 @@ def build_providers():
         ),
         "elevenlabs": lambda cfg: ElevenLabsProvider(
             voice_id=cfg.get("voice_id", ""), model_id=cfg.get("model_id", ""),
+            # FIX-VOICE-TOO-DEEP-1: style/use_speaker_boost가 빠져 있었다 —
+            # config/audio.yml에 stability/similarity_boost만 있으면 이 dict가
+            # 채워져 ElevenLabsProvider._resolve_voice_settings()가 항상 이
+            # dict를 그대로 쓰는데(voice_config.VOICE_SETTINGS 폴백은 절대
+            # 안 탐), 거기 style/use_speaker_boost가 없어 API 호출에서 통째로
+            # 빠졌다. use_speaker_boost 누락은 ElevenLabs가 원본 목소리와의
+            # 유사도 보정을 안 한다는 뜻이라, 사용자가 학습시킨 목소리보다
+            # 더 굵고 개성 없는 톤이 나오는 원인이었다(사용자 보고 버그).
             voice_settings={
                 "stability": cfg.get("stability", 0.72),
                 "similarity_boost": cfg.get("similarity_boost", 0.88),
+                "style": cfg.get("style", 0.10),
+                "use_speaker_boost": cfg.get("use_speaker_boost", True),
                 "speed": cfg.get("speaking_rate", 1.0),
             } if cfg.get("stability") is not None else None,
             output_format=cfg.get("output_format", "mp3_44100_128"),

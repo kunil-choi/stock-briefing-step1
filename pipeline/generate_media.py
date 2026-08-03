@@ -10,6 +10,11 @@ AssetSearchService(assets/asset_search_service.py)가 연합뉴스/KBS(+2차에�
 이미지는 data/media/license_log.csv에 근거와 함께 기록된다(7일 내 재사용
 방지를 위해 이 파일은 레포에 커밋되어 실행 간에 유지되어야 함).
 
+종목(stock_/hidden_) 섹션은 연합뉴스/KBS 사진을 배경으로 쓰지 않는다(사용자
+요청) — 그 섹션은 이미 데이터로 만든 차트/텍스트 카드로 화면이 채워지므로
+media_map에서 아예 검색을 건너뛴다. market_summary/sectors 등 비종목 섹션은
+기존처럼 검색한다.
+
 MEDIA_MOCK=1 환경변수(또는 config/media.yml의 mock_mode: true)를 설정하면
 실제 네트워크 요청 없이 MockProvider로 동작한다.
 """
@@ -23,8 +28,6 @@ if _HERE not in sys.path:
 
 import config_media
 from assets.asset_search_service import AssetSearchService
-from assets.image_review_gallery import render_gallery_html, save_pending_candidates
-from assets.stock_image_store import STOCK_IMAGE_DIR
 
 
 def run(lang: str = "KO"):
@@ -46,7 +49,7 @@ def run(lang: str = "KO"):
     service = AssetSearchService(config_media.PROVIDER_NAMES, mock_mode=config_media.MOCK_MODE)
     if config_media.MOCK_MODE:
         print("  [media] MOCK_MODE=on → MockProvider만 사용")
-    media_map, asset_manifest, needs_curation = service.build_for_scene_plan(
+    media_map, asset_manifest = service.build_for_scene_plan(
         scene_plan, img_dir, log_path,
         cache_dir=config_media.ASSET_CACHE_DIR,
         dedup_window_days=config_media.DEDUP_WINDOW_DAYS,
@@ -60,23 +63,14 @@ def run(lang: str = "KO"):
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(asset_manifest, f, ensure_ascii=False, indent=2)
 
-    resolved = sum(1 for v in media_map.values() if v.get("source") != "fallback")
-    curated = sum(1 for v in media_map.values() if v.get("source") == "curated_store")
-    fallback = len(media_map) - resolved
+    resolved = sum(1 for v in media_map.values() if v.get("source") not in ("fallback", "text_only"))
+    text_only = sum(1 for v in media_map.values() if v.get("source") == "text_only")
+    fallback = len(media_map) - resolved - text_only
     needs_review = sum(1 for a in asset_manifest["assets"] if a["needsReview"])
     print(f"✅ media_map 생성 완료! 총 {len(media_map)}개 섹션 "
-          f"(확정 저장소 {curated} / 검색 성공 {resolved - curated} / 폴백 {fallback}) → {map_path}")
+          f"(검색 성공 {resolved} / 텍스트 전용(종목) {text_only} / 폴백 {fallback}) → {map_path}")
     print(f"✅ asset_manifest 생성 완료! 검토된 후보 {len(asset_manifest['assets'])}개 "
           f"(검수 대기 {needs_review}개) → {manifest_path}")
-
-    if needs_curation:
-        pending_dir = os.path.join(STOCK_IMAGE_DIR, "_pending")
-        pending_meta = save_pending_candidates(needs_curation, pending_dir)
-        gallery_path = os.path.join(img_dir, "image_review_gallery.html")
-        render_gallery_html(pending_meta, gallery_path)
-        print(f"🖼️ 확정 이미지가 없는 종목 {len(needs_curation)}개 → 검토 갤러리 생성: {gallery_path}")
-        print(f"   (사진을 고른 뒤 갤러리 카드에 적힌 python pipeline/confirm_stock_image.py "
-              f"명령을 실행하면 다음부터 검색 없이 그 사진을 재사용합니다)")
 
     return media_map
 

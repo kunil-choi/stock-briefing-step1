@@ -146,14 +146,17 @@ def test_build_transition_duration_is_fixed():
         shutil.rmtree(tmp_dir)
 
 
-def test_build_transition_cycles_kind_by_scene_index():
-    """scene_index에 따라 crossfade(fade)와 push(slideleft/slideright)가
-    번갈아 사용되는지 확인한다(요구사항 3: crossfade 또는 push)."""
+def test_transition_is_unified_slideleft():
+    """전환 효과는 slideleft(기존 화면이 왼쪽으로 빠지고 새 화면이 오른쪽에서
+    들어옴) 하나로 통일돼야 한다(사용자 요청 — 예전엔 fade/slideleft/slideright를
+    장면마다 번갈아 써서 산만했다). scene_index가 몇이든 항상 같은 종류가
+    나와야 한다."""
     from assets.video_renderer import _TRANSITION_CYCLE
 
-    assert "fade" in _TRANSITION_CYCLE
-    assert any(k.startswith("slide") for k in _TRANSITION_CYCLE)
-    print("✅ 전환 종류: crossfade(fade)와 push(slide*)가 모두 순환 목록에 포함됨")
+    assert _TRANSITION_CYCLE == ["slideleft"]
+    for scene_index in range(5):
+        assert _TRANSITION_CYCLE[scene_index % len(_TRANSITION_CYCLE)] == "slideleft"
+    print("✅ 전환 종류: scene_index와 무관하게 항상 slideleft로 통일됨")
 
 
 def test_concat_scenes_and_transition():
@@ -215,7 +218,7 @@ if __name__ == "__main__":
     test_compose_scene_default_has_no_ken_burns_motion()
     test_compose_scene_ken_burns_when_explicitly_enabled()
     test_build_transition_duration_is_fixed()
-    test_build_transition_cycles_kind_by_scene_index()
+    test_transition_is_unified_slideleft()
     test_concat_scenes_and_transition()
     test_build_transition_never_returns_none_even_on_bad_input()
     print("\n✅ video_renderer 테스트 전체 통과")

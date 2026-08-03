@@ -141,37 +141,20 @@ jobs:
         with:
           name: assets
           path: output/KO/frames/
-      - name: 📇 license_log.csv / stock_images 검토 대기열 커밋
+      - name: 📇 license_log.csv 커밋
         # 드라이런은 MEDIA_MOCK의 가짜(mock://...) 항목을 남기므로, 실제 중복
         # 감지 로그를 오염시키지 않도록 커밋 자체를 건너뛴다.
-        #
-        # assets/stock_images/_pending/은 확정 이미지가 없는 종목의 검토 후보
-        # (pipeline/assets/image_review_gallery.py가 만든 meta.json + jpg)다.
-        # 러너는 매 실행마다 새로 뜨는 일회용 환경이라, 여기서 커밋해두지 않으면
-        # 검토 갤러리(output/KO/media/image_review_gallery.html, 위 media
-        # 아티팩트에 포함)를 보고 pipeline/confirm_stock_image.py를 로컬에서
-        # 돌리려 해도 대상 파일이 로컬에 없다. assets/stock_images/{종목명}/은
-        # 확정된 이미지라 이 커밋에는 보통 안 걸리지만(로컬에서 confirm 후
-        # 사람이 직접 커밋하는 게 기본 흐름), 혹시 다른 경로로 갱신됐을 때도
-        # 놓치지 않도록 stock_images/ 전체를 함께 본다.
         if: ${{ !inputs.dry_run }}
         run: |
-          # assets/stock_images/는 검토 대기 종목이 하나도 없으면(예: 이번
-          # 실행에서 모든 종목이 이미 확정 이미지를 쓴 경우) 아예 생성되지
-          # 않는다. git status/add에 존재하지 않는 경로를 pathspec으로 주면
-          # "did not match any files"로 fatal error가 나므로, 항상 먼저
-          # 만들어(빈 디렉터리는 git이 어차피 추적하지 않으므로 무해함) 이
-          # 경로가 항상 존재하게 만든다.
-          mkdir -p assets/stock_images
-          if [ -n "$(git status --porcelain data/media/license_log.csv assets/stock_images/ 2>/dev/null)" ]; then
+          if [ -n "$(git status --porcelain data/media/license_log.csv 2>/dev/null)" ]; then
             git config user.name "github-actions[bot]"
             git config user.email "github-actions[bot]@users.noreply.github.com"
-            git add data/media/license_log.csv assets/stock_images/
-            git commit -m "chore: license_log.csv / stock_images 검토 대기열 업데이트 ($(TZ='Asia/Seoul' date +'%Y-%m-%d'))"
+            git add data/media/license_log.csv
+            git commit -m "chore: license_log.csv 업데이트 ($(TZ='Asia/Seoul' date +'%Y-%m-%d'))"
             git pull --rebase
             git push
           else
-            echo "license_log.csv / stock_images 변경 없음 → 커밋 생략"
+            echo "license_log.csv 변경 없음 → 커밋 생략"
           fi
 
   video:

@@ -21,7 +21,6 @@ from PIL import Image
 from .config import get_sector_fallback_image
 from .media_providers import MediaCandidate, MediaProvider, NaverDiscoveryConnector
 from .rights_review import apply_rights
-from .stock_image_store import pick_curated_image
 
 LICENSE_LOG_FIELDS = [
     "date", "section_id", "keyword", "provider", "url",
@@ -34,10 +33,6 @@ _LICENSE_SCORE = {"api_licensed": 0.2, "editorial_search": 0.1, "mock": 0.05, "u
 DEDUP_WINDOW_DAYS = 7
 DEDUP_HAMMING_THRESHOLD = 6   # phash 해밍 거리 이 값 이하면 "같은 이미지"로 간주
 MAX_CANDIDATES_PER_SECTION = 8
-# 확정 이미지가 없는 종목이 나왔을 때, 검토 갤러리에 후보로 보여줄 최대 개수
-# (오늘 실제로 쓴 1장 포함 — 사용자가 그중 하나를 골라 확정하면 다음부터는
-# 검색 없이 그 사진을 바로 재사용한다).
-GALLERY_CANDIDATES_PER_STOCK = 4
 # provider.search()에 요청하는 개수. NaverDiscoveryConnector는 이 값을 네이버
 # 뉴스검색 API의 display 파라미터로 그대로 써서, 반환된 기사들 중 원문 도메인이
 # yna.co.kr/kbs.co.kr인 것만 걸러 쓴다(media_providers.py의 _SOURCE_BY_DOMAIN
@@ -192,9 +187,7 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
                        dedup_threshold: int = DEDUP_HAMMING_THRESHOLD,
                        cache_dir: Optional[str] = None,
                        manifest_rows: Optional[list] = None,
-                       expected_name: Optional[str] = None,
-                       gallery_out: Optional[list] = None,
-                       gallery_max: int = GALLERY_CANDIDATES_PER_STOCK) -> Optional[SelectedImage]:
+                       expected_name: Optional[str] = None) -> Optional[SelectedImage]:
     """manifest_rows가 주어지면, 검토된 모든 후보(다운로드 성공분 + 권리
     검수로 건너뛴 분)를 asset-manifest.json용 dict로 append한다.
 
@@ -202,12 +195,7 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
     후보는 아예 스코어링하지 않고 건너뛴다 — 사진 자체의 내용은 검증할 수
     없지만, 최소한 그 사진이 실린 기사가 해당 종목을 다루고 있는지는 제목
     으로 확인할 수 있다(연관 없는 사진이 검색 키워드만 우연히 맞아 선택되는
-    문제 방지).
-
-    gallery_out이 주어지면, 실제 다운로드/스코어링까지 마친 후보 중 점수
-    상위 gallery_max개를 검토 갤러리용 dict로 채운다(이미 이 함수가 다운로드한
-    결과를 재사용할 뿐이라 추가 API 호출은 없다) — 확정 이미지가 없는 종목을
-    나중에 사람이 검토해 저장소에 등록할 수 있게 하기 위함."""
+    문제 방지)."""
     now = now or datetime.now()
     scored = []
     probed = 0
@@ -276,15 +264,6 @@ def select_best_image(section_id: str, keywords: List[str], providers: List[Medi
     if winner_row is not None:
         winner_row["selected"] = True
         winner_row["localPath"] = image_path
-
-    if gallery_out is not None:
-        for cscore, ccand, ccontent, cwidth, cheight, _phash in scored[:gallery_max]:
-            gallery_out.append({
-                "score": cscore, "provider": ccand.source, "url": ccand.url,
-                "title": ccand.title, "credit": ccand.credit,
-                "source_url": ccand.source_url, "license": ccand.license,
-                "image_bytes": ccontent, "width": cwidth, "height": cheight,
-            })
 
     return SelectedImage(
         section_id=section_id, keyword=cand.keyword, provider=cand.source,
@@ -399,21 +378,19 @@ def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProv
                         dedup_threshold: int = DEDUP_HAMMING_THRESHOLD,
                         max_candidates: int = MAX_CANDIDATES_PER_SECTION,
                         cache_dir: Optional[str] = None,
-                        manifest_rows: Optional[list] = None,
-                        needs_curation_out: Optional[dict] = None) -> dict:
+                        manifest_rows: Optional[list] = None) -> dict:
     """scene_plan(dict, scene_plan.json 로드 결과)의 모든 섹션에 대해 이미지를
     선택하고 {section_id: {image_path, source, license, keyword, score}}를
     반환합니다. 검색 실패 섹션은 섹터 fallback(없으면 None)으로 채웁니다.
     manifest_rows가 주어지면 asset-manifest.json용 행을 그 리스트에 채웁니다
     (반환값 자체는 하위호환을 위해 media_map dict 그대로 유지).
 
-    종목 섹션은 실시간 검색보다 assets/stock_images/에 사람이 확정해둔 이미지를
-    우선 사용한다(pick_curated_image) — 얼굴이 크게 나오거나 종목과 무관한
-    뉴스 사진이 섞여 나오는 문제를 실시간 자동 선별 대신 사전 검수로 없애기
-    위함. 확정 이미지가 없는 종목은 그날만 기존처럼 실시간 검색으로 채우고,
-    needs_curation_out이 주어지면 {종목명: [후보, ...]}를 채워 넣어(image_review_
-    gallery.render_gallery_html이 그대로 소비하는 형식) 나중에 검토 갤러리를
-    만들 수 있게 한다."""
+    사용자 요청: 종목(stock_/hidden_) 섹션은 연합뉴스/KBS 사진을 배경으로
+    쓰지 않는다 — 얼굴이 크게 나오거나 종목과 무관한 사진이 섞이는 문제가
+    있었고, 그 화면은 이미 데이터로 만든 차트/텍스트 카드로 채워지므로 사진이
+    없어도 빈 공간이 생기지 않는다. 이 섹션들은 검색 자체를 건너뛰고
+    image_path=None(source="text_only")으로 media_map을 채운다.
+    market_summary/sectors 등 비종목 섹션은 기존처럼 검색한다."""
     now = now or datetime.now()
     log_rows = load_license_log(log_path)
     recent_hashes = _recent_phashes(log_rows, now, days=dedup_window_days)
@@ -430,35 +407,27 @@ def build_scene_images(scene_plan: dict, img_dir: str, providers: List[MediaProv
         # 종목명 일치를 요구하면 그 취지와 어긋난다 — 이 경우는 검증하지 않는다.
         expected_name = None if restrict_to_stock_fallback else _expected_stock_name(sec)
 
-        curated = pick_curated_image(expected_name, now) if expected_name else None
-        if curated:
+        if expected_name:
             media_map[section_id] = {
-                "image_path": curated["path"],
-                "source":     "curated_store",
-                "license":    curated.get("license", "unknown"),
+                "image_path": None,
+                "source":     "text_only",
+                "license":    "n/a",
                 "keyword":    "",
-                "score":      1.0,
+                "score":      0.0,
                 "phash":      None,
-                "credit":     curated.get("credit", ""),
+                "credit":     "",
             }
-            print(f"  [media] {section_id}: 확정 저장소 이미지 사용 ({curated['file']})")
             continue
 
         keywords = _keywords_for_section(sec, restrict_to_stock_fallback)
         ordered_providers = _order_providers(providers, sec.get("preferredSources") or [])
 
         selected = None
-        gallery_candidates: list = []
-        collect_gallery = bool(expected_name and needs_curation_out is not None)
         if keywords:
             selected = select_best_image(section_id, keywords, ordered_providers, recent_hashes, img_dir, now,
                                           max_candidates=max_candidates, dedup_threshold=dedup_threshold,
                                           cache_dir=cache_dir, manifest_rows=manifest_rows,
-                                          expected_name=expected_name,
-                                          gallery_out=gallery_candidates if collect_gallery else None)
-
-        if collect_gallery and gallery_candidates:
-            needs_curation_out[expected_name] = gallery_candidates
+                                          expected_name=expected_name)
 
         if selected:
             media_map[section_id] = {
