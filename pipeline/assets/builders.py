@@ -365,10 +365,16 @@ def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
     카드를 전부(최대 _MAX_VISIBLE_MENTION_CARDS개) 누적해서 함께 띄운다
     (사용자 요청: 한 화면에 패널 코멘트가 차례차례 덧붙는 형태).
 
-    화면에 카드가 1개면 화면 상하 중앙에, 2~3개면 flex:1로 동일한 비율의
-    구역을 나눠 각 구역 안에서 카드를 세로 중앙 정렬한다 — 개수와 무관하게
-    "flex:1 + 세로 중앙 정렬"만 적용하면 세 가지 배치 규칙이 저절로
-    성립한다(카드 1개=전체 높이 안에서 중앙, 2개=위아래 절반씩, 3개=삼등분).
+    카드는 항상 원래 크기(natural height) 그대로 유지한다 — 이전에는
+    flex:1로 카드 개수만큼 화면을 균등 분할해(1개=전체, 2개=절반, 3개=1/3)
+    카드 자체의 크기가 페이지마다 늘었다 줄었다 했는데, 그러면 이미 읽어준
+    카드까지 매번 다시 렌더링되는 것처럼 보여 "새로 추가된 멘트가 어느
+    것인지 알기 어렵다"는 피드백이 있었다. 대신 카드 구역 전체를
+    justify-content:center로 화면 중앙에 놓고 그 안에서 카드들을 원래
+    크기 그대로 위→아래로 쌓는다 — 카드가 1개면 그 카드가 화면 중앙에
+    오고, 2~3개로 늘어나도 이미 있던 카드는 크기·내용이 그대로인 채
+    전체 묶음만 살짝 위로 밀리면서 새 카드가 맨 아래에 추가되는 모양이
+    된다(카카오톡 대화창에 새 메시지가 쌓이는 것과 동일한 느낌).
 
     예전에는 페이지마다 카드 1개만 화면 전체를 차지하고 다음 페이지에서
     완전히 다른 화면으로 컷 전환됐는데, "텍스트만 한가득"으로 보인다는
@@ -380,19 +386,18 @@ def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
 
     visible = _visible_mention_cards(summaries, page_idx)
 
-    cards = "".join(
-        f'<div style="flex:1;min-height:0;display:flex;align-items:center;">'
-        f'{_mention_card_html(cs, abs_idx)}</div>'
-        for abs_idx, cs in visible
-    )
+    cards = "".join(_mention_card_html(cs, abs_idx) for abs_idx, cs in visible)
 
-    # page_dots는 flex:1로 늘어나는 카드 구역과 별도로, 항상 고정 높이로
-    # 맨 아래 한 줄만 차지해야 한다 — 카드 구역과 같은 flex 컨테이너에
-    # 나란히 두면(flex:1이 아닌 채로) dots 자신의 높이만큼만 차지하고,
-    # 카드 구역(flex:1)이 나머지 전체를 차지해 위아래로 넘치지 않는다.
+    # page_dots는 카드 구역과 별도로, 항상 고정 높이로 맨 아래 한 줄만
+    # 차지해야 한다 — 카드 구역과 같은 flex 컨테이너에 나란히 두면(flex:1이
+    # 아닌 채로) dots 자신의 높이만큼만 차지하고, 카드 구역(flex:1)이
+    # 나머지 전체를 차지해 위아래로 넘치지 않는다. 카드 구역 내부는
+    # justify-content:center로 카드 묶음 자체를 세로 중앙에 두되, 카드
+    # 각각은 flex:1을 쓰지 않아(natural height) 개수가 늘어도 크기가
+    # 바뀌지 않는다.
     body = f"""
 <div style="display:flex;flex-direction:column;height:100%;">
-  <div style="flex:1;min-height:0;display:flex;flex-direction:column;gap:24px;">{cards}</div>
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:24px;">{cards}</div>
   {page_dots(total_pages, page_idx)}
 </div>
 """
