@@ -558,11 +558,13 @@ Actions에서는 `morning_core.yml`의 workflow_dispatch에 있는 **"드라이�
 license_log.csv` 커밋도 건너뜁니다 — mock 항목으로 실제 중복 감지 로그가
 오염되지 않도록).
 
-- `BGM_URL`: `assets/music/bgm.mp3`가 이미 레포에 커밋돼 있어(`stock-briefing-video`와
-  동일 음원) 별도 설정 없이 바로 BGM이 적용됩니다. 다른 음원으로 바꾸고
-  싶을 때만 이 값을 설정하세요(파일이 이미 있으면 `download_bgm()`이
-  캐시로 보고 건너뛰므로, 교체하려면 `assets/music/bgm.mp3`를 먼저
-  지우거나 직접 덮어써야 합니다).
+- `BGM_URL`: `assets/music/bgm.mp3`가 이미 레포에 커밋돼 있어(사용자가 직접
+  작곡한 곡 — 저작권 문제 없음) 별도 설정 없이 바로 BGM이 적용됩니다.
+  `mix_bgm_with_ducking()`이 `-stream_loop -1`로 이 파일을 영상 전체 길이만큼
+  자동 반복 재생하므로, 원곡이 영상보다 짧아도 별도 처리가 필요 없습니다.
+  다른 음원으로 바꾸고 싶을 때만 `BGM_URL`을 설정하세요(파일이 이미 있으면
+  `download_bgm()`이 캐시로 보고 건너뛰므로, 교체하려면 `assets/music/bgm.mp3`를
+  먼저 지우거나 직접 덮어써야 합니다).
 - `ENABLE_KEN_BURNS`: 기본 `false`(정지 화면). `true`로 설정하면
   `compose_scene()`이 다시 zoompan 확대/팬 효과를 적용합니다 — 이미지
   소스가 텍스트 카드 위주인 지금은 콘텐츠가 화면 밖으로 밀려나는 역효과가
