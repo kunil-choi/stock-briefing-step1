@@ -44,29 +44,32 @@ TODAY       = datetime.now().strftime("%Y년 %m월 %d일")
 TODAY_MONTH = datetime.now().strftime("%-m")
 TODAY_DAY   = datetime.now().strftime("%-d")
 
+
+def _today_month_day() -> tuple:
+    """TODAY(run()에서 실제 브리핑 데이터 날짜로 보정될 수 있음)에서 월/일을 뽑는다.
+    TODAY_MONTH/TODAY_DAY는 import 시점 datetime.now() 고정값이라 그 보정을 못 받으므로
+    오프닝 날짜 멘트에는 이 함수로 TODAY에서 직접 재계산해 써야 한다."""
+    m = re.match(r"(\d{4})년\s*0?(\d{1,2})월\s*0?(\d{1,2})일", TODAY)
+    if m:
+        return m.group(2), m.group(3)
+    return TODAY_MONTH, TODAY_DAY
+
 STOCK_NAME_LIST = "\n".join(f"- {name}" for name in STOCK_CODES.keys())
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 오프닝 / 클로징 멘트
 # ─────────────────────────────────────────────────────────────────────────────
 
-OPENING_NARRATION = (
-    "오늘 주식시장, 어떤 종목이 가장 뜨거울까요? "
-    "많은 투자자들이 어젯밤 찾아본 그 유튜브 영상 속에 답이 있습니다. "
-    "머니올라가 최근 24시간 내 업로드된 최고 조회수 영상들을 샅샅이 분석해, "
-    "대중의 관심이 쏠린 종목들을 찾아냈습니다. "
-    "여기에 핵심 뉴스, 경제방송, 증권사 리포트까지 종합해 완벽하게 요약해 드립니다. "
-    "오늘 하루 투자의 나침반이 되어줄 머니올라 브리핑, 시작하겠습니다."
-)
+def _build_opening_text() -> str:
+    month, day = _today_month_day()
+    return (
+        "오늘 주식시장, 어떤 종목이 가장 뜨거울까요? "
+        "머니올라가 최근 24시간 내 업로드된 최고 조회수 유튜브 영상들을 AI로 샅샅이 분석해, "
+        "대중의 관심과 전문가 의견을 꼼꼼하게 요약해드립니다. "
+        "그 많은 유튜브 언제 다 보세요? 이거 하나면 됩니다. "
+        f"{month}월 {day}일 KBS 머니올라, 주식 시장 브리핑 시작하겠습니다."
+    )
 
-OPENING_SUBTITLE = (
-    "오늘 주식시장, 어떤 종목이 가장 뜨거울까요? "
-    "많은 투자자들이 어젯밤 찾아본 그 유튜브 영상 속에 답이 있습니다. "
-    "머니올라가 최근 24시간 내 업로드된 최고 조회수 영상들을 샅샅이 분석해, "
-    "대중의 관심이 쏠린 종목들을 찾아냈습니다. "
-    "여기에 핵심 뉴스, 경제방송, 증권사 리포트까지 종합해 완벽하게 요약해 드립니다. "
-    "오늘 하루 투자의 나침반이 되어줄 머니올라 브리핑, 시작하겠습니다."
-)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 투자 경고 클로징 (요구사항 8번: 경고문 강화)
@@ -1250,11 +1253,16 @@ def generate_script(
     )
     data = {"title": f"{TODAY} KBS 머니올라 주식 브리핑", "date": TODAY, "sections": sections}
 
+    # TODAY가 위에서 이미 실제 브리핑 날짜로 보정된 뒤이므로, 오프닝 날짜 멘트도
+    # 여기서 그 시점의 TODAY 기준으로 새로 만들어야 정확하다(모듈 상수로 두면
+    # import 시점 값이 굳어 보정을 못 받는다).
+    opening_text = _build_opening_text()
+
     def _replace(obj):
         if isinstance(obj, str):
             return (obj
-                    .replace("__OPENING__",          OPENING_NARRATION)
-                    .replace("__OPENING_SUBTITLE__",  OPENING_SUBTITLE)
+                    .replace("__OPENING__",          opening_text)
+                    .replace("__OPENING_SUBTITLE__",  opening_text)
                     .replace("__CLOSING__",           CLOSING_NARRATION)
                     .replace("__CLOSING_SUBTITLE__",  CLOSING_SUBTITLE))
         if isinstance(obj, dict):
