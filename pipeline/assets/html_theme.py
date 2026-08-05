@@ -350,33 +350,37 @@ def chat_bubble(avatar_uri: str, sender: str, channel_type: str, text: str, colo
     """카카오톡 대화창처럼 왼쪽 원형 아바타 + 꼬리 달린 말풍선으로 발언을
     보여준다(builders._build_mention_page 전용). avatar_uri는 실제 인물
     사진이 아니라 panel_avatars.get_avatar_path()가 고른 일반화된 일러스트
-    아바타다 — 실제 발언자와의 닮음 여부는 고려 대상이 아니다."""
+    아바타다 — 실제 발언자와의 닮음 여부는 고려 대상이 아니다.
+
+    한 화면에 카드 1개만 보여주는 구성(전문가 1명당 1페이지)으로 바뀌면서
+    화면에 여유 공간이 많아져, 여러 카드를 동시에 쌓던 이전 크기보다 아바타·
+    글자를 크게 키웠다(사용자 요청 — 잘 보이고 화면에 적절한 비율로 채워지도록)."""
     type_html = (
         f'<span class="pill" style="background:{PALETTE["ink"]};color:#fff;'
-        f'font-size:16px;padding:3px 12px;margin-right:8px;">{esc(channel_type)}</span>'
+        f'font-size:20px;padding:4px 16px;margin-right:10px;">{esc(channel_type)}</span>'
         if channel_type else ""
     )
     sender_html = (
-        f'<div style="display:flex;align-items:center;margin-bottom:12px;">'
-        f'{type_html}<span style="font-size:25px;font-weight:800;color:{PALETTE["ink"]};">'
+        f'<div style="display:flex;align-items:center;margin-bottom:18px;">'
+        f'{type_html}<span style="font-size:34px;font-weight:800;color:{PALETTE["ink"]};">'
         f'{esc(sender)}</span></div>'
         if sender else ""
     )
     avatar_html = (
-        f'<img src="{avatar_uri}" style="width:120px;height:120px;border-radius:50%;'
-        f'border:4px solid {color};flex-shrink:0;box-shadow:0 8px 20px rgba(0,0,0,.28);">'
+        f'<img src="{avatar_uri}" style="width:200px;height:200px;border-radius:50%;'
+        f'border:5px solid {color};flex-shrink:0;box-shadow:0 10px 26px rgba(0,0,0,.3);">'
         if avatar_uri else ""
     )
     return f"""
-<div style="display:flex;align-items:flex-start;gap:22px;">
+<div style="display:flex;align-items:flex-start;gap:36px;">
   {avatar_html}
   <div style="position:relative;flex:1;">
-    <div style="position:absolute;left:-15px;top:38px;width:0;height:0;
-      border-top:15px solid transparent;border-bottom:15px solid transparent;
-      border-right:17px solid #fff;"></div>
-    <div class="card" style="padding:26px 30px;">
+    <div style="position:absolute;left:-18px;top:52px;width:0;height:0;
+      border-top:18px solid transparent;border-bottom:18px solid transparent;
+      border-right:20px solid #fff;"></div>
+    <div class="card" style="padding:44px 52px;">
       {sender_html}
-      <div style="font-size:32px;line-height:1.55;font-weight:600;">{esc(text)}</div>
+      <div style="font-size:44px;line-height:1.6;font-weight:600;">{esc(text)}</div>
     </div>
   </div>
 </div>"""
