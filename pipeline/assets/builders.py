@@ -317,22 +317,19 @@ def _build_stock_chart(sec, out_path, img_dir):
 _CHANNEL_TYPE_LABELS = {"유튜브": "유튜브 종합", "경제방송": "경제방송 종합", "증권사": "증권사 리포트 종합"}
 
 
-# 한 화면에 동시에 보여줄 언급 카드 최대 개수(사용자 요청). 그 이상은
-# 화면이 붐벼 보이므로, 그 개수를 넘으면 가장 최근 것들만 창(window)으로
-# 남긴다.
-_MAX_VISIBLE_MENTION_CARDS = 3
-
-
-def _visible_mention_cards(summaries: list, page_idx: int,
-                            max_visible: int = _MAX_VISIBLE_MENTION_CARDS) -> list:
-    """이 페이지(page_idx)까지 누적해서 화면에 함께 보여줄 (전체 목록 기준
-    인덱스, 항목) 쌍의 리스트를 반환한다. 최대 max_visible개까지 창(window)
-    으로 유지하며, 넘치면 가장 오래된 것부터 화면에서 빠진다(가장 최근
-    max_visible개만 남음). 순수 함수라 렌더링 없이 테스트할 수 있다."""
-    total = len(summaries)
-    visible_count = min(page_idx + 1, max_visible, total)
-    start = max(0, page_idx + 1 - visible_count)
-    return list(enumerate(summaries))[start:page_idx + 1]
+def _visible_mention_cards(summaries: list, page_idx: int) -> list:
+    """이 페이지(page_idx)에 보여줄 카드 딱 1개짜리 (전체 목록 기준 인덱스,
+    항목) 쌍의 리스트를 반환한다(항상 길이 1, summaries가 비어 있으면 0).
+    예전에는 페이지가 넘어갈 때마다 카드가 한 화면에 최대 3개까지 누적돼
+    쌓였는데, "화면에 글씨가 너무 많다"는 피드백에 따라 전문가 1명당 1
+    페이지로 되돌렸다 — 페이지 사이 전환은 video_renderer.py가 영상 전체에
+    이미 적용하는 slideleft 장면 전환이 "이전 멘트가 왼쪽으로 빠지고 새
+    멘트가 오른쪽에서 들어오는" 효과를 자동으로 준다(이 함수가 따로 처리할
+    필요 없음). 순수 함수라 렌더링 없이 테스트할 수 있다."""
+    if not summaries:
+        return []
+    idx = max(0, min(page_idx, len(summaries) - 1))
+    return [(idx, summaries[idx])]
 
 
 def _mention_card_html(cs: dict, abs_idx: int) -> str:
@@ -360,26 +357,14 @@ def _mention_card_html(cs: dict, abs_idx: int) -> str:
 
 
 def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
-    """전문가·방송 언급 화면. 카카오톡 대화창 스타일 말풍선(chat_bubble)을
-    한 화면에 순차적으로 쌓아 보여준다 — 이 페이지(page_idx)까지 언급된
-    카드를 전부(최대 _MAX_VISIBLE_MENTION_CARDS개) 누적해서 함께 띄운다
-    (사용자 요청: 한 화면에 패널 코멘트가 차례차례 덧붙는 형태).
-
-    카드는 항상 원래 크기(natural height) 그대로 유지한다 — 이전에는
-    flex:1로 카드 개수만큼 화면을 균등 분할해(1개=전체, 2개=절반, 3개=1/3)
-    카드 자체의 크기가 페이지마다 늘었다 줄었다 했는데, 그러면 이미 읽어준
-    카드까지 매번 다시 렌더링되는 것처럼 보여 "새로 추가된 멘트가 어느
-    것인지 알기 어렵다"는 피드백이 있었다. 대신 카드 구역 전체를
-    justify-content:center로 화면 중앙에 놓고 그 안에서 카드들을 원래
-    크기 그대로 위→아래로 쌓는다 — 카드가 1개면 그 카드가 화면 중앙에
-    오고, 2~3개로 늘어나도 이미 있던 카드는 크기·내용이 그대로인 채
-    전체 묶음만 살짝 위로 밀리면서 새 카드가 맨 아래에 추가되는 모양이
-    된다(카카오톡 대화창에 새 메시지가 쌓이는 것과 동일한 느낌).
-
-    예전에는 페이지마다 카드 1개만 화면 전체를 차지하고 다음 페이지에서
-    완전히 다른 화면으로 컷 전환됐는데, "텍스트만 한가득"으로 보인다는
-    피드백과 함께 언급이 여러 개일 때 화면이 계속 바뀌어 산만하다는 피드백이
-    있었다."""
+    """전문가·방송 언급 화면. 카카오톡 대화창 스타일 말풍선(chat_bubble)
+    카드를 전문가 1명당 1페이지씩 보여준다(사용자 요청 — 한 화면에 카드가
+    여러 개 누적되면 글씨가 너무 많아 보기 힘들다는 피드백으로 되돌림).
+    카드 다음 페이지로의 전환은 이 함수가 처리하지 않는다 — 영상 전체에
+    이미 적용되는 slideleft 장면 전환(video_renderer.py의
+    `_TRANSITION_CYCLE`)이 "이전 멘트가 왼쪽으로 빠지고 새 멘트가 오른쪽에서
+    들어오는" 효과를 자동으로 준다. 카드 1개만 있으니 아바타·글자 크기를
+    크게 키워(chat_bubble 참고) 화면에 적절한 비율로 채워지도록 했다."""
     stock_name = sec.get("id", "").replace("stock_", "").replace("hidden_", "")
     summaries  = sec.get("channel_summaries", [])
     total_pages = max(1, len(summaries))
@@ -392,9 +377,7 @@ def _build_mention_page(sec, out_path, page_idx, image_path=None, credit=""):
     # 차지해야 한다 — 카드 구역과 같은 flex 컨테이너에 나란히 두면(flex:1이
     # 아닌 채로) dots 자신의 높이만큼만 차지하고, 카드 구역(flex:1)이
     # 나머지 전체를 차지해 위아래로 넘치지 않는다. 카드 구역 내부는
-    # justify-content:center로 카드 묶음 자체를 세로 중앙에 두되, 카드
-    # 각각은 flex:1을 쓰지 않아(natural height) 개수가 늘어도 크기가
-    # 바뀌지 않는다.
+    # justify-content:center로 카드를 화면 세로 중앙에 둔다.
     body = f"""
 <div style="display:flex;flex-direction:column;height:100%;">
   <div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;gap:24px;">{cards}</div>
