@@ -66,6 +66,10 @@ def download_bgm(save_path: str):
 # 오디오 없이 텍스트만 보여주는 화면(예: 훅 타이틀 카드)의 고정 표시 시간.
 # generate_subtitles.py의 동명 상수(SILENT_DURATION)와 값을 맞춰야 두 모듈이
 # 계산하는 장면 길이/자막 타임라인이 어긋나지 않는다.
+# (참고: "hook" 섹션 자체는 narrative_reorder.build_mention_briefing()이
+# 더 이상 만들지 않아 이 무음 프레임 경로는 현재 도달하지 않는다 — 영상
+# 시작의 BGM 전용 인트로는 conclusion.mp3 앞에 무음을 붙이는 방식으로
+# generate_voice.py에서 처리한다. 과거 스키마 호환을 위해 코드는 남겨둔다.)
 SILENT_FRAME_AUDIO_IDS = {"hook_title"}
 SILENT_FRAME_DURATION = 3.0
 

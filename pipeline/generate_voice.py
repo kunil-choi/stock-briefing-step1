@@ -12,6 +12,7 @@ audio_report.json에 기록한다.
 import os
 import json
 import shutil
+import subprocess
 import time
 import sys
 
@@ -30,6 +31,37 @@ from assets.audio_post import (
 )
 
 AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
+
+# conclusion(영상의 첫 프레임 — 브랜드 타이틀 이미지 + 채널 언급 인트로
+# 내레이션) 오디오 맨 앞에 붙이는 무음 길이. 이 구간 동안은 내레이션이
+# 없으니 사이드체인 덕킹(assets/audio_post.py)이 BGM을 낮추지 않아 배경
+# 음악만 들리는 인트로가 된다(사용자 요청: 영상 시작 5초 정도는 음악만
+# 나온 뒤 멘트 시작). Ken Burns 클립 길이는 오디오 길이를 그대로 따라가므로
+# (generate_video.py) 화면은 같은 타이틀 이미지를 그 무음 구간 동안 계속
+# 보여준다 — 새 프레임을 추가하는 게 아니라 conclusion.mp3 자체를 늘린다.
+CONCLUSION_LEAD_SILENCE_SECONDS = 5.0
+
+
+def _prepend_silence(mp3_path: str, seconds: float) -> bool:
+    """mp3_path 오디오 맨 앞에 seconds초 무음을 붙인다(원본을 대체). ffmpeg의
+    adelay 필터로 파형 시작 지점을 뒤로 미루는 방식이라(모든 채널을 같은
+    양만큼 지연), concat용 별도 무음 파일을 만들 필요가 없다."""
+    if seconds <= 0:
+        return True
+    delay_ms = int(seconds * 1000)
+    padded_path = mp3_path + ".padded.mp3"
+    cmd = [
+        "ffmpeg", "-y", "-i", mp3_path,
+        "-af", f"adelay={delay_ms}|{delay_ms}",
+        "-c:a", "libmp3lame", "-b:a", "192k",
+        padded_path,
+    ]
+    result = subprocess.run(cmd, capture_output=True)
+    if result.returncode != 0 or not os.path.isfile(padded_path):
+        print(f"    ⚠️ 무음 인트로 추가 실패 → 원본 길이 그대로 사용")
+        return False
+    os.replace(padded_path, mp3_path)
+    return True
 
 
 def _build_jobs(sections: list, lang: str) -> list:
@@ -84,10 +116,13 @@ def _build_jobs(sections: list, lang: str) -> list:
     return jobs
 
 
-def _synthesize_job(providers, text: str, out_path: str, job_id: str) -> dict:
+def _synthesize_job(providers, text: str, out_path: str, job_id: str,
+                     lead_silence: float = 0.0) -> dict:
     """provider 폴백 체인으로 합성 → loudnorm 후처리 → 실측치/경고를 담은
     audio_report 엔트리를 반환한다. 원문(text)에 대해 과장 표현을 탐지하되
-    치환은 하지 않는다(원문은 그대로 provider에 전달)."""
+    치환은 하지 않는다(원문은 그대로 provider에 전달). lead_silence는
+    loudnorm까지 끝난 뒤에 붙인다 — loudnorm이 무음까지 포함해 음량을
+    재계산하면 실제 목소리 음량이 왜곡되기 때문이다."""
     warnings = detect_advice_language(text)
     processed_text = apply_pronunciation_rules(text)
 
@@ -111,6 +146,9 @@ def _synthesize_job(providers, text: str, out_path: str, job_id: str) -> dict:
         shutil.move(raw_path, out_path)
     elif os.path.isfile(raw_path):
         os.remove(raw_path)
+
+    if lead_silence > 0:
+        _prepend_silence(out_path, lead_silence)
 
     duration = measure_duration(out_path)
     loudness = measure_loudness(out_path)
@@ -153,7 +191,8 @@ def run(lang: str = "KO"):
         print(f"    내용: {text[:60]}...")
 
         job_id = os.path.splitext(os.path.basename(out_path))[0]
-        entry = _synthesize_job(providers, text, out_path, job_id)
+        lead_silence = CONCLUSION_LEAD_SILENCE_SECONDS if job_id == "conclusion" else 0.0
+        entry = _synthesize_job(providers, text, out_path, job_id, lead_silence=lead_silence)
         success = entry.pop("success")
 
         if success:
