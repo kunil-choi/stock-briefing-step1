@@ -47,3 +47,5 @@ date,section_id,keyword,provider,url,license,phash,width,height,score
 2026-08-06,market_summary,semiconductor,naver_discovery,https://r.yna.co.kr/global/home/v01/img/yonhapnews_logo_1200x800_en01.jpg,editorial_search,c0903f6ec0953f6b,1200,800,0.9
 2026-08-06,stock_추가관심종목,삼성증권,naver_discovery,https://img8.yna.co.kr/photo/cms/2024/09/15/28/PCM20240915000028990_P4.jpg,editorial_search,d4aa8ce220b8ff8d,1200,870,0.96
 2026-08-06,ai_strategy_brief,삼성전자,naver_discovery,https://img9.yna.co.kr/photo/cms/2026/06/25/83/PCM20260625000183990_P4.jpg,editorial_search,c5479e43c3bcc19c,1200,861,1.08
+2026-08-07,stock_추가관심종목,SK증권,naver_discovery,https://img0.yna.co.kr/etc/inner/KR/2026/08/07/AKR20260807022800008_01_i_P4.jpg,editorial_search,8b191d3d2c9e9993,500,422,0.96
+2026-08-07,ai_strategy_brief,semiconductor,naver_discovery,https://img1.yna.co.kr/photo/ap/2026/08/07/PAP20260807046101009_P4.jpg,editorial_search,81e34af0947fb5a4,1200,799,0.78
