@@ -53,3 +53,7 @@ date,section_id,keyword,provider,url,license,phash,width,height,score
 2026-08-09,market_summary,미국,naver_discovery,https://img7.yna.co.kr/etc/inner/KR/2026/08/10/AKR20260810017900008_01_i_P4.jpg,editorial_search,ebe3903c9c11e6c6,500,100,1.02
 2026-08-09,stock_추가관심종목,현대차,naver_discovery,http://news.kbs.co.kr/data/news/title_image/newsmp4/newsplaza/2026/08/10/120_8632403.jpg,editorial_search,a99dd85456e692d2,1920,1080,1.08
 2026-08-09,ai_strategy_brief,삼성전기,naver_discovery,http://news.kbs.co.kr/data/news/title_image/newsmp4/newsplaza_p1/2026/08/10/310_8632387.jpg,editorial_search,85ea8a7934d03b6e,1920,1080,0.96
+2026-08-10,conclusion,반도체,naver_discovery,https://img5.yna.co.kr/etc/inner/KR/2026/08/10/AKR20260810029500003_01_i_P4.jpg,editorial_search,a6c4d9bb6625d0b4,1200,798,1.08
+2026-08-10,market_summary,반도체,naver_discovery,https://img8.yna.co.kr/photo/cms/2026/06/24/43/PCM20260624000043990_P4.jpg,editorial_search,e4ec9bd6c6998312,1200,800,1.08
+2026-08-10,stock_추가관심종목,에너지,naver_discovery,https://img1.yna.co.kr/etc/inner/KR/2026/08/10/AKR20260810029300003_01_i_P4.jpg,editorial_search,fa1e85c1696a7a94,500,289,0.9
+2026-08-10,ai_strategy_brief,HBM memory,naver_discovery,https://img2.yna.co.kr/photo/cms/2022/01/13/86/PCM20220113000086990_P4.jpg,editorial_search,913742d866e76ce4,1024,537,0.76
