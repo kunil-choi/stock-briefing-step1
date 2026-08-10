@@ -670,42 +670,104 @@ def build_thumbnail(data: dict, title: str, out_path: str) -> str:
 # 분리해서, 문구 산출 방식(규칙 기반 → 추후 LLM 다듬기 등)이 바뀌어도 이
 # 함수들은 그대로 재사용할 수 있게 했다.
 
-def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: str) -> str:
+def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: str,
+                           chart_path: str = None) -> str:
     """발언형 썸네일("OOO가 왜 OOO라고 말했나?"). thumbnail_select.
-    select_quote_candidate() + build_quote_title()의 결과를 렌더링한다."""
+    select_quote_candidate() + build_quote_title()의 결과를 렌더링한다.
+
+    chart_path(assets.chart.build_chart_with_insight()가 만든 그 종목의 2주
+    캔들차트 PNG)가 있으면 전체화면 배경으로 깔고, 텍스트는 사진의 밝기와
+    무관하게 항상 읽히도록 text_plate()(반투명 다크 판)로 감싸고 배지도
+    불투명 배경으로 바꾼다. chart_path가 없으면(데이터 조회 실패 등) 기존
+    단색 배경 디자인으로 폴백한다."""
+    has_bg = bool(chart_path)
     badge_color = PALETTE["up"] if candidate.get("change_positive", True) else PALETTE["down"]
-    content = f"""
+
+    if has_bg:
+        glow_html = ""
+        quote_mark_html = ""
+        title_html = text_plate(
+            f'<div style="font-size:84px;font-weight:800;line-height:1.3;'
+            f'max-width:1520px;color:#fff;">{esc(title)}</div>'
+        )
+        speaker_pill = (
+            f'<div class="pill" style="background:{badge_color};color:#fff;'
+            f'font-size:32px;font-weight:800;">'
+            f'{esc(candidate.get("channel", ""))} · {esc(candidate.get("speaker", ""))}</div>'
+        )
+    else:
+        glow_html = f"""
 <div style="position:absolute;z-index:-1;width:1100px;height:1100px;border-radius:50%;
   background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
-  top:-320px;left:50%;transform:translateX(-50%);"></div>
+  top:-320px;left:50%;transform:translateX(-50%);"></div>"""
+        quote_mark_html = (
+            f'<div style="font-size:200px;font-weight:800;line-height:0.5;'
+            f'color:{PALETTE["accent_soft"]};">"</div>'
+        )
+        title_html = (
+            f'<div style="font-size:92px;font-weight:800;line-height:1.25;max-width:1600px;'
+            f'margin-top:-40px;">{esc(title)}</div>'
+        )
+        speaker_pill = (
+            f'<div class="pill" style="background:{badge_color}1a;color:{badge_color};'
+            f'border:3px solid {badge_color};font-size:32px;font-weight:800;">'
+            f'{esc(candidate.get("channel", ""))} · {esc(candidate.get("speaker", ""))}</div>'
+        )
+
+    content = f"""
+{glow_html}
 {kbs_badge()}
-<div style="font-size:200px;font-weight:800;line-height:0.5;color:{PALETTE['accent_soft']};">"</div>
-<div style="font-size:92px;font-weight:800;line-height:1.25;max-width:1600px;margin-top:-40px;">{esc(title)}</div>
-<div class="pill" style="background:{badge_color}1a;color:{badge_color};
-  border:3px solid {badge_color};font-size:32px;font-weight:800;">
-  {esc(candidate.get('channel', ''))} · {esc(candidate.get('speaker', ''))}</div>
+{quote_mark_html}
+{title_html}
+{speaker_pill}
 <div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
   font-size:28px;">{esc(date_str)}</div>
 """
-    html = centered_shell(content)
+    html = centered_shell(content, background_image=chart_path)
     return render_html_to_png(html, out_path)
 
 
-def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: str) -> str:
+def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: str,
+                          chart_path: str = None) -> str:
     """뉴스형 썸네일(오늘의 화제 종목). thumbnail_select.select_news_candidate()
-    + build_news_title()의 결과를 렌더링한다."""
+    + build_news_title()의 결과를 렌더링한다. chart_path 처리는
+    build_thumbnail_quote()와 동일(있으면 배경, 없으면 단색 폴백)."""
+    has_bg = bool(chart_path)
     badge_color = PALETTE["up"] if candidate.get("change_positive", True) else PALETTE["down"]
-    content = f"""
+
+    if has_bg:
+        glow_html = ""
+        title_html = text_plate(
+            f'<div style="font-size:96px;font-weight:800;line-height:1.25;'
+            f'max-width:1560px;color:#fff;">{esc(title)}</div>'
+        )
+        stock_pill = (
+            f'<div class="pill" style="background:{badge_color};color:#fff;'
+            f'font-size:40px;font-weight:800;">'
+            f'{esc(candidate.get("stock_name", ""))} {esc(candidate.get("change", ""))}</div>'
+        )
+    else:
+        glow_html = f"""
 <div style="position:absolute;z-index:-1;width:1100px;height:1100px;border-radius:50%;
   background:radial-gradient(circle,{badge_color}1a 0%,transparent 70%);
-  top:-320px;left:50%;transform:translateX(-50%);"></div>
+  top:-320px;left:50%;transform:translateX(-50%);"></div>"""
+        title_html = (
+            f'<div style="font-size:104px;font-weight:800;line-height:1.25;'
+            f'max-width:1600px;">{esc(title)}</div>'
+        )
+        stock_pill = (
+            f'<div class="pill" style="background:{badge_color}1a;color:{badge_color};'
+            f'border:3px solid {badge_color};font-size:40px;font-weight:800;">'
+            f'{esc(candidate.get("stock_name", ""))} {esc(candidate.get("change", ""))}</div>'
+        )
+
+    content = f"""
+{glow_html}
 <div class="pill" style="background:{PALETTE['up']};color:#fff;font-size:30px;font-weight:800;">속보</div>
-<div style="font-size:104px;font-weight:800;line-height:1.25;max-width:1600px;">{esc(title)}</div>
-<div class="pill" style="background:{badge_color}1a;color:{badge_color};
-  border:3px solid {badge_color};font-size:40px;font-weight:800;">
-  {esc(candidate.get('stock_name', ''))} {esc(candidate.get('change', ''))}</div>
+{title_html}
+{stock_pill}
 <div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
   font-size:28px;">{esc(date_str)}</div>
 """
-    html = centered_shell(content)
+    html = centered_shell(content, background_image=chart_path)
     return render_html_to_png(html, out_path)
