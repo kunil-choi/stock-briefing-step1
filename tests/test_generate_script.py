@@ -23,9 +23,12 @@ _PIPELINE = os.path.join(_HERE, "..", "pipeline")
 if _PIPELINE not in sys.path:
     sys.path.insert(0, _PIPELINE)
 
+import generate_script  # noqa: E402
 from generate_script import (  # noqa: E402
     build_stock_market_data, build_synthetic_mentions, build_stock_quotes,
     _is_unfilled_stock_section, _merge_quotes_by_speaker, partition_major_stocks,
+    select_stock_classification, load_persisted_stock_classification,
+    persist_stock_classification,
 )
 
 
@@ -173,6 +176,116 @@ def test_unfilled_stock_section_detected():
     print("✅ _is_unfilled_stock_section: placeholder 미채움 여부를 정확히 판별")
 
 
+def _sample_briefing_data_with_signals():
+    """실제 v3-1 응답 형태(2026-08-10 사례)를 그대로 옮긴 픽스처 — market_leaders
+    2개 + stocks 8개, signal(긍정/중립/부정)/weighted_score 포함."""
+    return {
+        "market_leaders": [
+            {"name": "삼성전자",   "signal": "중립"},
+            {"name": "SK하이닉스", "signal": "긍정"},
+        ],
+        "stocks": [
+            {"name": "엘앤에프",     "signal": "긍정", "weighted_score": 12.84},
+            {"name": "현대차",       "signal": "중립", "weighted_score": 9.0},
+            {"name": "카카오",       "signal": "중립", "weighted_score": 8.0},
+            {"name": "LS증권",       "signal": "긍정", "weighted_score": 6.0},
+            {"name": "두산에너빌리티", "signal": "중립", "weighted_score": 5.0},
+            {"name": "LG전자",       "signal": "긍정", "weighted_score": 4.0},
+            {"name": "OCI홀딩스",     "signal": "긍정", "weighted_score": 3.0},
+            {"name": "SK이노베이션", "signal": "긍정", "weighted_score": 2.0},
+        ],
+    }
+
+
+def test_select_stock_classification_prefers_positive_over_neutral_over_negative():
+    data = _sample_briefing_data_with_signals()
+    result = select_stock_classification(data, top_stocks_count=3)
+    assert result["market_leaders"] == ["삼성전자", "SK하이닉스"]
+    # 긍정 5개(엘앤에프/LS증권/LG전자/OCI홀딩스/SK이노베이션) 중 weighted_score
+    # 상위 3개만 뽑혀야 하고, 중립 종목은 하나도 안 뽑혀야 함(긍정이 이미 충분하므로)
+    assert result["top_stocks"] == ["엘앤에프", "LS증권", "LG전자"], result["top_stocks"]
+    assert "현대차" in result["remaining_stocks"] and "카카오" in result["remaining_stocks"]
+    print(f"✅ select_stock_classification: 긍정 우선 선정 확인 → {result['top_stocks']}")
+
+
+def test_select_stock_classification_fills_with_neutral_when_positive_insufficient():
+    data = _sample_briefing_data_with_signals()
+    # 긍정은 엘앤에프 1개만 남기고, 나머지 긍정 종목은 부정으로 바꿔 "긍정이 모자라면
+    # 중립으로 채우고, 그래도 모자라면 부정까지 채운다"를 검증
+    for s in data["stocks"]:
+        if s["name"] == "엘앤에프":
+            continue
+        if s["signal"] == "긍정":
+            s["signal"] = "부정"
+    # 이제 signal 구성: 긍정 1개(엘앤에프), 중립 3개(현대차/카카오/두산에너빌리티),
+    # 부정 4개(LS증권/LG전자/OCI홀딩스/SK이노베이션)
+    result = select_stock_classification(data, top_stocks_count=3)
+    # 긍정 1개 + 중립 중 weighted_score 상위 2개(현대차 9.0, 카카오 8.0)로 채워져야
+    # 하고, 부정 종목은 하나도 뽑히면 안 됨
+    assert result["top_stocks"] == ["엘앤에프", "현대차", "카카오"], result["top_stocks"]
+    print(f"✅ select_stock_classification: 긍정 부족 시 중립으로 채움 확인 → {result['top_stocks']}")
+
+
+def test_select_stock_classification_fills_with_negative_when_positive_and_neutral_insufficient():
+    data = _sample_briefing_data_with_signals()
+    # 긍정/중립을 각각 1개만 남기고 나머지는 전부 부정으로 바꿔 "그마저도 모자라면
+    # 부정까지 채운다"를 검증
+    for s in data["stocks"]:
+        if s["name"] in ("엘앤에프", "현대차"):
+            continue
+        s["signal"] = "부정"
+    result = select_stock_classification(data, top_stocks_count=3)
+    assert result["top_stocks"][0] == "엘앤에프"  # 긍정
+    assert result["top_stocks"][1] == "현대차"    # 중립
+    assert result["top_stocks"][2] not in ("엘앤에프", "현대차")  # 부정으로 채워짐
+    print(f"✅ select_stock_classification: 긍정+중립도 부족하면 부정으로 채움 확인 → {result['top_stocks']}")
+
+
+def test_select_stock_classification_is_deterministic():
+    data = _sample_briefing_data_with_signals()
+    r1 = select_stock_classification(data)
+    r2 = select_stock_classification(data)
+    assert r1 == r2, "동일 입력인데 결과가 다름 — 더 이상 LLM 샘플링에 의존하면 안 됨"
+    print("✅ select_stock_classification: 동일 입력 → 동일 출력(결정적) 확인")
+
+
+def test_persist_and_load_stock_classification_roundtrip():
+    import tempfile
+    original_path = generate_script._STOCK_SELECTION_LOG_PATH
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        generate_script._STOCK_SELECTION_LOG_PATH = os.path.join(tmp_dir, "stock_selection_log.json")
+
+        assert load_persisted_stock_classification("2026-08-10") is None
+
+        classification = {
+            "market_leaders": ["삼성전자", "SK하이닉스"],
+            "top_stocks": ["엘앤에프", "LS증권", "LG전자"],
+            "remaining_stocks": ["현대차", "카카오"],
+        }
+        persist_stock_classification("2026-08-10", classification)
+
+        loaded = load_persisted_stock_classification("2026-08-10")
+        assert loaded == classification, loaded
+
+        # 다른 날짜는 영향 없어야 함
+        assert load_persisted_stock_classification("2026-08-11") is None
+
+        # 같은 날짜를 다른 값으로 다시 기록하면 최신 값으로 덮어써야 함(재실행 시나리오)
+        persist_stock_classification("2026-08-10", {
+            "market_leaders": ["삼성전자", "SK하이닉스"],
+            "top_stocks": ["카카오", "현대차", "LG전자"],
+            "remaining_stocks": ["엘앤에프", "LS증권"],
+        })
+        loaded2 = load_persisted_stock_classification("2026-08-10")
+        assert loaded2["top_stocks"] == ["카카오", "현대차", "LG전자"], loaded2
+        print("✅ persist/load_stock_classification: 날짜별 저장·재사용·덮어쓰기 확인")
+    finally:
+        generate_script._STOCK_SELECTION_LOG_PATH = original_path
+        import shutil
+        shutil.rmtree(tmp_dir)
+
+
 if __name__ == "__main__":
     test_build_stock_market_data_formats_real_values()
     test_securities_channel_mentions_not_dropped()
@@ -182,4 +295,9 @@ if __name__ == "__main__":
     test_partition_major_stocks_downgrades_names_without_price()
     test_partition_major_stocks_keeps_all_when_price_present()
     test_unfilled_stock_section_detected()
+    test_select_stock_classification_prefers_positive_over_neutral_over_negative()
+    test_select_stock_classification_fills_with_neutral_when_positive_insufficient()
+    test_select_stock_classification_fills_with_negative_when_positive_and_neutral_insufficient()
+    test_select_stock_classification_is_deterministic()
+    test_persist_and_load_stock_classification_roundtrip()
     print("\n✅ generate_script 테스트 전체 통과")

@@ -22,6 +22,12 @@ jobs:
   script:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # STOCK-SELECT-DETERMINISTIC-1: 이 잡이 data/stock_selection_log.json(그날
+    # 고른 종목 라인업 기록)을 레포에 커밋해야 하므로, 이 잡에 한해 write
+    # 권한이 필요하다(워크플로우 전체 기본값은 read로 유지 — assets 잡의
+    # license_log.csv 커밋과 동일한 패턴).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,6 +44,19 @@ jobs:
         run: python pipeline/generate_scene_plan.py KO
       - name: 🧭 reordered_script.json 생성 (장전 의사결정형 플롯)
         run: python pipeline/generate_reordered_script.py KO
+      - name: 🗂️ stock_selection_log.json 커밋 (같은 날짜 재실행 시 종목 라인업 고정)
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [ -n "$(git status --porcelain data/stock_selection_log.json 2>/dev/null)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add data/stock_selection_log.json
+            git commit -m "chore: stock_selection_log.json 업데이트 ($(TZ='Asia/Seoul' date +'%Y-%m-%d'))"
+            git pull --rebase
+            git push
+          else
+            echo "stock_selection_log.json 변경 없음 → 커밋 생략"
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: script
