@@ -24,6 +24,7 @@ if _HERE not in sys.path:
 
 from assets.config import (
     STOCK_CODES, normalize_stock_name, classify_channel_type, resolve_channel_identity,
+    build_panelist_intro,
 )
 
 # SCRIPT_MOCK=1: OpenAI를 실제로 호출하지 않고 구조만 맞는 더미 데이터로
@@ -504,6 +505,11 @@ def build_stock_quotes(mentions: list, briefing_date_iso: str) -> dict:
             "quote":         m.get("quote", ""),
             "timestamp_url": m.get("timestamp_url") or m.get("video_url", ""),
             "sentiment":     m.get("sentiment", ""),
+            # PANELIST-INTRO-1: speaker_name 원문 형식이 제각각이라 LLM이 직접
+            # 조합하면 이름/직책/소속 순서가 뒤섞이는 문제가 있었다. 여기서
+            # 미리 "{소속} {이름} {직책}은/는" 형태로 통일해 만들어두고,
+            # LLM에게는 이 문구를 그대로 쓰라고만 지시한다.
+            "intro_phrase":  build_panelist_intro(channel, speaker),
         })
     return {name: _merge_quotes_by_speaker(items)[:9] for name, items in grouped.items()}
 
@@ -615,11 +621,12 @@ _MENTION_RULES = """
 - 없는 내용을 지어내지 말고, 제공된 데이터에 실제로 나온 의견·수치·근거만 사용하세요.
 - 그 사람의 발언만 다루고 다른 사람 발언과 섞지 마세요 — 목표주가·투자의견·
   구체적 근거·전망 등 그 사람이 실제로 말한 내용만 포함합니다.
-- ★ 반드시 "[채널명]에 출연한 [소속/직책] [이름]은" 형식으로 어느 방송에 나온
-  누구인지 구체적으로 밝히세요(예: "이데일리TV에 출연한 권소현 이데일리
-  마켓in센터장은...", "KBS 1라디오에 출연한 이인철 참좋은경제연구소 소장은...").
-  소속/직책 정보가 stock_quotes에 없으면 이름과 채널명만이라도 반드시 함께
-  밝히고, 채널명 없이 이름만 단독으로 언급하지 마세요.
+- ★ 발언자를 처음 소개할 때는 그 발언 데이터의 intro_phrase 필드를 **토씨 하나
+  안 바꾸고 그대로** 문장 맨 앞에 쓰세요(예: intro_phrase가 "삼프로TV에 출연한
+  엘에스증권 염승환 이사는"이면 narration을 정확히 그 문구로 시작). speaker_name
+  원문(예: "염승환 이사/LS증권")을 보고 직접 순서를 조합하지 마세요 — 형식이
+  제각각이라 이름·직책·소속 순서가 뒤바뀌는 사고가 있었습니다. intro_phrase가
+  비어 있는 경우에만 "[채널명]에 출연한 [이름]은" 형식으로 직접 구성하세요.
 - 분량: 항목당 narration 200~300자 내외(한 사람의 코멘트라 예전 카테고리
   종합보다는 짧습니다 — 그 사람이 실제로 말한 근거·전망을 압축해 담되,
   근거 없이 분량만 채우려 늘어쓰지 마세요).
@@ -649,9 +656,10 @@ _MENTION_RULES = """
 ### narration (TTS 낭독용)
 - ★ "[채널 종류] 쪽에서는 (종목명)의 (주제)에 대한 다양한 분석이 나오고
   있습니다" 같은 내용 없는 도입 문구로 시작하지 마세요 — 이런 문구는 매
-  종목마다 반복돼 정보 가치가 없습니다. 도입 인사말 없이 바로 그 발언자의
-  구체적인 발언 소개로 시작하세요(예: "삼프로TV에 출연한 OOO 연구원은
-  ~라고 분석했습니다"로 문장을 바로 시작).
+  종목마다 반복돼 정보 가치가 없습니다. 도입 인사말 없이 바로 intro_phrase +
+  구체적인 발언 소개로 시작하세요(예: intro_phrase가 "삼프로TV에 출연한
+  엘에스증권 염승환 이사는"이면 "삼프로TV에 출연한 엘에스증권 염승환
+  이사는 ~라고 분석했습니다"로 문장을 바로 시작).
 - 종결어미 다양화 (같은 어미 2회 연속 금지):
   "~라고 분석했습니다" | "~다고 평가했습니다" | "~라고 진단했습니다" | "~고 내다봤습니다"
   "~다고 전망했습니다" | "~라고 짚었습니다" | "~고 설명했습니다" | "~다고 판단했습니다"
@@ -813,8 +821,112 @@ def _call_json(system_prompt: str, user_content: str, max_tokens: int,
     return {}
 
 
+# ── 종목 분류(market_leaders/top_stocks/remaining_stocks) 결정적 선정 ───────
+#
+# STOCK-SELECT-DETERMINISTIC-1: 예전엔 이 분류를 _generate_core()의 LLM
+# (temperature=0.7)이 브리핑 원문을 "읽고 판단"해서 골랐다. 그런데 완전히
+# 동일한 V3-1 데이터로 워크플로우를 재실행해도 LLM 샘플링이 달라 매번 다른
+# 종목이 뽑히는 문제가 있었다(사용자 보고 — 오전에 LG전자가 나온 영상을
+# 재실행했더니 LG전자가 빠지고 다른 종목이 들어감. v3-1 데이터 자체는
+# git blob 해시까지 동일했고 LLM 출력만 달랐던 것으로 확인됨).
+#
+# V3-1은 이미 market_leaders/stocks 각 항목에 name/signal(긍정·중립·부정)/
+# weighted_score를 구조화된 필드로 제공하므로, LLM에게 "판단"을 맡기는 대신
+# 여기서 코드로 결정적으로 계산한다. 요구사항: 관심종목(top_stocks)은
+# 긍정 → 중립 → 부정 순으로, 우선순위가 같으면 weighted_score가 높은 순으로
+# 채운다. 같은 briefing_data가 들어오면 항상 같은 결과가 나온다.
+_SIGNAL_PRIORITY = {"긍정": 0, "중립": 1, "부정": 2}
+
+
+def select_stock_classification(briefing_data: dict, top_stocks_count: int = 3) -> dict:
+    market_leaders = [
+        (s.get("name") or "").strip() for s in (briefing_data.get("market_leaders") or [])
+    ]
+    market_leaders = [n for n in market_leaders if n]
+    market_leader_set = {normalize_stock_name(n) for n in market_leaders}
+
+    candidates = [
+        s for s in (briefing_data.get("stocks") or [])
+        if (s.get("name") or "").strip()
+        and normalize_stock_name(s.get("name", "")) not in market_leader_set
+    ]
+    candidates.sort(key=lambda s: (
+        _SIGNAL_PRIORITY.get(s.get("signal", "중립"), 1),
+        -(s.get("weighted_score") or 0),
+    ))
+
+    top_stocks = [s.get("name", "").strip() for s in candidates[:top_stocks_count]]
+    remaining_stocks = [s.get("name", "").strip() for s in candidates[top_stocks_count:]]
+
+    return {
+        "market_leaders":   market_leaders,
+        "top_stocks":       top_stocks,
+        "remaining_stocks": remaining_stocks,
+    }
+
+
+# STOCK-SELECT-DETERMINISTIC-1: 같은 briefing_date(V3-1 브리핑 기준 날짜)로
+# 워크플로우를 재실행할 때, 이미 한 번 고른 종목 라인업을 그대로 재사용하기
+# 위한 영속 기록.
+#
+# ★ 이 캐시는 "V3-1 데이터가 그때와 전혀 안 바뀌었을 때만" 유효하다 — V3-1이
+# 아침 시간대에 데이터를 정정/보강(예: "admin: 브리핑 교정 — 카드 삭제/이동")
+# 하면, select_stock_classification()의 긍정>중립>부정 규칙 자체는 동일해도
+# 입력이 달라졌으니 그 새 입력 기준으로 다시 골라야 한다(사용자 요구사항 —
+# "고정"은 재실행 시 데이터가 완전히 같을 때에 한정). 그래서 캐시 키는
+# briefing_date뿐 아니라 briefing_data 전체의 fingerprint(해시)까지 함께
+# 보고, fingerprint가 달라지면 캐시를 무효화하고 새로 계산해 그 날짜 기록을
+# 덮어쓴다.
+_STOCK_SELECTION_LOG_PATH = os.path.join(_HERE, "..", "data", "stock_selection_log.json")
+
+
+def _briefing_data_fingerprint(briefing_data: dict) -> str:
+    import hashlib
+    payload = json.dumps(briefing_data or {}, ensure_ascii=False, sort_keys=True)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def load_persisted_stock_classification(briefing_date_iso: str, fingerprint: str):
+    if not briefing_date_iso or not os.path.isfile(_STOCK_SELECTION_LOG_PATH):
+        return None
+    with open(_STOCK_SELECTION_LOG_PATH, encoding="utf-8") as f:
+        log = json.load(f) or {}
+    entry = log.get(briefing_date_iso)
+    if not entry:
+        return None
+    if entry.get("briefing_data_fingerprint") != fingerprint:
+        # V3-1 데이터가 이전 실행 이후 바뀌었다 — 이 캐시는 더 이상 유효하지 않음
+        return None
+    return {
+        "market_leaders":   entry.get("market_leaders", []),
+        "top_stocks":       entry.get("top_stocks", []),
+        "remaining_stocks": entry.get("remaining_stocks", []),
+    }
+
+
+def persist_stock_classification(briefing_date_iso: str, classification: dict, fingerprint: str) -> None:
+    if not briefing_date_iso:
+        return
+    log = {}
+    if os.path.isfile(_STOCK_SELECTION_LOG_PATH):
+        with open(_STOCK_SELECTION_LOG_PATH, encoding="utf-8") as f:
+            log = json.load(f) or {}
+    log[briefing_date_iso] = {
+        "market_leaders":            classification["market_leaders"],
+        "top_stocks":                classification["top_stocks"],
+        "remaining_stocks":          classification["remaining_stocks"],
+        "briefing_data_fingerprint": fingerprint,
+        "recorded_at":               datetime.now().isoformat(),
+    }
+    os.makedirs(os.path.dirname(_STOCK_SELECTION_LOG_PATH), exist_ok=True)
+    with open(_STOCK_SELECTION_LOG_PATH, "w", encoding="utf-8") as f:
+        json.dump(log, f, ensure_ascii=False, indent=2, sort_keys=True)
+
+
 def _generate_core(briefing_text: str, market_data: dict) -> dict:
-    """시장요약/업종분석/AI전략 코너와 종목 분류 목록을 생성하는 1차 호출.
+    """시장요약/업종분석/AI전략 코너를 생성하는 1차 호출. 종목 분류(market_leaders/
+    top_stocks/remaining_stocks)는 더 이상 이 LLM 호출이 맡지 않는다 —
+    select_stock_classification()/generate_script() 참고.
     종목별 상세 섹션(mentions 포함)은 여기서 만들지 않아 토큰 상한에 여유가 큽니다."""
     system_prompt = f"""
 너는 KBS 머니올라 주식 방송 스크립트 작성 전문가입니다. 오늘 방송의 '시장 요약',
@@ -844,12 +956,7 @@ JSON으로 작성하세요. 이 호출에서는 개별 종목의 상세 설명�
   투자 전략입니다."로 시작. bullet_points는 최대 6개.
 - 위 세 섹션 모두 목표 글자 수 미달을 절대 허용하지 마세요. 미달 시 배경 설명, 수치,
   전망을 추가해서 채우세요. "간략히", "요약하면" 같은 축약 표현은 쓰지 마세요.
-
-## ★ 종목 분류 (브리핑 원문에서 추출 — 본문 작성 없이 목록만)
-- market_leaders: 브리핑에서 가장 비중 있게 다뤄진 대형 주도주 정확히 2개.
-- top_stocks: market_leaders를 제외하고 weighted_score(또는 언급 비중)가 높은 상위 3개.
-- remaining_stocks: 브리핑에 등장하는 나머지 관심 종목 전부 (생략 없이 모두 나열).
-- 종목명은 아래 목록의 정확한 표기를 사용하세요.
+- narration/subtitle에서 종목명을 언급할 때는 아래 목록의 정확한 표기를 사용하세요.
 
 ## ★ 종목 목록 매핑
 {STOCK_NAME_LIST}
@@ -871,10 +978,7 @@ JSON으로 작성하세요. 이 호출에서는 개별 종목의 상세 설명�
     "corner_summary": "오늘의 AI 전략 핵심 요약",
     "narration": "...", "subtitle": "...",
     "bullet_points": ["전략1", "전략2"]
-  }},
-  "market_leaders": ["종목명", "종목명"],
-  "top_stocks": ["종목명", "종목명", "종목명"],
-  "remaining_stocks": ["종목명"]
+  }}
 }}
 """
     user_content = (
@@ -896,9 +1000,6 @@ JSON으로 작성하세요. 이 호출에서는 개별 종목의 상세 설명�
         "market_summary":    market_summary,
         "sectors":           data.get("sectors") or {},
         "ai_strategy":       data.get("ai_strategy") or {},
-        "market_leaders":    data.get("market_leaders") or [],
-        "top_stocks":        data.get("top_stocks") or [],
-        "remaining_stocks":  data.get("remaining_stocks") or [],
     }
 
 
@@ -1160,13 +1261,33 @@ def generate_script(
     stock_quotes: dict = None,
     stock_market_data: dict = None,
     ai_strategy_detail: dict = None,
+    briefing_data: dict = None,
 ) -> dict:
     stock_quotes = stock_quotes or {}
     stock_market_data = stock_market_data or {}
+    briefing_data = briefing_data or {}
     stock_brokerage = build_stock_brokerage_mentions(brokerage_reports)
 
-    print("\n🧩 1/3 — 시장요약/업종분석/AI전략 + 종목 분류 생성 중...")
-    core = _generate_core(briefing_text, market_data)
+    # STOCK-SELECT-DETERMINISTIC-1: SCRIPT_MOCK(드라이런)은 실제 날짜 기록을
+    # 남기면 다음 실제 실행이 그 더미 결과를 재사용하게 되므로 캐시를
+    # 읽지도 쓰지도 않는다 — 매번 새로 계산한다.
+    briefing_date_iso = _kdate_to_iso(briefing_data.get("briefing_date", ""))
+    fingerprint = _briefing_data_fingerprint(briefing_data)
+    classification = None
+    if not SCRIPT_MOCK:
+        classification = load_persisted_stock_classification(briefing_date_iso, fingerprint)
+        if classification:
+            print(f"   ℹ️ {briefing_date_iso} 종목 선정을 이전 실행과 동일하게 재사용합니다"
+                  f"(V3-1 데이터 변경 없음 — 재실행해도 종목 라인업이 바뀌지 않도록).")
+    if not classification:
+        classification = select_stock_classification(briefing_data)
+        if not SCRIPT_MOCK:
+            persist_stock_classification(briefing_date_iso, classification, fingerprint)
+            print(f"   ℹ️ {briefing_date_iso} 종목 선정 결과를 새로 기록합니다"
+                  f"(최초 실행이거나 V3-1 데이터가 이전과 다름).")
+
+    print("\n🧩 1/3 — 시장요약/업종분석/AI전략 생성 중...")
+    core = {**_generate_core(briefing_text, market_data), **classification}
     print(f"   대형 주도주: {core['market_leaders']}")
     print(f"   상위 관심종목: {core['top_stocks']}")
     print(f"   추가 관심종목: {len(core['remaining_stocks'])}개")
@@ -1387,7 +1508,7 @@ def run(lang: str = "KO"):
     ai_strategy_detail = briefing_data.get("ai_strategy_detail") or None
 
     script = generate_script(briefing_text, market_data, brokerage_reports, stock_quotes,
-                              stock_market_data, ai_strategy_detail)
+                              stock_market_data, ai_strategy_detail, briefing_data)
 
     # THUMBNAIL-QUOTE-1: stock_quotes(화자명/발언 원문/sentiment)는 지금까지
     # generate_script()의 LLM 프롬프트 재료로만 쓰이고 최종 script.json에는

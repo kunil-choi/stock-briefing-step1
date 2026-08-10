@@ -23,9 +23,12 @@ _PIPELINE = os.path.join(_HERE, "..", "pipeline")
 if _PIPELINE not in sys.path:
     sys.path.insert(0, _PIPELINE)
 
+import generate_script  # noqa: E402
 from generate_script import (  # noqa: E402
     build_stock_market_data, build_synthetic_mentions, build_stock_quotes,
     _is_unfilled_stock_section, _merge_quotes_by_speaker, partition_major_stocks,
+    select_stock_classification, load_persisted_stock_classification,
+    persist_stock_classification,
 )
 
 
@@ -173,6 +176,185 @@ def test_unfilled_stock_section_detected():
     print("✅ _is_unfilled_stock_section: placeholder 미채움 여부를 정확히 판별")
 
 
+def _sample_briefing_data_with_signals():
+    """실제 v3-1 응답 형태(2026-08-10 사례)를 그대로 옮긴 픽스처 — market_leaders
+    2개 + stocks 8개, signal(긍정/중립/부정)/weighted_score 포함."""
+    return {
+        "market_leaders": [
+            {"name": "삼성전자",   "signal": "중립"},
+            {"name": "SK하이닉스", "signal": "긍정"},
+        ],
+        "stocks": [
+            {"name": "엘앤에프",     "signal": "긍정", "weighted_score": 12.84},
+            {"name": "현대차",       "signal": "중립", "weighted_score": 9.0},
+            {"name": "카카오",       "signal": "중립", "weighted_score": 8.0},
+            {"name": "LS증권",       "signal": "긍정", "weighted_score": 6.0},
+            {"name": "두산에너빌리티", "signal": "중립", "weighted_score": 5.0},
+            {"name": "LG전자",       "signal": "긍정", "weighted_score": 4.0},
+            {"name": "OCI홀딩스",     "signal": "긍정", "weighted_score": 3.0},
+            {"name": "SK이노베이션", "signal": "긍정", "weighted_score": 2.0},
+        ],
+    }
+
+
+def test_select_stock_classification_prefers_positive_over_neutral_over_negative():
+    data = _sample_briefing_data_with_signals()
+    result = select_stock_classification(data, top_stocks_count=3)
+    assert result["market_leaders"] == ["삼성전자", "SK하이닉스"]
+    # 긍정 5개(엘앤에프/LS증권/LG전자/OCI홀딩스/SK이노베이션) 중 weighted_score
+    # 상위 3개만 뽑혀야 하고, 중립 종목은 하나도 안 뽑혀야 함(긍정이 이미 충분하므로)
+    assert result["top_stocks"] == ["엘앤에프", "LS증권", "LG전자"], result["top_stocks"]
+    assert "현대차" in result["remaining_stocks"] and "카카오" in result["remaining_stocks"]
+    print(f"✅ select_stock_classification: 긍정 우선 선정 확인 → {result['top_stocks']}")
+
+
+def test_select_stock_classification_fills_with_neutral_when_positive_insufficient():
+    data = _sample_briefing_data_with_signals()
+    # 긍정은 엘앤에프 1개만 남기고, 나머지 긍정 종목은 부정으로 바꿔 "긍정이 모자라면
+    # 중립으로 채우고, 그래도 모자라면 부정까지 채운다"를 검증
+    for s in data["stocks"]:
+        if s["name"] == "엘앤에프":
+            continue
+        if s["signal"] == "긍정":
+            s["signal"] = "부정"
+    # 이제 signal 구성: 긍정 1개(엘앤에프), 중립 3개(현대차/카카오/두산에너빌리티),
+    # 부정 4개(LS증권/LG전자/OCI홀딩스/SK이노베이션)
+    result = select_stock_classification(data, top_stocks_count=3)
+    # 긍정 1개 + 중립 중 weighted_score 상위 2개(현대차 9.0, 카카오 8.0)로 채워져야
+    # 하고, 부정 종목은 하나도 뽑히면 안 됨
+    assert result["top_stocks"] == ["엘앤에프", "현대차", "카카오"], result["top_stocks"]
+    print(f"✅ select_stock_classification: 긍정 부족 시 중립으로 채움 확인 → {result['top_stocks']}")
+
+
+def test_select_stock_classification_fills_with_negative_when_positive_and_neutral_insufficient():
+    data = _sample_briefing_data_with_signals()
+    # 긍정/중립을 각각 1개만 남기고 나머지는 전부 부정으로 바꿔 "그마저도 모자라면
+    # 부정까지 채운다"를 검증
+    for s in data["stocks"]:
+        if s["name"] in ("엘앤에프", "현대차"):
+            continue
+        s["signal"] = "부정"
+    result = select_stock_classification(data, top_stocks_count=3)
+    assert result["top_stocks"][0] == "엘앤에프"  # 긍정
+    assert result["top_stocks"][1] == "현대차"    # 중립
+    assert result["top_stocks"][2] not in ("엘앤에프", "현대차")  # 부정으로 채워짐
+    print(f"✅ select_stock_classification: 긍정+중립도 부족하면 부정으로 채움 확인 → {result['top_stocks']}")
+
+
+def test_select_stock_classification_is_deterministic():
+    data = _sample_briefing_data_with_signals()
+    r1 = select_stock_classification(data)
+    r2 = select_stock_classification(data)
+    assert r1 == r2, "동일 입력인데 결과가 다름 — 더 이상 LLM 샘플링에 의존하면 안 됨"
+    print("✅ select_stock_classification: 동일 입력 → 동일 출력(결정적) 확인")
+
+
+def test_persist_and_load_stock_classification_roundtrip():
+    import tempfile
+    original_path = generate_script._STOCK_SELECTION_LOG_PATH
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        generate_script._STOCK_SELECTION_LOG_PATH = os.path.join(tmp_dir, "stock_selection_log.json")
+        fp1 = "fingerprint-v1"
+
+        assert load_persisted_stock_classification("2026-08-10", fp1) is None
+
+        classification = {
+            "market_leaders": ["삼성전자", "SK하이닉스"],
+            "top_stocks": ["엘앤에프", "LS증권", "LG전자"],
+            "remaining_stocks": ["현대차", "카카오"],
+        }
+        persist_stock_classification("2026-08-10", classification, fp1)
+
+        loaded = load_persisted_stock_classification("2026-08-10", fp1)
+        assert loaded == classification, loaded
+
+        # 다른 날짜는 영향 없어야 함
+        assert load_persisted_stock_classification("2026-08-11", fp1) is None
+
+        # 같은 날짜를 다른 값으로 다시 기록하면 최신 값으로 덮어써야 함(재실행 시나리오)
+        persist_stock_classification("2026-08-10", {
+            "market_leaders": ["삼성전자", "SK하이닉스"],
+            "top_stocks": ["카카오", "현대차", "LG전자"],
+            "remaining_stocks": ["엘앤에프", "LS증권"],
+        }, fp1)
+        loaded2 = load_persisted_stock_classification("2026-08-10", fp1)
+        assert loaded2["top_stocks"] == ["카카오", "현대차", "LG전자"], loaded2
+        print("✅ persist/load_stock_classification: 날짜별 저장·재사용·덮어쓰기 확인")
+    finally:
+        generate_script._STOCK_SELECTION_LOG_PATH = original_path
+        import shutil
+        shutil.rmtree(tmp_dir)
+
+
+def test_persisted_stock_classification_invalidated_when_briefing_data_changes():
+    """사용자 요구사항: "고정"은 V3-1 데이터가 재실행 때도 완전히 동일할 때만
+    적용된다. 데이터가 바뀌었으면(예: admin 교정) fingerprint가 달라져 캐시를
+    재사용하면 안 된다."""
+    import tempfile
+    original_path = generate_script._STOCK_SELECTION_LOG_PATH
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        generate_script._STOCK_SELECTION_LOG_PATH = os.path.join(tmp_dir, "stock_selection_log.json")
+
+        data_v1 = _sample_briefing_data_with_signals()
+        fp_v1 = generate_script._briefing_data_fingerprint(data_v1)
+        classification = select_stock_classification(data_v1)
+        persist_stock_classification("2026-08-10", classification, fp_v1)
+
+        # 같은 데이터로 재실행 → 캐시 재사용
+        assert load_persisted_stock_classification("2026-08-10", fp_v1) == classification
+
+        # V3-1이 데이터를 정정(예: LG전자 signal이 부정으로 바뀜)
+        data_v2 = _sample_briefing_data_with_signals()
+        for s in data_v2["stocks"]:
+            if s["name"] == "LG전자":
+                s["signal"] = "부정"
+        fp_v2 = generate_script._briefing_data_fingerprint(data_v2)
+        assert fp_v2 != fp_v1, "데이터가 바뀌었는데 fingerprint가 그대로임"
+
+        # 바뀐 fingerprint로는 이전 캐시를 재사용하면 안 됨
+        assert load_persisted_stock_classification("2026-08-10", fp_v2) is None
+        print("✅ 캐시 무효화: V3-1 데이터가 바뀌면(같은 날짜여도) 이전 종목 선정을 재사용하지 않음")
+    finally:
+        generate_script._STOCK_SELECTION_LOG_PATH = original_path
+        import shutil
+        shutil.rmtree(tmp_dir)
+
+
+def test_parse_panelist_identity_matches_real_v3_1_examples():
+    from assets.config import parse_panelist_identity
+
+    cases = [
+        ("오현진 팀장 루체인베스트", {"name": "오현진", "title": "팀장", "company": "루체인베스트"}),
+        ("김민준 토마토투자자문", {"name": "김민준", "title": "패널", "company": "토마토투자자문"}),
+        ("염승환 이사/LS증권", {"name": "염승환", "title": "이사", "company": "LS증권"}),
+        ("정경민 IBK투자증권 분당지점 팀장",
+         {"name": "정경민", "title": "팀장", "company": "IBK투자증권 분당지점"}),
+    ]
+    for raw, expected in cases:
+        result = parse_panelist_identity(raw)
+        assert result == expected, f"{raw!r} → {result} (기대: {expected})"
+    print("✅ parse_panelist_identity: 실제 v3-1 speaker_name 4개 형식 모두 정확히 분리")
+
+
+def test_build_panelist_intro_uses_company_name_title_order():
+    from assets.config import build_panelist_intro
+
+    cases = [
+        ("815머니톡", "오현진 팀장 루체인베스트", "815머니톡에 출연한 루체인베스트 오현진 팀장은"),
+        ("TomatoTV", "김민준 토마토투자자문", "TomatoTV에 출연한 토마토투자자문 김민준 패널은"),
+        ("삼프로TV", "염승환 이사/LS증권", "삼프로TV에 출연한 LS증권 염승환 이사는"),
+        ("이데일리TV", "정경민 IBK투자증권 분당지점 팀장",
+         "이데일리TV에 출연한 IBK투자증권 분당지점 정경민 팀장은"),
+    ]
+    for channel, speaker, expected in cases:
+        result = build_panelist_intro(channel, speaker)
+        assert result == expected, f"{channel!r}/{speaker!r} → {result!r} (기대: {expected!r})"
+    print("✅ build_panelist_intro: 채널명 원표기 유지 + 소속/이름/직책 순서 통일 확인"
+          "(실제 발음 교정은 pronunciation_ko.yml이 TTS 직전에 처리)")
+
+
 if __name__ == "__main__":
     test_build_stock_market_data_formats_real_values()
     test_securities_channel_mentions_not_dropped()
@@ -182,4 +364,12 @@ if __name__ == "__main__":
     test_partition_major_stocks_downgrades_names_without_price()
     test_partition_major_stocks_keeps_all_when_price_present()
     test_unfilled_stock_section_detected()
+    test_select_stock_classification_prefers_positive_over_neutral_over_negative()
+    test_select_stock_classification_fills_with_neutral_when_positive_insufficient()
+    test_select_stock_classification_fills_with_negative_when_positive_and_neutral_insufficient()
+    test_select_stock_classification_is_deterministic()
+    test_persist_and_load_stock_classification_roundtrip()
+    test_persisted_stock_classification_invalidated_when_briefing_data_changes()
+    test_parse_panelist_identity_matches_real_v3_1_examples()
+    test_build_panelist_intro_uses_company_name_title_order()
     print("\n✅ generate_script 테스트 전체 통과")
