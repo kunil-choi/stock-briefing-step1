@@ -1389,6 +1389,14 @@ def run(lang: str = "KO"):
     script = generate_script(briefing_text, market_data, brokerage_reports, stock_quotes,
                               stock_market_data, ai_strategy_detail)
 
+    # THUMBNAIL-QUOTE-1: stock_quotes(화자명/발언 원문/sentiment)는 지금까지
+    # generate_script()의 LLM 프롬프트 재료로만 쓰이고 최종 script.json에는
+    # 안 남았다(channel_summaries에는 요약 narration만 남음). 발언 인용형
+    # 썸네일(pipeline/generate_thumbnails.py)이 실제 화자명+발언 원문을
+    # 써야 해서, 여기서 원본 그대로 보존해둔다 — 키는 build_stock_quotes()가
+    # normalize_stock_name()으로 정규화한 종목명과 동일하다.
+    script["raw_stock_quotes"] = stock_quotes or {}
+
     root     = os.path.join(_HERE, "..")
     out_dir  = os.path.join(root, "output", lang, "scripts")
     os.makedirs(out_dir, exist_ok=True)

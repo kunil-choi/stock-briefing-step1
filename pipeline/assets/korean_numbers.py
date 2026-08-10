@@ -121,3 +121,18 @@ def pick_eun_neun(word: str) -> str:
         # 전부 숫자로 끝나면 받침 있는 발음이라(예: S&P500→"오백") "은"을 쓴다.
         return "은"
     return "는"
+
+
+def pick_i_ga(word: str) -> str:
+    """단어 마지막 글자의 받침 유무로 "이"/"가"를 고른다. 판정 로직은
+    pick_eun_neun()과 동일(받침 있으면 "이", 없으면 "가")."""
+    word = (word or "").strip()
+    if not word:
+        return "가"
+    last = word[-1]
+    if "가" <= last <= "힣":
+        jong = (ord(last) - 0xAC00) % 28
+        return "가" if jong == 0 else "이"
+    if last.isdigit():
+        return "이"
+    return "가"
