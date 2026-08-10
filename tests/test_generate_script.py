@@ -255,35 +255,104 @@ def test_persist_and_load_stock_classification_roundtrip():
     tmp_dir = tempfile.mkdtemp()
     try:
         generate_script._STOCK_SELECTION_LOG_PATH = os.path.join(tmp_dir, "stock_selection_log.json")
+        fp1 = "fingerprint-v1"
 
-        assert load_persisted_stock_classification("2026-08-10") is None
+        assert load_persisted_stock_classification("2026-08-10", fp1) is None
 
         classification = {
             "market_leaders": ["삼성전자", "SK하이닉스"],
             "top_stocks": ["엘앤에프", "LS증권", "LG전자"],
             "remaining_stocks": ["현대차", "카카오"],
         }
-        persist_stock_classification("2026-08-10", classification)
+        persist_stock_classification("2026-08-10", classification, fp1)
 
-        loaded = load_persisted_stock_classification("2026-08-10")
+        loaded = load_persisted_stock_classification("2026-08-10", fp1)
         assert loaded == classification, loaded
 
         # 다른 날짜는 영향 없어야 함
-        assert load_persisted_stock_classification("2026-08-11") is None
+        assert load_persisted_stock_classification("2026-08-11", fp1) is None
 
         # 같은 날짜를 다른 값으로 다시 기록하면 최신 값으로 덮어써야 함(재실행 시나리오)
         persist_stock_classification("2026-08-10", {
             "market_leaders": ["삼성전자", "SK하이닉스"],
             "top_stocks": ["카카오", "현대차", "LG전자"],
             "remaining_stocks": ["엘앤에프", "LS증권"],
-        })
-        loaded2 = load_persisted_stock_classification("2026-08-10")
+        }, fp1)
+        loaded2 = load_persisted_stock_classification("2026-08-10", fp1)
         assert loaded2["top_stocks"] == ["카카오", "현대차", "LG전자"], loaded2
         print("✅ persist/load_stock_classification: 날짜별 저장·재사용·덮어쓰기 확인")
     finally:
         generate_script._STOCK_SELECTION_LOG_PATH = original_path
         import shutil
         shutil.rmtree(tmp_dir)
+
+
+def test_persisted_stock_classification_invalidated_when_briefing_data_changes():
+    """사용자 요구사항: "고정"은 V3-1 데이터가 재실행 때도 완전히 동일할 때만
+    적용된다. 데이터가 바뀌었으면(예: admin 교정) fingerprint가 달라져 캐시를
+    재사용하면 안 된다."""
+    import tempfile
+    original_path = generate_script._STOCK_SELECTION_LOG_PATH
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        generate_script._STOCK_SELECTION_LOG_PATH = os.path.join(tmp_dir, "stock_selection_log.json")
+
+        data_v1 = _sample_briefing_data_with_signals()
+        fp_v1 = generate_script._briefing_data_fingerprint(data_v1)
+        classification = select_stock_classification(data_v1)
+        persist_stock_classification("2026-08-10", classification, fp_v1)
+
+        # 같은 데이터로 재실행 → 캐시 재사용
+        assert load_persisted_stock_classification("2026-08-10", fp_v1) == classification
+
+        # V3-1이 데이터를 정정(예: LG전자 signal이 부정으로 바뀜)
+        data_v2 = _sample_briefing_data_with_signals()
+        for s in data_v2["stocks"]:
+            if s["name"] == "LG전자":
+                s["signal"] = "부정"
+        fp_v2 = generate_script._briefing_data_fingerprint(data_v2)
+        assert fp_v2 != fp_v1, "데이터가 바뀌었는데 fingerprint가 그대로임"
+
+        # 바뀐 fingerprint로는 이전 캐시를 재사용하면 안 됨
+        assert load_persisted_stock_classification("2026-08-10", fp_v2) is None
+        print("✅ 캐시 무효화: V3-1 데이터가 바뀌면(같은 날짜여도) 이전 종목 선정을 재사용하지 않음")
+    finally:
+        generate_script._STOCK_SELECTION_LOG_PATH = original_path
+        import shutil
+        shutil.rmtree(tmp_dir)
+
+
+def test_parse_panelist_identity_matches_real_v3_1_examples():
+    from assets.config import parse_panelist_identity
+
+    cases = [
+        ("오현진 팀장 루체인베스트", {"name": "오현진", "title": "팀장", "company": "루체인베스트"}),
+        ("김민준 토마토투자자문", {"name": "김민준", "title": "패널", "company": "토마토투자자문"}),
+        ("염승환 이사/LS증권", {"name": "염승환", "title": "이사", "company": "LS증권"}),
+        ("정경민 IBK투자증권 분당지점 팀장",
+         {"name": "정경민", "title": "팀장", "company": "IBK투자증권 분당지점"}),
+    ]
+    for raw, expected in cases:
+        result = parse_panelist_identity(raw)
+        assert result == expected, f"{raw!r} → {result} (기대: {expected})"
+    print("✅ parse_panelist_identity: 실제 v3-1 speaker_name 4개 형식 모두 정확히 분리")
+
+
+def test_build_panelist_intro_uses_company_name_title_order():
+    from assets.config import build_panelist_intro
+
+    cases = [
+        ("815머니톡", "오현진 팀장 루체인베스트", "815머니톡에 출연한 루체인베스트 오현진 팀장은"),
+        ("TomatoTV", "김민준 토마토투자자문", "TomatoTV에 출연한 토마토투자자문 김민준 패널은"),
+        ("삼프로TV", "염승환 이사/LS증권", "삼프로TV에 출연한 LS증권 염승환 이사는"),
+        ("이데일리TV", "정경민 IBK투자증권 분당지점 팀장",
+         "이데일리TV에 출연한 IBK투자증권 분당지점 정경민 팀장은"),
+    ]
+    for channel, speaker, expected in cases:
+        result = build_panelist_intro(channel, speaker)
+        assert result == expected, f"{channel!r}/{speaker!r} → {result!r} (기대: {expected!r})"
+    print("✅ build_panelist_intro: 채널명 원표기 유지 + 소속/이름/직책 순서 통일 확인"
+          "(실제 발음 교정은 pronunciation_ko.yml이 TTS 직전에 처리)")
 
 
 if __name__ == "__main__":
@@ -300,4 +369,7 @@ if __name__ == "__main__":
     test_select_stock_classification_fills_with_negative_when_positive_and_neutral_insufficient()
     test_select_stock_classification_is_deterministic()
     test_persist_and_load_stock_classification_roundtrip()
+    test_persisted_stock_classification_invalidated_when_briefing_data_changes()
+    test_parse_panelist_identity_matches_real_v3_1_examples()
+    test_build_panelist_intro_uses_company_name_title_order()
     print("\n✅ generate_script 테스트 전체 통과")

@@ -409,6 +409,85 @@ def resolve_channel_identity(channel: str, speaker: str):
     return channel, speaker
 
 
+# ── 패널 발언자 소개 문구 ────────────────────────────────────────────────────
+#
+# PANELIST-INTRO-1: V3-1 원본의 speaker_name은 형식이 제각각인 자유 텍스트다
+# (예: "오현진 팀장 루체인베스트", "염승환 이사/LS증권", "정경민 IBK투자증권
+# 분당지점 팀장", "김민준 토마토투자자문"). 예전엔 이 원문을 그대로 LLM에게
+# 주고 "OO에 출연한 OO는" 문장을 스스로 조합하게 했는데, 형식이 뒤섞여 있어
+# "815머니톡에 출연한 오현진 팀장 루체인베스트는"처럼 이름·직책·소속 순서가
+# 뒤바뀐 채로 읽히는 문제가 있었다(사용자 보고). 여기서는 이름/직책/소속을
+# 최대한 분리해, "{소속} {이름} {직책}은/는" 형태로 항상 같은 순서로 소개하게
+# 한다. 직책을 못 찾으면 "패널"로 통일한다(직책 없이 이름만 부르는 것보다
+# 자연스러움).
+#
+# 길이 내림차순 매칭이 필요 없도록 정확히 한 단어(공백으로 분리된 토큰)로만
+# 매칭한다 — "센터장"/"부지점장"처럼 더 긴 직책이 먼저 와야 하는 문제가 아니라
+# 애초에 토큰 단위 비교라 순서와 무관하다.
+_TITLE_KEYWORDS = {
+    "대표이사", "부지점장", "지점장", "센터장", "수석연구원", "연구위원",
+    "위원장", "상무", "전무", "사장", "이사", "대표", "팀장", "부장",
+    "소장", "연구원", "애널리스트", "차장", "과장", "대리",
+}
+
+
+def parse_panelist_identity(speaker_name: str) -> dict:
+    """자유 텍스트 speaker_name에서 이름/직책/소속을 최대한 분리한다. 확신할 수
+    없는 형식은 안전하게 title="패널"로 폴백한다 — 잘못 쪼개서 이상한 문장이
+    나가는 것보다, 밋밋해도 항상 말이 되는 문장이 되는 편이 낫다."""
+    s = (speaker_name or "").strip()
+    if not s:
+        return {"name": "", "title": "패널", "company": ""}
+
+    # "이름 직책/소속" 형태(예: "염승환 이사/LS증권")
+    if "/" in s:
+        left, company = s.split("/", 1)
+        parts = left.strip().split()
+        name = parts[0] if parts else ""
+        title = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+        return {"name": name, "title": title or "패널", "company": company.strip()}
+
+    parts = s.split()
+    if not parts:
+        return {"name": "", "title": "패널", "company": ""}
+    name = parts[0]
+    rest = parts[1:]
+    if not rest:
+        return {"name": name, "title": "패널", "company": ""}
+
+    # "이름 소속... 직책"(직책이 맨 끝) — 예: "정경민 IBK투자증권 분당지점 팀장"
+    if rest[-1] in _TITLE_KEYWORDS:
+        return {"name": name, "title": rest[-1], "company": " ".join(rest[:-1])}
+
+    # "이름 직책 소속..."(직책이 소속보다 앞) — 예: "오현진 팀장 루체인베스트"
+    if rest[0] in _TITLE_KEYWORDS:
+        return {"name": name, "title": rest[0], "company": " ".join(rest[1:])}
+
+    # 직책을 못 찾음 → 나머지는 전부 소속으로 보고 직책은 "패널"
+    # 예: "김민준 토마토투자자문"
+    return {"name": name, "title": "패널", "company": " ".join(rest).strip("() ")}
+
+
+def build_panelist_intro(channel: str, speaker_name: str) -> str:
+    """channel_summaries 나레이션이 발언자를 처음 소개할 때 쓰는 문구.
+    "{채널}에 출연한 {소속} {이름} {직책}은/는" 형태로 통일한다. 채널명/소속명
+    (예: "815머니톡"→"팔일오 머니톡", "LS증권"→"엘에스증권")의 실제 발음 교정은
+    여기서 하지 않는다 — narration 전체에 이미 적용되는
+    config/pronunciation_ko.yml(apply_pronunciation_rules())이 TTS 직전에
+    처리하므로, 표기는 원래 철자 그대로 둔다."""
+    from .korean_numbers import pick_eun_neun
+
+    identity = parse_panelist_identity(speaker_name)
+    name, title, company = identity["name"], identity["title"], identity["company"]
+    if not name:
+        return ""
+    person = f"{company} {name} {title}".strip() if company else f"{name} {title}"
+    josa = pick_eun_neun(title)
+    channel = (channel or "").strip()
+    channel_part = f"{channel}에 출연한 " if channel else ""
+    return f"{channel_part}{person}{josa}"
+
+
 NEWS_IMAGE_FALLBACKS = {
     "삼성전자":       "https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Samsung_Logo.svg/800px-Samsung_Logo.svg.png",
     "SK하이닉스":     "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e9/SK_Hynix_Logo.svg/800px-SK_Hynix_Logo.svg.png",
