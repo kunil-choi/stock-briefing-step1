@@ -198,6 +198,8 @@ jobs:
           PY
       - name: 🏆 주도주 랭킹 생성 (TOP5 카드 + TOP1~3 쇼츠)
         run: python pipeline/generate_ranking.py KO
+      - name: 🖼️ 썸네일 후보 2종 생성 (발언형 + 뉴스형)
+        run: python pipeline/generate_thumbnails.py KO
       - run: python pipeline/generate_subtitles.py KO
       - run: python pipeline/generate_video.py KO
       - name: 📋 YouTube 메타데이터 생성 (제목/설명/태그/썸네일)

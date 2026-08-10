@@ -662,3 +662,50 @@ def build_thumbnail(data: dict, title: str, out_path: str) -> str:
 """
     html = centered_shell(content)
     return render_html_to_png(html, out_path)
+
+
+# ── 썸네일 후보 2종 (발언형/뉴스형) ──────────────────────────────────────────
+# pipeline/assets/thumbnail_select.py가 고른 candidate(dict)와 title(str)을
+# 그대로 받아 렌더링만 한다 — 선정 로직(어떤 발언/종목을 고를지)과 렌더링을
+# 분리해서, 문구 산출 방식(규칙 기반 → 추후 LLM 다듬기 등)이 바뀌어도 이
+# 함수들은 그대로 재사용할 수 있게 했다.
+
+def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: str) -> str:
+    """발언형 썸네일("OOO가 왜 OOO라고 말했나?"). thumbnail_select.
+    select_quote_candidate() + build_quote_title()의 결과를 렌더링한다."""
+    badge_color = PALETTE["up"] if candidate.get("change_positive", True) else PALETTE["down"]
+    content = f"""
+<div style="position:absolute;z-index:-1;width:1100px;height:1100px;border-radius:50%;
+  background:radial-gradient(circle,{PALETTE['accent_soft']} 0%,transparent 70%);
+  top:-320px;left:50%;transform:translateX(-50%);"></div>
+{kbs_badge()}
+<div style="font-size:200px;font-weight:800;line-height:0.5;color:{PALETTE['accent_soft']};">"</div>
+<div style="font-size:92px;font-weight:800;line-height:1.25;max-width:1600px;margin-top:-40px;">{esc(title)}</div>
+<div class="pill" style="background:{badge_color}1a;color:{badge_color};
+  border:3px solid {badge_color};font-size:32px;font-weight:800;">
+  {esc(candidate.get('channel', ''))} · {esc(candidate.get('speaker', ''))}</div>
+<div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
+  font-size:28px;">{esc(date_str)}</div>
+"""
+    html = centered_shell(content)
+    return render_html_to_png(html, out_path)
+
+
+def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: str) -> str:
+    """뉴스형 썸네일(오늘의 화제 종목). thumbnail_select.select_news_candidate()
+    + build_news_title()의 결과를 렌더링한다."""
+    badge_color = PALETTE["up"] if candidate.get("change_positive", True) else PALETTE["down"]
+    content = f"""
+<div style="position:absolute;z-index:-1;width:1100px;height:1100px;border-radius:50%;
+  background:radial-gradient(circle,{badge_color}1a 0%,transparent 70%);
+  top:-320px;left:50%;transform:translateX(-50%);"></div>
+<div class="pill" style="background:{PALETTE['up']};color:#fff;font-size:30px;font-weight:800;">속보</div>
+<div style="font-size:104px;font-weight:800;line-height:1.25;max-width:1600px;">{esc(title)}</div>
+<div class="pill" style="background:{badge_color}1a;color:{badge_color};
+  border:3px solid {badge_color};font-size:40px;font-weight:800;">
+  {esc(candidate.get('stock_name', ''))} {esc(candidate.get('change', ''))}</div>
+<div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
+  font-size:28px;">{esc(date_str)}</div>
+"""
+    html = centered_shell(content)
+    return render_html_to_png(html, out_path)
