@@ -14,6 +14,8 @@ ASS(Advanced SubStation Alpha) 자막 파일 생성 모듈
   10_삼성전자_1_summary.png  → stock_삼성전자_summary.mp3
   10_삼성전자_3_mention.png  → stock_삼성전자_mention.mp3
   10_삼성전자_3_mention_00.png → stock_삼성전자_mention_00.mp3
+  90_extra_watchlist_00.png  → stock_추가관심종목_00.mp3 (종목 1개당 1페이지 —
+                                assets.watchlist_pages 참고)
   95_ai_strategy_1_core.png     → ai_strategy_core.mp3
   95_ai_strategy_2_points.png   → ai_strategy_points.mp3
   95_ai_strategy_3_analyst.png  → ai_strategy_analyst.mp3
@@ -36,6 +38,7 @@ if _HERE not in sys.path:
     sys.path.insert(0, _HERE)
 
 from assets.video_renderer import TRANSITION_DURATION
+from assets.watchlist_pages import build_watchlist_pages
 
 # ── ASS 스타일 정의 ────────────────────────────────────────────────────────
 
@@ -133,6 +136,11 @@ def _frame_stem_to_audio_id(stem: str, sections: list) -> str:
     for pattern, audio_id in fixed_patterns:
         if re.match(pattern, stem):
             return audio_id
+
+    # 추가 관심 종목: 종목 1개당 페이지(90_extra_watchlist_MM) — assets.watchlist_pages 참고
+    m = re.match(r'^90_extra_watchlist_(\d{2})$', stem)
+    if m:
+        return f"stock_추가관심종목_{m.group(1)}"
 
     # 종목 슬라이드 패턴: NN_종목명_1_summary / _2_chart / _3_mention / _3_mention_MM
     # 형식: {숫자2자리}_{종목명}_{슬라이드번호}_{타입}[_{페이지번호}]
@@ -255,6 +263,14 @@ def _build_subtitle_map(sections: list, lang: str):
         elif sid == "hook":
             # 훅 타이틀 화면은 제목 카드처럼 텍스트만 보여주고 자막은 넣지
             # 않는다(narrative_reorder._build_hook_section 참고).
+            continue
+
+        elif sid == "stock_추가관심종목":
+            # 종목 1개당 1페이지(builders.build_extra_watchlist)이고 그 종목의
+            # 설명 전문이 이미 화면 카드에 큰 글씨로 표시되므로, mention
+            # 페이지와 같은 이유(위 is_stock 분기 주석 참고)로 하단 자막은
+            # 중복이라 넣지 않는다 — 내레이션 오디오(generate_voice.py)는
+            # 페이지별로 그대로 유지된다.
             continue
 
         elif sid == "ai_strategy_brief":

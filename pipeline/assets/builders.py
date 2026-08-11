@@ -17,6 +17,7 @@ from .html_theme import (
 )
 from .chart import build_chart_with_insight, build_week_chart
 from .panel_avatars import get_avatar_path
+from .watchlist_pages import build_watchlist_pages
 
 # 영상 오프닝(훅 타이틀 화면 + 오늘의 한 줄 결론 화면)에 고정으로 쓰는 브랜드
 # 타이틀 카드. 사용자가 직접 디자인해 제공한 이미지이며, 이미 "KBS 머니올라"
@@ -488,12 +489,47 @@ def _build_aggregate_stock_slide(sec, out_dir, filename, title, use_report_card=
     return render_html_to_png(html, os.path.join(out_dir, filename))
 
 
+def _build_watchlist_page(name: str, text: str, idx: int, total: int, out_path: str):
+    """추가 관심 종목 1개당 1페이지. 예전엔 종목 4~5개를 point_card_img()
+    카드로 한 화면에 욱여넣었는데(_build_aggregate_stock_slide), "화면에
+    종목이 한꺼번에 너무 많이 나온다"는 사용자 피드백으로 _build_mention_page
+    (전문가 1명당 1페이지)와 같은 방식으로 바꿨다 — 카드 1개만 있으니 배지·
+    종목명·설명 글자를 크게 키워 화면을 적절히 채우고, page_dots로 몇 번째
+    종목인지 보여준다. 페이지 사이 전환은 이 함수가 처리하지 않는다 —
+    video_renderer.py의 slideleft 전환이 영상 전체에 이미 자동 적용된다."""
+    color = _ACCENT_CYCLE[idx % len(_ACCENT_CYCLE)]
+    body = f"""
+<div style="display:flex;flex-direction:column;height:100%;">
+  <div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:center;">
+    <div class="card" style="padding:56px 64px;">
+      <div style="display:flex;align-items:center;gap:20px;margin-bottom:28px;">
+        <div class="badge-num" style="width:72px;height:72px;font-size:32px;
+          background:{color}22;color:{color};border:3px solid {color};">{idx + 1}</div>
+        <div style="font-size:52px;font-weight:800;color:{color};">{esc(name)}</div>
+      </div>
+      <div style="font-size:38px;line-height:1.6;font-weight:600;">{esc(text)}</div>
+    </div>
+  </div>
+  {page_dots(total, idx)}
+</div>
+"""
+    html = shell(f"추가 관심 종목: {name}", body, stock_tag=name, suppress_ticker=True)
+    return render_html_to_png(html, out_path)
+
+
 def build_extra_watchlist(data, out_dir, img_dir=None):
     sec = _find_section(data.get("sections", []), "stock_추가관심종목")
     if not sec:
-        return None
-    return _build_aggregate_stock_slide(sec, out_dir, "90_extra_watchlist.png", "추가 관심 종목",
-                                         img_dir=img_dir)
+        return []
+    pages = build_watchlist_pages(sec)
+    total = len(pages)
+    return [
+        _build_watchlist_page(
+            p["name"], p["text"], i, total,
+            os.path.join(out_dir, f"90_extra_watchlist_{i:02d}.png"),
+        )
+        for i, p in enumerate(pages)
+    ]
 
 
 def build_brokerage_report(data, out_dir, img_dir=None):

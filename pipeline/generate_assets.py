@@ -33,8 +33,11 @@ from assets.builders import (
 # 디스패치(build_stock_cards)보다 먼저 걸러야 한다. build_stock_cards는
 # 종목 하나짜리(price/channel_summaries) 구조를 기대하므로, items 리스트
 # 구조인 이 집계 섹션들을 잘못 넘기면 빈 카드가 렌더링된다.
+#
+# stock_추가관심종목은 종목 1개당 1페이지로 프레임을 여러 장 반환하므로(사용자
+# 피드백 — 한 화면에 여러 종목을 욱여넣지 말 것) 아래 루프에서 별도 분기로
+# .extend() 처리한다. stock_증권사리포트는 여전히 한 화면짜리라 이 맵에 남긴다.
 _AGGREGATE_BUILDERS = {
-    "stock_추가관심종목": build_extra_watchlist,
     "stock_증권사리포트": build_brokerage_report,
 }
 from assets.render import close_renderer
@@ -198,6 +201,8 @@ def run(lang: str = "KO"):
                 asset_map["frames"].append(build_ai_strategy(data, out_dir))
             elif sid == "ai_strategy_brief":
                 asset_map["frames"].extend(build_ai_strategy_brief(sec, out_dir))
+            elif sid == "stock_추가관심종목":
+                asset_map["frames"].extend(build_extra_watchlist(data, out_dir, img_dir))
             elif sid in _AGGREGATE_BUILDERS:
                 frame = _AGGREGATE_BUILDERS[sid](data, out_dir, img_dir)
                 if frame:
