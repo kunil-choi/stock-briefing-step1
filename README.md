@@ -28,6 +28,19 @@ V3_1에는 증권사 리포트 데이터가 애초에 없으므로, 이 레포�
 뒤, 이 레포 Actions 탭에서 수동으로 `workflow_dispatch`를 실행하세요. 자체 cron도
 없습니다.
 
+## 썸네일 문구 수정 (관리자 페이지)
+
+`morning_core.yml`이 끝나면 발언형/뉴스형 썸네일 PNG 2장과 선정된 후보 원본을
+`docs/thumbnails/latest_{1,2}.png` + `latest_meta.json`으로 커밋합니다.
+[`stock-briefing-v3-1`의 통합 관리자 페이지](https://kunil-choi.github.io/stock-briefing-v3-1/admin/)
+"STEP-1" 탭 → "🖼️ 썸네일 수정"에서 이 이미지를 보고 문구를 고쳐 "재생성"을 누르면,
+이 레포의 `.github/workflows/regenerate_thumbnail.yml`이 `latest_meta.json`에 저장된
+candidate(선정된 발언/종목 원본)를 그대로 재사용해 OpenAI/TTS 재호출 없이 1~2분
+안에 새 문구로 다시 그려 같은 경로에 커밋합니다. 후보 자체(어떤 발언/종목을 쓸지)를
+바꾸려면 `morning_core.yml`을 다시 돌려야 합니다 — 이 경로는 "문구만" 다듬는 용도입니다.
+로컬에서 같은 걸 하고 싶으면 `pipeline/regenerate_thumbnail.py`(script.json 기준으로
+후보를 다시 선정)를 쓰세요.
+
 ## 신규 구성 요소 (`stock-briefing-video` 대비 추가/변경)
 
 | 파일 | 역할 |
@@ -53,6 +66,8 @@ V3_1에는 증권사 리포트 데이터가 애초에 없으므로, 이 레포�
 | `pipeline/assets/audio_post.py` | atempo/loudnorm 후처리 + BGM 사이드체인 덕킹 + 과장 표현 탐지 (Phase H, 아래 참고) |
 | `pipeline/generate_voice.py` | OpenAI 단일 호출 → provider 폴백 체인 + loudnorm 후처리 + `audio_report.json` 생성으로 교체 (Phase H, 변경) |
 | `pipeline/generate_video.py`의 `compute_bgm_bounds()` / BGM 믹싱 단계 | 상수 볼륨 `amix` → intro/body/outro 구간별 볼륨 + 사이드체인 덕킹으로 교체 (Phase H, 변경) |
+| `pipeline/assets/thumbnail_bg.py` / `pipeline/regenerate_thumbnail.py` / `pipeline/apply_thumbnail_edit.py` | 발언형/뉴스형 썸네일: 캔들차트+거래소 장식 배경 합성, 로컬 문구 재편집 CLI, 관리자 페이지 전용 경량 재생성 스크립트 (추가) |
+| `.github/workflows/regenerate_thumbnail.yml` | 관리자 페이지가 트리거하는 썸네일 문구 전용 재생성 워크플로우 (추가) |
 
 그 외 `generate_assets.py`/`build_asset_map.py`/
 `pipeline/assets/chart.py`/`update_voice_id.py`는
