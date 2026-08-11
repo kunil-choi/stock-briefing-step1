@@ -30,9 +30,18 @@ script.json에 오늘 패널 발언이 없으면(raw_stock_quotes가 비어있�
 (generate_metadata.py의 기존 fallback 원칙과 동일).
 
 출력 파일명: output/{date}/thumbnails/{YYMMDD}_1.png(발언형), _2.png(뉴스형).
+
+ADMIN-THUMBNAIL-EDIT-1: 위 출력과 별도로, docs/thumbnails/latest_{1,2}.png +
+latest_meta.json(선정된 candidate 원본 + 현재 문구)을 함께 커밋해둔다.
+GitHub Pages 관리자 페이지(stock-briefing-v3-1/docs/admin)가 이 PNG를 그대로
+보여주고, 문구를 고쳐 "재생성"을 누르면 apply_thumbnail_edit.py가 이 meta.json의
+candidate를 그대로 재사용해 script.json/ranking.json 없이도(즉 OpenAI 재호출
+없이) 새 문구로 다시 그려 같은 경로에 덮어쓴다 — pipeline/regenerate_thumbnail.py
+(로컬 CLI, script.json 기준 재선정)와는 별개의, 관리자 페이지 전용 경량 경로.
 """
 import json
 import os
+import shutil
 import sys
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -86,15 +95,18 @@ def run(lang: str = "KO"):
     date_str = script.get("date", date_iso)
     result = {"quote_thumbnail": None, "news_thumbnail": None}
 
+    meta = {"date": date_str, "date_iso": date_iso}
+
     quote_candidate = select_quote_candidate(script, ranking_entries)
     if quote_candidate:
-        title = build_quote_title(quote_candidate)
+        quote_title = build_quote_title(quote_candidate)
         out_path = os.path.join(out_dir, f"{yymmdd}_1.png")
         chart_path = _chart_for(quote_candidate["stock_name"], quote_candidate.get("change_positive", True))
         try:
-            build_thumbnail_quote(quote_candidate, title, date_str, out_path, chart_path=chart_path)
+            build_thumbnail_quote(quote_candidate, quote_title, date_str, out_path, chart_path=chart_path)
             result["quote_thumbnail"] = out_path
-            print(f"✅ 발언형 썸네일 → {out_path}\n   제목: {title}")
+            meta["quote"] = {"candidate": quote_candidate, "title": quote_title}
+            print(f"✅ 발언형 썸네일 → {out_path}\n   제목: {quote_title}")
         except Exception as e:
             print(f"⚠️ 발언형 썸네일 렌더링 실패: {e}")
     else:
@@ -103,17 +115,32 @@ def run(lang: str = "KO"):
     exclude_stock = quote_candidate["stock_name"] if quote_candidate else None
     news_candidate = select_news_candidate(script, ranking_entries, exclude_stock=exclude_stock)
     if news_candidate:
-        title = build_news_title(news_candidate)
+        news_title = build_news_title(news_candidate)
         out_path = os.path.join(out_dir, f"{yymmdd}_2.png")
         chart_path = _chart_for(news_candidate["stock_name"], news_candidate.get("change_positive", True))
         try:
-            build_thumbnail_news(news_candidate, title, date_str, out_path, chart_path=chart_path)
+            build_thumbnail_news(news_candidate, news_title, date_str, out_path, chart_path=chart_path)
             result["news_thumbnail"] = out_path
-            print(f"✅ 뉴스형 썸네일 → {out_path}\n   제목: {title}")
+            meta["news"] = {"candidate": news_candidate, "title": news_title}
+            print(f"✅ 뉴스형 썸네일 → {out_path}\n   제목: {news_title}")
         except Exception as e:
             print(f"⚠️ 뉴스형 썸네일 렌더링 실패: {e}")
     else:
         print("⚠️ 뉴스형 썸네일에 쓸 종목 후보 없음 — 건너뜀")
+
+    # ADMIN-THUMBNAIL-EDIT-1: 관리자 페이지가 읽는 고정 경로. 후보가 하나도
+    # 없으면(둘 다 스킵) 이전 날짜의 낡은 PNG/메타가 남아 오해를 부르지 않도록
+    # 아예 쓰지 않는다.
+    if "quote" in meta or "news" in meta:
+        docs_dir = os.path.join(root, "docs", "thumbnails")
+        os.makedirs(docs_dir, exist_ok=True)
+        if result["quote_thumbnail"]:
+            shutil.copyfile(result["quote_thumbnail"], os.path.join(docs_dir, "latest_1.png"))
+        if result["news_thumbnail"]:
+            shutil.copyfile(result["news_thumbnail"], os.path.join(docs_dir, "latest_2.png"))
+        with open(os.path.join(docs_dir, "latest_meta.json"), "w", encoding="utf-8") as f:
+            json.dump(meta, f, ensure_ascii=False, indent=2)
+        print(f"✅ 관리자 페이지용 썸네일 메타 → {docs_dir}/latest_meta.json")
 
     return result
 
