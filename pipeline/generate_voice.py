@@ -29,6 +29,7 @@ from assets.audio_post import (
     apply_post_processing, measure_duration, measure_loudness,
     detect_advice_language, build_audio_report,
 )
+from assets.watchlist_pages import build_watchlist_pages
 
 AGGREGATE_STOCK_SECTION_IDS = {"stock_추가관심종목", "stock_증권사리포트"}
 
@@ -96,6 +97,15 @@ def _build_jobs(sections: list, lang: str) -> list:
             # 않는다(narrative_reorder._build_hook_section 참고) — 오디오를
             # 합성하지 않으며, generate_video.py가 무음 프레임으로 처리한다.
             continue
+        elif sid == "stock_추가관심종목":
+            # 종목 1개당 화면 1페이지(builders.build_extra_watchlist)이므로
+            # 오디오도 페이지마다 하나씩 따로 합성한다 — assets.watchlist_pages가
+            # builders.py와 페이지 목록(순서·텍스트)을 공유해 프레임/오디오가
+            # 어긋나지 않는다.
+            for p, page in enumerate(build_watchlist_pages(section)):
+                text = page["text"]
+                if text:
+                    jobs.append((text, f"{audio_base}/{sid}_{p:02d}.mp3", f"{label} [{page['name']}]"))
         elif sid == "ai_strategy_brief":
             # 화면 3장(핵심 시나리오/포인트/애널리스트)마다 오디오를 하나씩
             # 따로 합성한다(narrative_reorder._build_ai_strategy_brief_section,

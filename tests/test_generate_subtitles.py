@@ -49,6 +49,19 @@ def test_stock_summary_and_mention_mapping_with_short_form_prefix():
     print("✅ short_form 종목 프레임(10_.../11_...) 매핑 확인")
 
 
+def test_extra_watchlist_paginated_frame_mapping():
+    """stock_추가관심종목은 이제 종목 1개당 1페이지(assets.watchlist_pages)라
+    90_extra_watchlist_MM 형태의 프레임이 stock_추가관심종목_MM으로 매핑돼야
+    한다. 옛 단일 프레임 패턴(90_extra_watchlist, 페이지 번호 없음)도 하위
+    호환으로 계속 지원된다."""
+    from generate_subtitles import _frame_stem_to_audio_id
+
+    assert _frame_stem_to_audio_id("90_extra_watchlist_00", []) == "stock_추가관심종목_00"
+    assert _frame_stem_to_audio_id("90_extra_watchlist_03", []) == "stock_추가관심종목_03"
+    assert _frame_stem_to_audio_id("90_extra_watchlist", []) == "stock_추가관심종목"
+    print("✅ 추가 관심 종목 페이지별 프레임(90_extra_watchlist_MM) 매핑 확인")
+
+
 def test_legacy_longform_patterns_still_supported():
     """short_form=False(구 8단계 롱폼)에서만 나오는 패턴들의 하위 호환."""
     from generate_subtitles import _frame_stem_to_audio_id
@@ -150,6 +163,7 @@ if __name__ == "__main__":
     test_hook_and_conclusion_frame_mapping()
     test_closing_frame_mapping_unchanged()
     test_stock_summary_and_mention_mapping_with_short_form_prefix()
+    test_extra_watchlist_paginated_frame_mapping()
     test_legacy_longform_patterns_still_supported()
     test_speech_weight_estimates_number_reading_length()
     test_make_dialogue_events_gives_number_heavy_chunk_more_time()
