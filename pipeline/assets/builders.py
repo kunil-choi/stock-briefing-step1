@@ -681,7 +681,6 @@ def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: 
     불투명 배경으로 바꾼다. chart_path가 없으면(데이터 조회 실패 등) 기존
     단색 배경 디자인으로 폴백한다."""
     has_bg = bool(chart_path)
-    badge_color = PALETTE["up"] if candidate.get("change_positive", True) else PALETTE["down"]
 
     if has_bg:
         glow_html = ""
@@ -689,11 +688,6 @@ def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: 
         title_html = text_plate(
             f'<div style="font-size:84px;font-weight:800;line-height:1.3;'
             f'max-width:1520px;color:#fff;">{esc(title)}</div>'
-        )
-        speaker_pill = (
-            f'<div class="pill" style="background:{badge_color};color:#fff;'
-            f'font-size:32px;font-weight:800;">'
-            f'{esc(candidate.get("channel", ""))} · {esc(candidate.get("speaker", ""))}</div>'
         )
     else:
         glow_html = f"""
@@ -708,18 +702,12 @@ def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: 
             f'<div style="font-size:92px;font-weight:800;line-height:1.25;max-width:1600px;'
             f'margin-top:-40px;">{esc(title)}</div>'
         )
-        speaker_pill = (
-            f'<div class="pill" style="background:{badge_color}1a;color:{badge_color};'
-            f'border:3px solid {badge_color};font-size:32px;font-weight:800;">'
-            f'{esc(candidate.get("channel", ""))} · {esc(candidate.get("speaker", ""))}</div>'
-        )
 
     content = f"""
 {glow_html}
 {kbs_badge()}
 {quote_mark_html}
 {title_html}
-{speaker_pill}
 <div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
   font-size:28px;">{esc(date_str)}</div>
 """
