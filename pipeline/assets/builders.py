@@ -9,11 +9,11 @@ import os
 from .config import BROKERAGE_FIRMS
 from .render import render_html_to_png
 from .html_theme import (
-    esc, file_uri, shell, centered_shell, kbs_badge, stat_table,
+    esc, nl2br, file_uri, shell, centered_shell, kbs_badge, stat_table,
     point_card, point_card_img, bullet_column, chat_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
     headline_card, report_card, risk_card, sector_heatmap,
-    autofit_text, text_plate,
+    autofit_text, text_plate, HEADLINE_FONT_FAMILY,
 )
 from .chart import build_chart_with_insight, build_week_chart
 from .panel_avatars import get_avatar_path
@@ -675,25 +675,21 @@ def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: 
     """발언형 썸네일("OOO가 왜 OOO라고 말했나?"). thumbnail_select.
     select_quote_candidate() + build_quote_title()의 결과를 렌더링한다.
 
-    chart_path(assets.chart.build_chart_with_insight()가 만든 그 종목의 2주
-    캔들차트 PNG)가 있으면 전체화면 배경으로 깔고, 텍스트는 사진의 밝기와
-    무관하게 항상 읽히도록 text_plate()(반투명 다크 판)로 감싸고 배지도
-    불투명 배경으로 바꾼다. chart_path가 없으면(데이터 조회 실패 등) 기존
-    단색 배경 디자인으로 폴백한다."""
+    chart_path(assets.thumbnail_bg.build_thumbnail_background()가 만든, 그
+    종목의 2주 캔들차트 + 거래소 분위기 장식을 합성한 PNG)가 있으면
+    전체화면 배경으로 깔고, 텍스트는 배경의 밝기와 무관하게 항상 읽히도록
+    text_plate()(반투명 다크 판)로 감싸고 배지도 불투명 배경으로 바꾼다.
+    chart_path가 없으면(데이터 조회 실패 등) 기존 단색 배경 디자인으로
+    폴백한다."""
     has_bg = bool(chart_path)
-    badge_color = PALETTE["up"] if candidate.get("change_positive", True) else PALETTE["down"]
 
     if has_bg:
         glow_html = ""
         quote_mark_html = ""
         title_html = text_plate(
-            f'<div style="font-size:84px;font-weight:800;line-height:1.3;'
-            f'max-width:1520px;color:#fff;">{esc(title)}</div>'
-        )
-        speaker_pill = (
-            f'<div class="pill" style="background:{badge_color};color:#fff;'
-            f'font-size:32px;font-weight:800;">'
-            f'{esc(candidate.get("channel", ""))} · {esc(candidate.get("speaker", ""))}</div>'
+            f'<div style="font-family:\'{HEADLINE_FONT_FAMILY}\';font-weight:400;'
+            f'font-size:84px;line-height:1.3;'
+            f'max-width:1520px;color:#fff;">{nl2br(title)}</div>'
         )
     else:
         glow_html = f"""
@@ -705,13 +701,9 @@ def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: 
             f'color:{PALETTE["accent_soft"]};">"</div>'
         )
         title_html = (
-            f'<div style="font-size:92px;font-weight:800;line-height:1.25;max-width:1600px;'
-            f'margin-top:-40px;">{esc(title)}</div>'
-        )
-        speaker_pill = (
-            f'<div class="pill" style="background:{badge_color}1a;color:{badge_color};'
-            f'border:3px solid {badge_color};font-size:32px;font-weight:800;">'
-            f'{esc(candidate.get("channel", ""))} · {esc(candidate.get("speaker", ""))}</div>'
+            f'<div style="font-family:\'{HEADLINE_FONT_FAMILY}\';font-weight:400;'
+            f'font-size:92px;line-height:1.25;max-width:1600px;'
+            f'margin-top:-40px;">{nl2br(title)}</div>'
         )
 
     content = f"""
@@ -719,7 +711,6 @@ def build_thumbnail_quote(candidate: dict, title: str, date_str: str, out_path: 
 {kbs_badge()}
 {quote_mark_html}
 {title_html}
-{speaker_pill}
 <div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
   font-size:28px;">{esc(date_str)}</div>
 """
@@ -738,8 +729,9 @@ def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: s
     if has_bg:
         glow_html = ""
         title_html = text_plate(
-            f'<div style="font-size:96px;font-weight:800;line-height:1.25;'
-            f'max-width:1560px;color:#fff;">{esc(title)}</div>'
+            f'<div style="font-family:\'{HEADLINE_FONT_FAMILY}\';font-weight:400;'
+            f'font-size:96px;line-height:1.25;'
+            f'max-width:1560px;color:#fff;">{nl2br(title)}</div>'
         )
         stock_pill = (
             f'<div class="pill" style="background:{badge_color};color:#fff;'
@@ -752,8 +744,9 @@ def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: s
   background:radial-gradient(circle,{badge_color}1a 0%,transparent 70%);
   top:-320px;left:50%;transform:translateX(-50%);"></div>"""
         title_html = (
-            f'<div style="font-size:104px;font-weight:800;line-height:1.25;'
-            f'max-width:1600px;">{esc(title)}</div>'
+            f'<div style="font-family:\'{HEADLINE_FONT_FAMILY}\';font-weight:400;'
+            f'font-size:104px;line-height:1.25;'
+            f'max-width:1600px;">{nl2br(title)}</div>'
         )
         stock_pill = (
             f'<div class="pill" style="background:{badge_color}1a;color:{badge_color};'
@@ -763,7 +756,6 @@ def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: s
 
     content = f"""
 {glow_html}
-<div class="pill" style="background:{PALETTE['up']};color:#fff;font-size:30px;font-weight:800;">속보</div>
 {title_html}
 {stock_pill}
 <div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
