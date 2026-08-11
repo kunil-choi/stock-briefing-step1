@@ -158,6 +158,7 @@ BASE_CSS = f"""
 html,body{{width:{W}px;height:{H}px;overflow:hidden;}}
 body{{
   font-family:'Noto Sans KR','NanumGothic','Malgun Gothic',sans-serif;
+  word-break:keep-all; overflow-wrap:break-word;
   color:{PALETTE['ink']};
   background:
     radial-gradient(circle, {PALETTE['dot']} 1.6px, transparent 1.6px) 0 0/30px 30px,
