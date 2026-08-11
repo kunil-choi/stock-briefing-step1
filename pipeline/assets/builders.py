@@ -756,7 +756,6 @@ def build_thumbnail_news(candidate: dict, title: str, date_str: str, out_path: s
 
     content = f"""
 {glow_html}
-<div class="pill" style="background:{PALETTE['up']};color:#fff;font-size:30px;font-weight:800;">속보</div>
 {title_html}
 {stock_pill}
 <div class="pill" style="background:{PALETTE['accent_soft']};color:{PALETTE['accent']};
