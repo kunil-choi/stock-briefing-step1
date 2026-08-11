@@ -93,7 +93,13 @@ def select_quote_candidate(script_data: dict, ranking_entries: list = None) -> d
         rscore = _ranking_score_for(stock_name, ranking_entries)
 
         for q in quotes or []:
-            quote_text = (q.get("quote") or "").strip()
+            raw_quote = q.get("quote")
+            if isinstance(raw_quote, list):
+                # _merge_quotes_by_speaker()(generate_script.py)가 quote를 발언
+                # 조각 리스트로 남겨두므로, 표시용으로는 조각들을 이어붙인다.
+                quote_text = " ".join(part.strip() for part in raw_quote if part and part.strip())
+            else:
+                quote_text = (raw_quote or "").strip()
             speaker = (q.get("speaker") or "").strip()
             if not quote_text or not speaker:
                 continue
