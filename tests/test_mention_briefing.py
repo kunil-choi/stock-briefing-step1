@@ -39,20 +39,18 @@ def _stock(name, tier):
     }
 
 
-def _base_script(include_market_data=True):
+def _base_script():
+    # market_summary(전일 종가·미국 지표)는 generate_script.py가 여전히
+    # 만들어내지만(reorder_sections()의 8단계 구성에서는 계속 쓰임),
+    # build_mention_briefing()은 이 섹션을 화면에 올리지 않는다 — 이 fixture에도
+    # 그대로 넣어 "입력엔 있어도 출력에서 빠져야 한다"를 검증한다.
     market_summary = {
         "id": "market_summary", "corner_summary": "오늘 시장은 상승세를 이어가고 있습니다.",
         "narration": "코스피가 상승세를 보이고 있습니다.", "subtitle": "코스피가 상승세를 보이고 있습니다.",
         "points": ["포인트1", "포인트2"],
+        "kospi_value": "2,650.32", "kospi_change": "+0.82%", "kospi_change_positive": True,
+        "kosdaq_value": "850.11", "kosdaq_change": "-0.15%", "kosdaq_change_positive": False,
     }
-    if include_market_data:
-        market_summary.update({
-            "kospi_value": "2,650.32", "kospi_change": "+0.82%", "kospi_change_positive": True,
-            "kosdaq_value": "850.11", "kosdaq_change": "-0.15%", "kosdaq_change_positive": False,
-            "nasdaq_value": "18,500.00", "nasdaq_change": "+1.20%", "nasdaq_positive": True,
-            "sp500_value": "5,800.00", "sp500_change": "+0.90%", "sp500_positive": True,
-            "usdkrw_value": "1,380.50", "usdkrw_change": "+0.30%", "usdkrw_positive": True,
-        })
 
     sections = [
         {"id": "opening", "narration": "오프닝", "subtitle": "오프닝", "keywords": []},
@@ -83,8 +81,12 @@ def test_order_and_excluded_sections():
     # 버그가 있었다(build_mention_briefing 참고) — hook을 없애고 인트로부터
     # 시작하도록 바꿨다.
     assert ids[0] == "conclusion"
-    assert ids[1] == "market_summary"
+    # 인트로 바로 다음이 대형 주도주 종목 설명이어야 한다 — market_summary(전일
+    # 종가·미국 지표)가 개장 전 방송에 시의성이 안 맞는다는 사용자 피드백으로
+    # 이 자리에서 빠졌다.
+    assert ids[1] == "stock_대형주1"
     assert ids[-1] == "closing"
+    assert "market_summary" not in ids, "market_summary(전일 종가·미국 지표)는 이 구성에서 제외되어야 함"
     assert "sectors" not in ids, "sectors는 이 구성에서 제외되어야 함"
     assert "ai_strategy" not in ids, "ai_strategy는 이 구성에서 제외되어야 함"
     assert "risks" not in ids and "checklist" not in ids
@@ -100,27 +102,6 @@ def test_conclusion_is_fixed_mention_intro():
     assert conclusion["narration"] == MENTION_INTRO_LINE
     assert conclusion["subtitle"] == MENTION_INTRO_LINE
     print("✅ conclusion이 고정 채널 언급 인트로 문구를 그대로 씀")
-
-
-def test_market_indicators_deterministic_no_interpretation():
-    reordered = build_mention_briefing(_base_script())
-    market = next(s for s in reordered["sections"] if s["id"] == "market_summary")
-    # corner_summary는 해석성 문구가 아니라 화면 헤드라인 전용 고정 라벨이다
-    # (narration을 그대로 압축하면 어색하게 잘리는 문제 때문에 고정 문구를 씀).
-    assert market["corner_summary"] == "국내 증시 전일 종가와 미국 주요 지표"
-    assert market["points"] == [], "해석성 points는 비워야 함"
-    assert "상승세" not in market["narration"], "진행형 표현이 섞이면 안 됨(코드로 직접 생성)"
-    assert "마감" in market["narration"]
-    assert "우선 어제 마감된" in market["narration"]
-    assert "2,650.32" in market["narration"] and "+0.82%" in market["narration"]
-    print("✅ 주요 지표 내레이션이 해석 없이 코드로 결정적으로 생성됨")
-
-
-def test_market_indicators_skipped_without_data():
-    reordered = build_mention_briefing(_base_script(include_market_data=False))
-    ids = [s["id"] for s in reordered["sections"]]
-    assert "market_summary" not in ids, "market_data가 없으면 주요 지표 섹션 자체를 건너뛰어야 함"
-    print("✅ market_data 없으면 주요 지표 섹션 생략 확인")
 
 
 def test_leader_and_watchlist_transitions():
@@ -169,8 +150,6 @@ def test_script_json_not_mutated():
 if __name__ == "__main__":
     test_order_and_excluded_sections()
     test_conclusion_is_fixed_mention_intro()
-    test_market_indicators_deterministic_no_interpretation()
-    test_market_indicators_skipped_without_data()
     test_leader_and_watchlist_transitions()
     test_stock_tier_fallback_when_missing()
     test_closing_preserved_last_with_original_content()

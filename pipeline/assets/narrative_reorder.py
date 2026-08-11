@@ -22,7 +22,6 @@ import re
 from typing import Optional
 
 from .scene_plan import build_scene_plan
-from .korean_numbers import pick_eun_neun
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 섹션 분류
@@ -286,16 +285,22 @@ def reorder_sections(script_data: dict, top_movers_count: int = 3,
 # 정리에 집중하는 구성. reorder_sections()와는 독립된 함수라 기존 8단계/
 # short_form 경로와 그 테스트에는 전혀 영향이 없다.
 #
-# 구성: 훅 → (고정) 채널 언급 인트로 → 주요 지표(있으면, 해석 없이 수치만) →
-#       대형 주도주 → 관심종목(유튜브/경제방송 언급) → AI 히든픽(있으면) → 클로징
-# market_summary의 해설(corner_summary/points)·섹터분석·AI 투자전략·리스크
-# 다이제스트는 이 구성에서 전부 제외한다.
+# 구성: 훅 → (고정) 채널 언급 인트로 → 대형 주도주 → 관심종목(유튜브/경제방송
+#       언급) → AI 히든픽(있으면) → 클로징
+# market_summary(전일 코스피/코스닥 종가·미국 지표 — 개장 전 방송이라 이미 끝난
+# 거래를 다시 알려주는 게 시청 흐름을 끊는다는 사용자 피드백으로 제거)의 해설
+# (corner_summary/points)·섹터분석·AI 투자전략·리스크 다이제스트는 이 구성에서
+# 전부 제외한다.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# FIX-INTRO-VOICE-PACE-1: 문두 "지난 24시간 동안" 뒤에 쉼표가 없어 TTS가 숨
+# 쉴 틈 없이 바로 이어 읽으면서 음성이 빨리 감기한 것처럼 비음 섞인 채로
+# 뭉개져 나온다는 사용자 보고가 있었다. 쉼표로 짧은 호흡 지점을 만들어 그
+# 구간만 자연스러운 속도로 읽히게 한다(사용자 보고 버그).
 MENTION_INTRO_LINE = (
-    "지난 24시간 동안 인기 유튜브 채널에서 가장 많이 언급된 종목은 무엇이었을까요? "
+    "지난 24시간 동안, 인기 유튜브 채널에서 가장 많이 언급된 종목은 무엇이었을까요? "
     "KBS 머니올라가 관련 영상을 AI로 분석해, "
-    "전문가들이 주목한 종목과 언급 포인트를 핵심만 빠르게 정리해드립니다. "
+    "전문가들이 주목한 종목과 언급 포인트를 핵심만 정리해드립니다. "
     "바로 확인해보시죠."
 )
 
@@ -321,54 +326,6 @@ def _build_mention_intro_section(importance_by_id: dict, entities_by_id: dict) -
         "importance": round(importance_by_id.get("market_summary", 0.6), 2),
         "entities": entities_by_id.get("market_summary", []),
         "narration": MENTION_INTRO_LINE, "subtitle": MENTION_INTRO_LINE,
-    }
-
-
-def _fmt_index_line(name: str, value: str, change: str) -> str:
-    if not value:
-        return ""
-    # FIX-JOSA-1: "는"을 무조건 고정하면 받침 있는 지표명(코스닥/나스닥 등)에서
-    # "코스닥는"처럼 문법이 틀린 조사가 붙는다 — 받침 유무로 은/는을 고른다.
-    josa = pick_eun_neun(name)
-    return (
-        f"{name}{josa} {value}, 전일 대비 {change}로 마감했습니다." if change
-        else f"{name}{josa} {value}로 마감했습니다."
-    )
-
-
-def _build_market_indicators_section(market_sec: Optional[dict], importance_by_id: dict,
-                                      entities_by_id: dict) -> Optional[dict]:
-    """주요 지표: 해석·전망 없이 전일 코스피/코스닥 종가와 오늘 새벽 마감된
-    미국 시장 수치만 코드에서 직접 낭독 문장으로 만든다 — LLM 해설을 거치지
-    않으므로 "상승세"류 진행형 표현이 섞일 여지 자체가 없다. market_data가
-    없으면 섹션 자체를 건너뛴다(반환값 None)."""
-    if not market_sec or not market_sec.get("kospi_value"):
-        return None
-    lines = [
-        _fmt_index_line("코스피", market_sec.get("kospi_value", ""), market_sec.get("kospi_change", "")),
-        _fmt_index_line("코스닥", market_sec.get("kosdaq_value", ""), market_sec.get("kosdaq_change", "")),
-        _fmt_index_line("나스닥", market_sec.get("nasdaq_value", ""), market_sec.get("nasdaq_change", "")),
-        _fmt_index_line("S&P500", market_sec.get("sp500_value", ""), market_sec.get("sp500_change", "")),
-    ]
-    if market_sec.get("usdkrw_value"):
-        lines.append(f"원달러 환율은 {market_sec['usdkrw_value']}원으로 마감했습니다.")
-    narration = (
-        "우선 어제 마감된 국내 증시와, 오늘 새벽 마감된 미국 증시 주요 지표를 전해드립니다. "
-        + " ".join(l for l in lines if l)
-    ).strip()
-    # 시각 카드(builders.build_market_summary의 코스피/코스닥/나스닥/S&P500/환율
-    # 숫자 표)는 그대로 재사용하되, points 같은 해석성 문구는 비워 카드에
-    # 노출되지 않게 한다 — 해석 없이 지표만 보여주는 짧은 카드로. corner_summary는
-    # 화면 헤드라인 전용 고정 문구로 둔다(narration을 그대로 압축하면 어색하게
-    # 잘리므로 — scene_plan._screen_text_base()가 corner_summary를 최우선으로
-    # 쓴다).
-    return {
-        **market_sec,
-        "id": "market_summary", "section_type": "market_indicators",
-        "importance": round(importance_by_id.get("market_summary", 0.5), 2),
-        "entities": entities_by_id.get("market_summary", []),
-        "narration": narration, "subtitle": narration,
-        "corner_summary": "국내 증시 전일 종가와 미국 주요 지표", "points": [],
     }
 
 
@@ -419,8 +376,10 @@ def _build_ai_strategy_brief_section(sec: Optional[dict], importance_by_id: dict
 def build_mention_briefing(script_data: dict) -> dict:
     """"종목 언급 중심" 구성으로 재정렬한다(reorder_sections()와 독립적).
 
-    채널 언급 인트로(고정) → 주요 지표(있으면) → 대형 주도주 → 관심종목 →
-    AI 히든픽(있으면) → 클로징.
+    채널 언급 인트로(고정) → 대형 주도주 → 관심종목 → AI 히든픽(있으면) → 클로징.
+    market_summary(전일 종가·미국 지표)는 개장 전 방송에 시의성이 안 맞는다는
+    사용자 피드백으로 이 구성에서 아예 제외한다(생성 자체는 그대로 두되 화면에
+    올리지 않음 — reorder_sections()의 8단계 구성에서는 여전히 쓰인다).
 
     ★ 예전에는 이 인트로 앞에 내레이션 없는 "훅" 타이틀 화면(_build_hook_section)을
     따로 붙였다. 훅과 인트로가 화면 디자인(_OPENING_TITLE_BG)이 완전히 같아서,
@@ -448,7 +407,6 @@ def build_mention_briefing(script_data: dict) -> dict:
         # 추정한다.
         leaders, others = stock_candidates[:2], stock_candidates[2:]
 
-    market_sec       = by_id.get("market_summary")
     watchlist_sec    = by_id.get("stock_추가관심종목")
     ai_strategy_sec  = by_id.get("ai_strategy_brief")
     closing_sec      = by_id.get("closing")
@@ -456,10 +414,6 @@ def build_mention_briefing(script_data: dict) -> dict:
     ordered = [
         _build_mention_intro_section(importance_by_id, entities_by_id),
     ]
-
-    indicators_section = _build_market_indicators_section(market_sec, importance_by_id, entities_by_id)
-    if indicators_section:
-        ordered.append(indicators_section)
 
     if leaders:
         leader_group = [_annotate(s, "top_mover", importance_by_id, entities_by_id) for s in leaders]
