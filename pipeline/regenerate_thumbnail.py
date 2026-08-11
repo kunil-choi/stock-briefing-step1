@@ -16,6 +16,10 @@ output/{date}/thumbnails/의 같은 파일을 다시 그린다. 후보 자체를
   # 2) 그 문구를 일부 고쳐서 --title로 넘기면 같은 파일을 그 문구로 다시 그린다
   python pipeline/regenerate_thumbnail.py KO quote --title '고친 문구'
   python pipeline/regenerate_thumbnail.py KO news --title '고친 문구'
+
+  # 3) 줄바꿈도 직접 정하고 싶으면 --title 안에 \n을 그대로 타이핑하면 된다
+  #    (셸에서 실제 개행을 넣기 번거로우니 두 글자 "\n"을 줄바꿈으로 해석한다)
+  python pipeline/regenerate_thumbnail.py KO news --title '코스피 폭락,\n진범은 따로 있었다'
 """
 import argparse
 import json
@@ -55,13 +59,14 @@ def main():
     parser = argparse.ArgumentParser(description="썸네일 문구를 사람이 고쳐서 다시 렌더링")
     parser.add_argument("lang", nargs="?", default="KO")
     parser.add_argument("which", choices=["quote", "news"], help="발언형(quote) 또는 뉴스형(news)")
-    parser.add_argument("--title", help="이 문구로 바꿔서 다시 렌더링(생략하면 추천 문구만 보여주고 종료)")
+    parser.add_argument("--title", help="이 문구로 바꿔서 다시 렌더링(생략하면 추천 문구만 보여주고 종료). "
+                                         "문자 그대로의 \\n은 줄바꿈으로 해석한다")
     args = parser.parse_args()
 
     root, script, date_iso, yymmdd, out_dir, ranking_entries = _load_context(args.lang)
 
     from assets.builders import build_thumbnail_news, build_thumbnail_quote
-    from assets.chart import build_chart_with_insight
+    from assets.thumbnail_bg import build_thumbnail_background
     from assets.thumbnail_select import (
         build_news_title, build_quote_title, select_news_candidate,
         select_quote_candidate,
@@ -100,12 +105,16 @@ def main():
 
     chart_path = None
     try:
-        chart_path, _insight = build_chart_with_insight(candidate["stock_name"], img_dir)
+        chart_path = build_thumbnail_background(
+            candidate["stock_name"], img_dir,
+            is_bullish=candidate.get("change_positive", True),
+        )
     except Exception as e:
-        print(f"⚠️ {candidate['stock_name']} 차트 배경 조회 실패(단색 배경으로 폴백): {e}")
+        print(f"⚠️ {candidate['stock_name']} 썸네일 배경 생성 실패(단색 배경으로 폴백): {e}")
 
-    build_fn(candidate, args.title, date_str, out_path, chart_path=chart_path)
-    print(f"✅ 재렌더링 완료 → {out_path}\n   문구: {args.title}")
+    title = args.title.replace("\\n", "\n")
+    build_fn(candidate, title, date_str, out_path, chart_path=chart_path)
+    print(f"✅ 재렌더링 완료 → {out_path}\n   문구: {title}")
 
 
 if __name__ == "__main__":

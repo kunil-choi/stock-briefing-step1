@@ -51,6 +51,13 @@ def render_html_to_png(html: str, out_path: str) -> str:
     try:
         page.set_content(html, wait_until="load")
         try:
+            # @font-face로 임베드한 커스텀 서체(예: 썸네일 헤드라인용 Black Han
+            # Sans)가 "load" 이벤트 시점엔 아직 파싱 전일 수 있어, 폰트가 실제
+            # 적용된 뒤에 오토핏 측정/스크린샷을 하도록 기다린다.
+            page.evaluate("() => document.fonts.ready")
+        except Exception as e:
+            print(f"  ⚠️ 폰트 로딩 대기 실패(무시하고 진행): {e}")
+        try:
             page.evaluate(_AUTOFIT_JS)
         except Exception as e:
             print(f"  ⚠️ autofit 텍스트 축소 실패(무시하고 진행): {e}")

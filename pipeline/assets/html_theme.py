@@ -13,6 +13,10 @@ from datetime import date
 from .config import SUBTITLE_ZONE_TOP
 
 W, H = 1920, 1080
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_HEADLINE_FONT_PATH = os.path.join(_HERE, "..", "..", "assets", "fonts", "BlackHanSans-Regular.ttf")
+HEADLINE_FONT_FAMILY = "Black Han Sans"
 SUBTITLE_BAR_H = H - SUBTITLE_ZONE_TOP  # 화면 하단 자막 전용 고정 여백(px). 슬라이드 콘텐츠는 이 영역을 절대 침범하지 않음.
 
 # 각 슬라이드 상단바에 표시할 날짜. generate_assets.py가 script.json의 실제 브리핑
@@ -59,6 +63,14 @@ _ACCENT_CYCLE = [PALETTE["accent"], "#f2a341", PALETTE["down"], "#a05bd6", PALET
 
 def esc(s) -> str:
     return _he.escape(str(s or ""))
+
+
+def nl2br(s) -> str:
+    """esc()와 동일하되, 문자열 안의 개행(\\n)을 <br>로 바꿔 사람이 직접
+    지정한 줄바꿈을 그대로 살린다(발언/뉴스 썸네일 제목처럼 문구·줄바꿈을
+    사람이 다듬는 경우에 사용 — esc()만 쓰면 HTML이 개행을 공백으로
+    뭉개버려 지정한 줄바꿈이 무시된다)."""
+    return esc(s).replace("\n", "<br>")
 
 
 def strip_emoji(s: str) -> str:
@@ -153,7 +165,23 @@ def news_ticker(text: str, tone: str = "neutral") -> str:
 </div>"""
 
 
+def _headline_font_face_css() -> str:
+    """썸네일 제목처럼 임팩트가 필요한 헤드라인 전용 서체(Black Han Sans,
+    SIL OFL 라이선스 — assets/fonts/BlackHanSans-OFL.txt)를 base64로 인라인
+    임베드한다. file_uri()와 같은 이유(Chromium이 about:blank 오리진에서
+    file://을 막음)로 로컬 경로 대신 data URI를 쓴다. 본문 서체(Noto Sans
+    KR)는 그대로 두고, 이 서체는 필요한 곳에서만 font-family로 opt-in한다."""
+    if not os.path.isfile(_HEADLINE_FONT_PATH):
+        return ""
+    uri = file_uri(_HEADLINE_FONT_PATH)
+    return f"""@font-face {{
+  font-family:'{HEADLINE_FONT_FAMILY}'; src:url('{uri}') format('truetype');
+  font-weight:400; font-style:normal; font-display:block;
+}}"""
+
+
 BASE_CSS = f"""
+{_headline_font_face_css()}
 *{{box-sizing:border-box;margin:0;padding:0;}}
 html,body{{width:{W}px;height:{H}px;overflow:hidden;}}
 body{{

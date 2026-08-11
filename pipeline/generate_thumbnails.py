@@ -14,13 +14,16 @@ generate_ranking.py 이후, generate_metadata.py와 무관하게(순서 상관�
 독립적으로 실행 가능하다 — 워크플로우에서는 ranking.json이 이미 있어야
 뉴스형 선정에 랭킹 점수를 쓸 수 있으므로 generate_ranking.py 다음에 둔다.
 
-배경 이미지는 각 후보 종목의 2주 캔들차트(assets.chart.build_chart_with_insight(),
-generate_ranking.py/generate_assets.py가 이미 쓰는 것과 동일한 pykrx→네이버
-폴백 OHLCV 소스)를 그 자리에서 새로 그려서 쓴다. video 잡은 assets 잡의
-output/{lang}/images/ 캐시를 내려받지 않으므로(최종 프레임에는 이미 차트가
-구워져 있어 원본 PNG는 artifact로 안 올림) 매번 다시 그리게 되지만, 유료 API가
-아니라 비용 문제는 없다. 차트 조회가 실패하면(상장폐지/코드 매핑 실패 등)
-chart_path=None으로 넘어가 builders.py가 기존 단색 배경으로 자동 폴백한다.
+배경 이미지는 assets.thumbnail_bg.build_thumbnail_background()가 각 후보 종목의
+2주 캔들차트(generate_ranking.py/generate_assets.py가 이미 쓰는 것과 동일한
+pykrx→네이버 폴백 OHLCV 소스)와 거래소 분위기를 내는 장식 요소(격자·티커
+텍스트·방향 워터마크)를 합성해 그 자리에서 새로 그려서 쓴다. video 잡은
+assets 잡의 output/{lang}/images/ 캐시를 내려받지 않으므로(최종 프레임에는
+이미 차트가 구워져 있어 원본 PNG는 artifact로 안 올림) 매번 다시 그리게
+되지만, 유료 API가 아니라 비용 문제는 없다. 시세 조회가 실패하면(상장폐지/
+코드 매핑 실패 등) 캔들 없이 장식 요소만으로 배경을 구성하고, 그마저도
+실패하면 chart_path=None으로 넘어가 builders.py가 기존 단색 배경으로
+자동 폴백한다.
 
 script.json에 오늘 패널 발언이 없으면(raw_stock_quotes가 비어있으면) 발언형은
 건너뛰고 뉴스형만 만든다 — 부분 실패를 전체 실패로 만들지 않는다
@@ -64,7 +67,7 @@ def run(lang: str = "KO"):
         print(f"⚠️ {ranking_path} 없음 — 랭킹 점수 없이 진행(뉴스형은 sections 순서로 폴백)")
 
     from assets.builders import build_thumbnail_news, build_thumbnail_quote
-    from assets.chart import build_chart_with_insight
+    from assets.thumbnail_bg import build_thumbnail_background
     from assets.thumbnail_select import (
         build_news_title, build_quote_title, select_news_candidate,
         select_quote_candidate,
@@ -73,12 +76,11 @@ def run(lang: str = "KO"):
     img_dir = os.path.join(root, "output", lang, "images")
     os.makedirs(img_dir, exist_ok=True)
 
-    def _chart_for(stock_name: str):
+    def _chart_for(stock_name: str, is_bullish: bool):
         try:
-            chart_path, _insight = build_chart_with_insight(stock_name, img_dir)
-            return chart_path
+            return build_thumbnail_background(stock_name, img_dir, is_bullish=is_bullish)
         except Exception as e:
-            print(f"⚠️ {stock_name} 차트 배경 조회 실패(단색 배경으로 폴백): {e}")
+            print(f"⚠️ {stock_name} 썸네일 배경 생성 실패(단색 배경으로 폴백): {e}")
             return None
 
     date_str = script.get("date", date_iso)
@@ -88,7 +90,7 @@ def run(lang: str = "KO"):
     if quote_candidate:
         title = build_quote_title(quote_candidate)
         out_path = os.path.join(out_dir, f"{yymmdd}_1.png")
-        chart_path = _chart_for(quote_candidate["stock_name"])
+        chart_path = _chart_for(quote_candidate["stock_name"], quote_candidate.get("change_positive", True))
         try:
             build_thumbnail_quote(quote_candidate, title, date_str, out_path, chart_path=chart_path)
             result["quote_thumbnail"] = out_path
@@ -103,7 +105,7 @@ def run(lang: str = "KO"):
     if news_candidate:
         title = build_news_title(news_candidate)
         out_path = os.path.join(out_dir, f"{yymmdd}_2.png")
-        chart_path = _chart_for(news_candidate["stock_name"])
+        chart_path = _chart_for(news_candidate["stock_name"], news_candidate.get("change_positive", True))
         try:
             build_thumbnail_news(news_candidate, title, date_str, out_path, chart_path=chart_path)
             result["news_thumbnail"] = out_path
