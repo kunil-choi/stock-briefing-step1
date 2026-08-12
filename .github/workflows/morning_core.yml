@@ -180,6 +180,12 @@ jobs:
     needs: [script, voice, assets]
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # ADMIN-THUMBNAIL-EDIT-1: 이 잡이 docs/thumbnails/latest_{1,2}.png +
+    # latest_meta.json(관리자 페이지가 읽는 고정 경로)을 레포에 커밋해야
+    # 하므로, 이 잡에 한해 write 권한이 필요하다(다른 잡들의 커밋 스텝과
+    # 동일한 패턴 — 워크플로우 전체 기본값은 read로 유지).
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -219,6 +225,22 @@ jobs:
         run: python pipeline/generate_ranking.py KO
       - name: 🖼️ 썸네일 후보 2종 생성 (발언형 + 뉴스형)
         run: python pipeline/generate_thumbnails.py KO
+      - name: 📇 docs/thumbnails/ 커밋 & 푸시 (관리자 페이지용)
+        # 드라이런은 SCRIPT_MOCK의 [MOCK] placeholder 문구로 썸네일을 만들므로
+        # 관리자 페이지를 오염시키지 않도록 커밋 자체를 건너뛴다(다른 커밋
+        # 스텝들과 동일한 원칙).
+        if: ${{ !inputs.dry_run }}
+        run: |
+          if [ -n "$(git status --porcelain docs/thumbnails/)" ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add docs/thumbnails/
+            git commit -m "chore: docs/thumbnails 업데이트 ($(TZ='Asia/Seoul' date +'%Y-%m-%d'))"
+            git pull --rebase
+            git push
+          else
+            echo "docs/thumbnails/ 변경 없음 → 커밋 생략"
+          fi
       - run: python pipeline/generate_subtitles.py KO
       - run: python pipeline/generate_video.py KO
       - name: 📋 YouTube 메타데이터 생성 (제목/설명/태그/썸네일)
