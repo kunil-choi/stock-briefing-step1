@@ -35,5 +35,25 @@
       "삼성전기",
       "알테오젠"
     ]
+  },
+  "2026-08-13": {
+    "briefing_data_fingerprint": "78a8101bc08b4a4361adc1ba7817f443513d6d59dc7204058d0cf3c15c293cec",
+    "market_leaders": [
+      "삼성전자",
+      "SK하이닉스"
+    ],
+    "recorded_at": "2026-08-12T23:41:59.517790",
+    "remaining_stocks": [
+      "한국콜마",
+      "코스맥스",
+      "일진전기",
+      "두산에너빌리티",
+      "현대차"
+    ],
+    "top_stocks": [
+      "LG전자",
+      "삼성SDI",
+      "삼성전기"
+    ]
   }
 }
