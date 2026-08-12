@@ -821,6 +821,28 @@ def _call_json(system_prompt: str, user_content: str, max_tokens: int,
     return {}
 
 
+# AI-STRATEGY-POLITE-1: V3-1의 ai_strategy_detail(core_scenario/analyst_consensus)은
+# "-다"로 끝나는 평서체 원문이라, 존댓말(-습니다체)인 나머지 방송과 섞이면 이
+# 코너만 반말처럼 들린다는 사용자 피드백(2026-08-12)이 있었다. 원문을 다시
+# 요약·재작성하면 사실 충실도가 떨어진다는 기존 방침(위 ai_strategy_brief_section
+# 주석 참고)은 유지하되, 문장 종결 어미만 존댓말로 바꾸도록 프롬프트를 엄격히
+# 제한해 절충한다.
+def _politify_ai_strategy_text(text: str) -> str:
+    text = (text or "").strip()
+    if not text:
+        return text
+    system_prompt = (
+        "너는 한국어 방송 원고 교정 전문가다. 아래 문장의 사실 관계·숫자·어휘·"
+        "문장 순서·내용은 절대 바꾸지 말고, 문장을 끝맺는 종결 어미만 뉴스 "
+        "앵커가 쓰는 격식체 존댓말(예: \"-습니다\", \"-입니다\", \"-했습니다\", "
+        "\"-보입니다\")로 바꿔라. 요약하거나 문장을 추가/삭제/분할하지 마라. "
+        "결과를 {\"text\": \"...\"} 형식의 JSON으로만 반환하라."
+    )
+    result = _call_json(system_prompt, text, max_tokens=800, temperature=0.1,
+                         mock={"text": text} if SCRIPT_MOCK else None)
+    return (result.get("text") or text).strip()
+
+
 # ── 종목 분류(market_leaders/top_stocks/remaining_stocks) 결정적 선정 ───────
 #
 # STOCK-SELECT-DETERMINISTIC-1: 예전엔 이 분류를 _generate_core()의 LLM
@@ -1093,6 +1115,20 @@ stock_quotes/stock_brokerage 둘 다 비어 있으면 channel_summaries는 빈 �
         data = _call_json(system_prompt, user_content, max_tokens=6000, temperature=0.9)
         if data and _is_unfilled_stock_section(data, stock_name):
             print(f"  ❌ {stock_name}: 재시도 후에도 placeholder — 화면에 빈 요약이 노출될 수 있음")
+    # PANEL-MENTION-MISSING-1: 실제 패널 발언(quotes)/증권사 리포트가 있는데도
+    # LLM이 channel_summaries를 빈 배열로 반환해 패널 발언 페이지 자체가
+    # 통째로 빠지는 사례가 있었다(사용자 보고, 2026-08-12 — 815머니톡 패널
+    # 발언이 분명 있던 종목인데도 화면에 안 나옴). 프롬프트 마지막 줄
+    # ("stock_quotes/stock_brokerage 둘 다 비어 있으면 channel_summaries는 빈
+    # 배열")을 뒤집어 보면, 둘 중 하나라도 있는데 비어 있으면 규칙 위반이므로
+    # 한 번 더 재시도한다.
+    if data and (quotes or brokerage_mentions) and not data.get("channel_summaries"):
+        print(f"  ⚠️ {stock_name}: 패널 발언/증권사 리포트가 있는데도 channel_summaries가 빈 배열로 반환됨 — 재시도")
+        retry_data = _call_json(system_prompt, user_content, max_tokens=6000, temperature=0.9)
+        if retry_data and retry_data.get("channel_summaries"):
+            data = retry_data
+        else:
+            print(f"  ❌ {stock_name}: 재시도 후에도 channel_summaries 비어 있음 — 패널 발언 페이지 없이 진행")
     if not data:
         return {}
     data["id"] = f"{'hidden_' if is_hidden else 'stock_'}{stock_name}"
@@ -1348,11 +1384,14 @@ def generate_script(
     # 로테이션/리스크 시나리오는 요구사항에 따라 제외).
     ai_strategy_brief_section = None
     if ai_strategy_detail:
+        # AI-STRATEGY-POLITE-1: 핵심 시나리오/애널리스트 종합 시각만 존댓말로
+        # 바꾼다(사용자가 지목한 두 코너). 오늘의 주목 포인트(watch_points)는
+        # 이번 요청 범위 밖이라 원문 그대로 둔다.
         ai_strategy_brief_section = {
             "id": "ai_strategy_brief", "label": "AI 투자 전략",
-            "core_scenario": (ai_strategy_detail.get("core_scenario") or "").strip(),
+            "core_scenario": _politify_ai_strategy_text(ai_strategy_detail.get("core_scenario")),
             "watch_points": [w for w in (ai_strategy_detail.get("watch_points") or []) if w],
-            "analyst_consensus": (ai_strategy_detail.get("analyst_consensus") or "").strip(),
+            "analyst_consensus": _politify_ai_strategy_text(ai_strategy_detail.get("analyst_consensus")),
         }
 
     closing_section = {
