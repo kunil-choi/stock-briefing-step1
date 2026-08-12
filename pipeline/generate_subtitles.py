@@ -274,14 +274,12 @@ def _build_subtitle_map(sections: list, lang: str):
             continue
 
         elif sid == "ai_strategy_brief":
-            for key, audio_name in (
-                ("core_narration", "ai_strategy_core"),
-                ("points_narration", "ai_strategy_points"),
-                ("analyst_narration", "ai_strategy_analyst"),
-            ):
-                text = section.get(key, "")
-                if text:
-                    subtitle_map[audio_name] = (text, text)
+            # AI 투자 전략 화면은 narration과 화면에 표시되는 텍스트가 완전히
+            # 동일하므로(builders.build_ai_strategy_brief) 하단 자막을 넣으면
+            # 같은 문구가 두 번(본문 + 자막) 겹쳐 보인다는 사용자 지적으로
+            # 자막은 넣지 않는다(사용자 요청, 2026-08-12) — 내레이션 오디오는
+            # 그대로 유지된다.
+            continue
 
         else:
             # 일반 섹션
