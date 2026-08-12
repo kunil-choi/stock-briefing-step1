@@ -293,12 +293,8 @@ def reorder_sections(script_data: dict, top_movers_count: int = 3,
 # 전부 제외한다.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# FIX-INTRO-VOICE-PACE-1: 문두 "지난 24시간 동안" 뒤에 쉼표가 없어 TTS가 숨
-# 쉴 틈 없이 바로 이어 읽으면서 음성이 빨리 감기한 것처럼 비음 섞인 채로
-# 뭉개져 나온다는 사용자 보고가 있었다. 쉼표로 짧은 호흡 지점을 만들어 그
-# 구간만 자연스러운 속도로 읽히게 한다(사용자 보고 버그).
 MENTION_INTRO_LINE = (
-    "지난 24시간 동안, 인기 유튜브 채널에서 가장 많이 언급된 종목은 무엇이었을까요? "
+    "어제 하루 인기 유튜브 채널에서 가장 많이 언급된 종목은 무엇이었을까요? "
     "KBS 머니올라가 관련 영상을 AI로 분석해, "
     "전문가들이 주목한 종목과 언급 포인트를 핵심만 정리해드립니다. "
     "바로 확인해보시죠."
@@ -316,6 +312,21 @@ def _prefix_narration(section: dict, prefix: str) -> dict:
     narration = (prefix + " " + (section.get("narration") or "")).strip()
     subtitle  = (prefix + " " + (section.get("subtitle") or "")).strip()
     return {**section, "narration": narration, "subtitle": subtitle}
+
+
+def _promote_to_first_stock(section: dict) -> dict:
+    """오프닝 인트로(MENTION_INTRO_LINE, "...바로 확인해보시죠.")가 끝난 직후
+    이어지는 첫 종목 섹션만 "다음은 {종목명} 분석입니다."로 시작하던 것을
+    "먼저 {종목명} 분석입니다."로 바꾼다. narration_summary는
+    _generate_stock_section()이 종목마다 "다음은 ..."으로 생성하는데(두 번째
+    종목부터는 "다음은"이 자연스럽다), 오프닝 바로 뒤 첫 종목만 "먼저"가
+    맞다는 사용자 피드백에 따른 후처리(사용자 보고)."""
+    out = dict(section)
+    for key in ("narration_summary", "subtitle_summary"):
+        text = out.get(key)
+        if text and text.startswith("다음은 "):
+            out[key] = "먼저 " + text[len("다음은 "):]
+    return out
 
 
 def _build_mention_intro_section(importance_by_id: dict, entities_by_id: dict) -> dict:
@@ -417,7 +428,7 @@ def build_mention_briefing(script_data: dict) -> dict:
 
     if leaders:
         leader_group = [_annotate(s, "top_mover", importance_by_id, entities_by_id) for s in leaders]
-        leader_group[0] = _prefix_narration(leader_group[0], _LEADER_TRANSITION)
+        leader_group[0] = _promote_to_first_stock(_prefix_narration(leader_group[0], _LEADER_TRANSITION))
         ordered += leader_group
 
     watchlist_group = [_annotate(s, "top_mover", importance_by_id, entities_by_id) for s in others]
@@ -425,6 +436,8 @@ def build_mention_briefing(script_data: dict) -> dict:
         watchlist_group.append(_annotate(watchlist_sec, "stock_checkpoint", importance_by_id, entities_by_id))
     if watchlist_group:
         watchlist_group[0] = _prefix_narration(watchlist_group[0], _WATCHLIST_TRANSITION)
+        if not leaders:
+            watchlist_group[0] = _promote_to_first_stock(watchlist_group[0])
         ordered += watchlist_group
 
     ai_strategy_brief = _build_ai_strategy_brief_section(ai_strategy_sec, importance_by_id, entities_by_id)
