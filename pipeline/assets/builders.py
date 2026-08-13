@@ -598,9 +598,12 @@ def _ai_strategy_header(sub_label: str) -> str:
 
 
 def _build_ai_strategy_core(sec, out_dir):
+    # 사용자 피드백(2026-08-13): AI 투자 전략 화면 글씨가 너무 작아 잘 안
+    # 보임 — 28px → 36px로 키움(카드 1개가 화면을 거의 다 차지하는 레이아웃
+    # 이라 chat_bubble()의 44px만큼은 아니어도 여유가 충분하다).
     content = (
         _ai_strategy_header("핵심 시나리오")
-        + f'<div class="card" style="padding:28px 32px;font-size:28px;line-height:1.6;font-weight:600;">'
+        + f'<div class="card" style="padding:28px 32px;font-size:36px;line-height:1.6;font-weight:600;">'
         f'{esc(sec.get("core_scenario", ""))}</div>'
     )
     html = shell("AI 투자 전략", content)
@@ -609,8 +612,11 @@ def _build_ai_strategy_core(sec, out_dir):
 
 def _build_ai_strategy_points(sec, out_dir):
     points = sec.get("watch_points", [])
+    # 사용자 피드백(2026-08-13): AI 투자 전략 화면 글씨가 너무 작아 잘 안
+    # 보임 — 기본 25px보다 큰 34px로 키움(다른 point_card() 호출부는 2단
+    # 그리드라 좁아서 그대로 둠).
     cards = "".join(
-        point_card(i + 1, p, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
+        point_card(i + 1, p, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)], font_size=34)
         for i, p in enumerate(points)
     )
     content = (
@@ -624,7 +630,7 @@ def _build_ai_strategy_points(sec, out_dir):
 def _build_ai_strategy_analyst(sec, out_dir):
     content = (
         _ai_strategy_header("애널리스트 종합 시각")
-        + f'<div class="card" style="padding:28px 32px;font-size:28px;line-height:1.6;font-weight:600;">'
+        + f'<div class="card" style="padding:28px 32px;font-size:36px;line-height:1.6;font-weight:600;">'
         f'{esc(sec.get("analyst_consensus", ""))}</div>'
     )
     html = shell("AI 투자 전략", content)

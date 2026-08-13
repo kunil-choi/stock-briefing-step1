@@ -577,7 +577,7 @@ _NARRATION_SUBTITLE_RULES = """
   · 실적→실쩍 | 적자→적짜 | 특징→특찡 | 격차→격짜
   · 국채→국째 | 역대→역때 | 발전→발쩐 | 결정→결쩡 | 절감→절깜
   · 신고가→신고까 | 최고가→최고까 | 할 것→할 껏 | 볼 수→볼 쑤
-- 삼성전기 → "삼성 전기" (TTS 오독 방지, 자막은 원래대로)
+- 삼성전기 → "삼성정기" (TTS 오독 방지, 자막은 원래대로)
 - 숫자+단위 붙여 읽기: 170만원→백칠십만원 (절대 "백칠십만 원" 금지)
 
 ### [subtitle — 화면 자막용] — 절대 규칙 (narration을 그대로 베끼지 말 것)
@@ -1071,13 +1071,21 @@ def _generate_stock_section(stock_name: str, briefing_text: str,
 실제 상황을 반영한 새 문장이어야 합니다)
 - corner_summary: 이 종목의 오늘 상황을 25자 내외 한 문장으로 직접 요약.
 - summary: 이 종목 분석의 핵심을 한 문장으로 직접 요약.
-- ★ corner_summary/summary/catalysts/risks에는 특정 발언자 이름("OOO 대표는",
-  "OOO 연구원은" 등)이나 그 사람의 발언을 절대 넣지 마세요 — 이 필드들은 화면에
-  일반 텍스트로 그대로 노출되어(카드 없이) 화자 발언처럼 보이면서도 출처 카드가
-  없는 문제가 생깁니다. 특정 인물의 견해·발언은 반드시 channel_summaries
-  안에서만 다루고(chat_bubble 카드로 렌더링됨), corner_summary/summary/
-  catalysts/risks는 "시장 전반에서는", "업계에서는"처럼 익명화된 사실/개요
-  서술만 담으세요.
+- ★★ narration_summary/corner_summary/summary/catalysts/risks에는 특정 발언자
+  이름("OOO 대표는", "OOO 연구원은" 등)이나 그 사람의 발언을 절대 넣지 마세요
+  (narration_summary도 예외 아님 — 사용자 피드백, 2026-08-13: 삼성전자
+  narration_summary가 뒤에 나오는 패널 발언을 한 줄씩 그대로 따와 만들어져
+  channel_summaries와 내용이 겹치고 화자 이름까지 들어간 사고가 있었습니다).
+  이 필드들은 화면에 일반 텍스트로 그대로 노출되어(카드 없이) 화자 발언처럼
+  보이면서도 출처 카드가 없는 문제가 생깁니다. 특정 인물의 견해·발언은 반드시
+  channel_summaries 안에서만 다루고(chat_bubble 카드로 렌더링됨),
+  narration_summary/corner_summary/summary/catalysts/risks는 "시장
+  전반에서는", "업계에서는"처럼 익명화된 사실/개요 서술만 담으세요.
+- narration_summary는 브리핑 원문(가격 흐름·실적·업종 이슈)과 뉴스·유튜브
+  경제방송 등 자료를 종합한 "전반적 개요"만 새로 써서 정리하세요. 뒤에 나올
+  channel_summaries의 특정 발언자 문장을 한 줄이라도 그대로 가져오거나 살짝
+  바꿔 쓰지 마세요 — narration_summary와 channel_summaries는 이어서 재생되는
+  서로 다른 화면이라, 겹치면 같은 내용을 두 번 듣는 것처럼 들립니다.
 - 가격/등락률은 이 호출에서 다루지 않습니다(별도 실제 시세 데이터로 채워집니다) —
   price/change 필드는 출력하지 마세요.
 
