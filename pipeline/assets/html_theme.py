@@ -324,13 +324,13 @@ def stat_table(rows: list) -> str:
     )
 
 
-def point_card(num: int, text: str, color: str) -> str:
+def point_card(num: int, text: str, color: str, font_size: int = 25) -> str:
     return (
         f'<div class="card" style="display:flex;align-items:flex-start;gap:16px;'
         f'padding:22px 24px;">'
         f'<div class="badge-num" style="background:{color}22;color:{color};'
         f'border:2px solid {color};">{num}</div>'
-        f'<div style="font-size:25px;line-height:1.5;font-weight:600;padding-top:4px;">'
+        f'<div style="font-size:{font_size}px;line-height:1.5;font-weight:600;padding-top:4px;">'
         f'{esc(text)}</div>'
         f'</div>'
     )

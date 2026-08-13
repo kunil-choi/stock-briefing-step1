@@ -187,6 +187,64 @@ def test_concat_scenes_and_transition():
         shutil.rmtree(tmp_dir)
 
 
+def _probe_audio_stream(path: str) -> tuple:
+    """ffprobe 없이 `ffmpeg -i`의 stderr에서 오디오 스트림의 (샘플레이트, 채널 수)를
+    직접 파싱한다. 예: "Audio: aac (LC)..., 44100 Hz, stereo, ..." → (44100, 2)."""
+    result = subprocess.run(["ffmpeg", "-i", path], capture_output=True, text=True)
+    m = re.search(r"Audio:.*?(\d+) Hz, (mono|stereo)", result.stderr)
+    assert m, f"ffmpeg -i 출력에서 오디오 스트림 정보를 찾지 못함: {path}\n{result.stderr[-500:]}"
+    channels = 1 if m.group(2) == "mono" else 2
+    return int(m.group(1)), channels
+
+
+def test_compose_scene_normalizes_audio_format_regardless_of_source():
+    """사용자 피드백(2026-08-13): 특정 장면 전환 직후부터 배경에 "지지직"
+    잡음이 깔리는 문제가 있었다 — TTS provider가 만든 나레이션 mp3의 원본
+    샘플레이트가 build_transition()/_static_hold()가 고정으로 쓰는
+    44100Hz/스테레오 무음 오디오와 달라, concat()의 ffmpeg concat 데뮤서가
+    전환 경계에서 오디오 디코딩을 어긋나게 시작하는 것으로 재현·확인됨.
+    나레이션 오디오가 (OpenAI TTS 등에서 흔한) 24000Hz/모노처럼 다른 포맷이어도
+    compose_scene()이 항상 AUDIO_SAMPLE_RATE/AUDIO_CHANNELS로 강제 통일하는지
+    확인한다."""
+    from assets.video_renderer import FFmpegVideoRenderer, AUDIO_SAMPLE_RATE, AUDIO_CHANNELS
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame1 = os.path.join(tmp_dir, "frame1.png")
+        odd_audio = os.path.join(tmp_dir, "odd_audio.mp3")
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "color=c=red:s=640x360",
+                         "-frames:v", "1", frame1], capture_output=True, check=True)
+        # OpenAI TTS 등에서 흔한 24000Hz/모노 나레이션 오디오를 재현한다(전환
+        # 클립이 쓰는 44100Hz/스테레오와 의도적으로 다르게).
+        subprocess.run(["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+                         "-ar", "24000", "-ac", "1", "-q:a", "9", odd_audio],
+                        capture_output=True, check=True)
+
+        renderer = FFmpegVideoRenderer(width=640, height=360)
+        scene_out = os.path.join(tmp_dir, "scene0.mp4")
+        assert renderer.compose_scene(frame1, odd_audio, scene_out, duration=2.0, scene_index=0)
+
+        trans_out = os.path.join(tmp_dir, "trans0.mp4")
+        assert renderer.build_transition(frame1, frame1, trans_out, scene_index=0)
+
+        scene_sr, scene_ch = _probe_audio_stream(scene_out)
+        trans_sr, trans_ch = _probe_audio_stream(trans_out)
+        assert scene_sr == AUDIO_SAMPLE_RATE and scene_ch == AUDIO_CHANNELS, (
+            f"compose_scene 출력 오디오 포맷이 통일되지 않음: {scene_sr}Hz/{scene_ch}ch"
+        )
+        assert trans_sr == AUDIO_SAMPLE_RATE and trans_ch == AUDIO_CHANNELS, (
+            f"build_transition 출력 오디오 포맷이 통일되지 않음: {trans_sr}Hz/{trans_ch}ch"
+        )
+        assert (scene_sr, scene_ch) == (trans_sr, trans_ch), (
+            "장면 클립과 전환 클립의 오디오 포맷이 서로 다름 — concat 경계에서 "
+            "디코딩 아티팩트(잡음)를 유발할 수 있음"
+        )
+        print(f"✅ compose_scene/build_transition: 원본 나레이션이 24000Hz/모노여도 "
+              f"출력은 항상 {AUDIO_SAMPLE_RATE}Hz/{AUDIO_CHANNELS}ch로 통일됨")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
 def test_build_transition_never_returns_none_even_on_bad_input():
     """build_transition은 계약상 항상 str을 반환해야 한다(호출부의 누적 시간
     계산이 조건 분기 없이 단순해지도록). 존재하지 않는 프레임을 넣어도 정지
@@ -220,5 +278,6 @@ if __name__ == "__main__":
     test_build_transition_duration_is_fixed()
     test_transition_is_unified_slideleft()
     test_concat_scenes_and_transition()
+    test_compose_scene_normalizes_audio_format_regardless_of_source()
     test_build_transition_never_returns_none_even_on_bad_input()
     print("\n✅ video_renderer 테스트 전체 통과")

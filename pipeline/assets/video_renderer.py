@@ -31,6 +31,21 @@ KEN_BURNS_ZOOM_MAX = 1.08
 KEN_BURNS_ZOOM_STEP = 0.0015
 TRANSITION_DURATION = 0.4
 
+# 모든 장면/전환 클립의 오디오 스트림을 이 스펙으로 강제 통일한다(사용자
+# 피드백, 2026-08-13 — 특정 장면 전환 지점 직후부터 배경에 "지지직" 하는
+# 잡음이 깔리는 문제 재현·확인됨). compose_scene()의 오디오는 나레이션
+# mp3(TTS provider가 만든 원본 샘플레이트·채널 그대로, provider마다 다를 수
+# 있음)를 -ar/-ac 지정 없이 그대로 aac로 인코딩하는 반면, build_transition()/
+# _static_hold()의 무음 오디오는 anullsrc=r=44100:cl=stereo로 고정돼 있었다
+# — 이렇게 서로 다른 샘플레이트/채널 레이아웃의 클립들이 이어붙여지면
+# concat()의 ffmpeg concat 데뮤서(모든 입력이 동일한 스트림 파라미터라고
+# 가정함, https://ffmpeg.org/ffmpeg-formats.html#concat-1 참고)가 전환 경계
+# 직후의 오디오 디코딩을 어긋나게 시작해, 그 뒤 장면 전체에 잡음이 깔리는
+# 증상으로 이어질 수 있다. 모든 오디오 인코딩 지점에 동일한 -ar/-ac를 못박아
+# 이 불일치 자체를 없앤다.
+AUDIO_SAMPLE_RATE = 44100
+AUDIO_CHANNELS = 2
+
 # Ken Burns(장면 내 확대/팬) 효과 스위치. 현재 이미지 소스가 연합뉴스/KBS
 # 정식 API가 아니라 텍스트 카드 위주(공개 검색 폴백/섹터 대체 이미지)라, 화면
 # 확대·이동 중 카드의 중요한 텍스트가 프레임 밖으로 밀려나는 역효과가
@@ -123,6 +138,7 @@ class FFmpegVideoRenderer(VideoRenderer):
             "-map", "[v]", "-map", "1:a",
             "-c:v", "libx264", "-tune", "stillimage",
             "-c:a", "aac", "-b:a", "192k",
+            "-ar", str(AUDIO_SAMPLE_RATE), "-ac", str(AUDIO_CHANNELS),
             "-pix_fmt", "yuv420p",
             "-shortest", "-t", f"{duration:.3f}",
             out_path,
@@ -135,11 +151,13 @@ class FFmpegVideoRenderer(VideoRenderer):
     def _static_hold(self, frame_path: str, out_path: str, duration: float) -> bool:
         cmd = [
             "ffmpeg", "-y",
-            "-f", "lavfi", "-t", f"{duration}", "-i", "anullsrc=r=44100:cl=stereo",
+            "-f", "lavfi", "-t", f"{duration}",
+            "-i", f"anullsrc=r={AUDIO_SAMPLE_RATE}:cl=stereo",
             "-loop", "1", "-t", f"{duration}", "-i", frame_path,
             "-vf", f"scale={self.width}:{self.height},setsar=1",
             "-map", "1:v", "-map", "0:a",
             "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
+            "-ar", str(AUDIO_SAMPLE_RATE), "-ac", str(AUDIO_CHANNELS),
             "-pix_fmt", "yuv420p",
             out_path,
         ]
@@ -158,10 +176,12 @@ class FFmpegVideoRenderer(VideoRenderer):
             "ffmpeg", "-y",
             "-loop", "1", "-t", f"{duration}", "-i", from_frame,
             "-loop", "1", "-t", f"{duration}", "-i", to_frame,
-            "-f", "lavfi", "-t", f"{duration}", "-i", "anullsrc=r=44100:cl=stereo",
+            "-f", "lavfi", "-t", f"{duration}",
+            "-i", f"anullsrc=r={AUDIO_SAMPLE_RATE}:cl=stereo",
             "-filter_complex", vf,
             "-map", "[vout]", "-map", "2:a",
             "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
+            "-ar", str(AUDIO_SAMPLE_RATE), "-ac", str(AUDIO_CHANNELS),
             "-pix_fmt", "yuv420p",
             out_path,
         ]
@@ -179,8 +199,11 @@ class FFmpegVideoRenderer(VideoRenderer):
         cmd = [
             "ffmpeg", "-y",
             "-f", "lavfi", "-t", f"{duration}", "-i", f"color=c=black:s={self.width}x{self.height}:r={self.fps}",
-            "-f", "lavfi", "-t", f"{duration}", "-i", "anullsrc=r=44100:cl=stereo",
-            "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k", "-pix_fmt", "yuv420p",
+            "-f", "lavfi", "-t", f"{duration}",
+            "-i", f"anullsrc=r={AUDIO_SAMPLE_RATE}:cl=stereo",
+            "-c:v", "libx264", "-c:a", "aac", "-b:a", "192k",
+            "-ar", str(AUDIO_SAMPLE_RATE), "-ac", str(AUDIO_CHANNELS),
+            "-pix_fmt", "yuv420p",
             out_path,
         ]
         _run(cmd, f"전환 최종 대체(검정 화면) ({os.path.basename(out_path)})")
