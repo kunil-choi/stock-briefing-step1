@@ -78,15 +78,37 @@ def test_chapter_transition_moved_to_first_page():
 
 def test_no_transition_when_narration_starts_with_fixed_opener():
     """이 섹션이 관심종목 그룹의 첫 항목이 아니라서 전환 문구가 안 붙은
-    경우(narration이 고정 오프너로 바로 시작), item 텍스트를 그대로 써야
-    한다 — 엉뚱한 문구를 지어내 붙이면 안 됨."""
+    경우(narration이 고정 오프너로 바로 시작), 챕터 전환 문구는 안 붙어야
+    한다 — 다만 종목명 인트로(아래 테스트)는 전환 문구와 무관하게 항상
+    붙는다."""
     sec = _section(
         "다음은 오늘의 추가 관심 종목입니다. 먼저 A는...",
         [{"name": "종목A", "text": "종목A 설명입니다."}],
     )
     pages = build_watchlist_pages(sec)
-    assert pages[0]["text"] == "종목A 설명입니다."
-    print("✅ 전환 문구가 없으면 item 텍스트를 그대로 사용")
+    assert "종목A 설명입니다." in pages[0]["text"]
+    assert not pages[0]["text"].startswith("인기"), "전환 문구가 없는데 엉뚱한 문구가 붙으면 안 됨"
+    print("✅ 전환 문구가 없으면 붙이지 않음(종목명 인트로만 붙음)")
+
+
+def test_first_page_lists_all_stock_names():
+    """사용자 피드백(2026-08-13): 종목명 언급 없이 바로 개별 종목 설명이
+    시작돼 지금 어느 종목 얘기인지 알 수 없었다 — 첫 페이지 텍스트 앞에
+    전체 종목명을 나열하는 인트로가 붙어야 한다."""
+    sec = _section(
+        "다음은 오늘의 추가 관심 종목입니다. 먼저 A는... 다음으로 B는...",
+        [
+            {"name": "한국콜마", "text": "한국콜마는 실적이 개선됐습니다."},
+            {"name": "코스맥스", "text": "코스맥스는 사상 최대 실적을 기록했습니다."},
+        ],
+    )
+    pages = build_watchlist_pages(sec)
+    assert pages[0]["text"].startswith("다음은 추가 관심 종목들입니다. 한국콜마, 코스맥스입니다."), (
+        f"첫 페이지에 전체 종목명 나열 인트로가 없음: {pages[0]['text'][:80]!r}"
+    )
+    assert "한국콜마는 실적이 개선됐습니다." in pages[0]["text"]
+    assert pages[1]["text"] == "코스맥스는 사상 최대 실적을 기록했습니다.", "인트로는 첫 페이지에만 붙어야 함"
+    print("✅ 첫 페이지 텍스트 앞에 전체 종목명 나열 인트로가 붙음")
 
 
 if __name__ == "__main__":
@@ -95,4 +117,5 @@ if __name__ == "__main__":
     test_items_without_text_are_skipped()
     test_chapter_transition_moved_to_first_page()
     test_no_transition_when_narration_starts_with_fixed_opener()
+    test_first_page_lists_all_stock_names()
     print("\n✅ watchlist_pages 테스트 전체 통과")

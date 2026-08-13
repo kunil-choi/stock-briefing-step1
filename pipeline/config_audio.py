@@ -11,7 +11,7 @@ import yaml
 _HERE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HERE_DIR not in sys.path:
     sys.path.insert(0, _HERE_DIR)
-from assets.korean_numbers import read_decimal_numbers_ko, read_year_numbers_ko
+from assets.korean_numbers import read_decimal_numbers_ko, read_year_numbers_ko, read_won_amounts_ko
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _AUDIO_PATH = os.path.join(_HERE, "..", "config", "audio.yml")
@@ -63,6 +63,12 @@ def apply_pronunciation_rules(text: str) -> str:
         result = result.replace(src, dst)
     result = read_decimal_numbers_ko(result)
     result = read_year_numbers_ko(result)
+    # 소수점 변환(위) 뒤에 실행해야 한다 — "1.5억원"처럼 소수부 뒤에 만/억/조
+    # 단위가 붙은 경우, read_won_amounts_ko가 먼저 실행되면 소수점 뒤 숫자만
+    # (예: "5억원")을 잘못 통째로 매치해 정수부와 분리해버린다. 소수점 변환이
+    # 먼저 "1.5"를 "일쩜오"로 풀어써 두면 남는 건 콤마 구분 순수 정수뿐이라
+    # 이 문제가 생기지 않는다.
+    result = read_won_amounts_ko(result)
     return result
 
 
