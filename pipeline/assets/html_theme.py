@@ -128,11 +128,21 @@ def background_layer(image_path, darkness: float = 0.72, credit: str = "") -> st
         f'text-shadow:0 1px 3px rgba(0,0,0,.8);">{esc(credit)}</div>'
         if credit else ""
     )
+    # 그라디언트 3단계(0%/45%/100%)는 기본값 darkness=0.72 기준으로 잡은
+    # 비율(.30/.55/.72)을 유지한 채 darkness에 맞춰 함께 스케일한다. 이전엔
+    # 100% 지점만 darkness를 따르고 0%/45%는 .30/.55로 고정돼 있어서, 호출부가
+    # darkness를 0.1처럼 낮게 줘도(build_conclusion() — 자체 완성된 오프닝
+    # 타이틀 이미지 위라 어두운 오버레이가 불필요) 화면 상단~중단(마침 타이틀
+    # 텍스트가 있는 위치)은 여전히 최대 55% 검은 오버레이가 깔려 텍스트가
+    # 칙칙하게 죽어 보였다(사용자 보고 버그: 실제 영상 결과물의 타이틀 글씨가
+    # 저장된 원본 이미지보다 흐리게 나옴).
+    top    = darkness * (0.30 / 0.72)
+    mid    = darkness * (0.55 / 0.72)
     return f"""
 <div style="position:absolute;inset:0;z-index:-3;background-image:url('{uri}');
   background-size:cover;background-position:center;"></div>
 <div style="position:absolute;inset:0;z-index:-2;
-  background:linear-gradient(180deg, rgba(5,7,13,.30) 0%, rgba(5,7,13,.55) 45%,
+  background:linear-gradient(180deg, rgba(5,7,13,{top}) 0%, rgba(5,7,13,{mid}) 45%,
   rgba(5,7,13,{darkness}) 100%);"></div>
 {credit_html}"""
 
