@@ -55,5 +55,24 @@
       "삼성SDI",
       "삼성전기"
     ]
+  },
+  "2026-08-14": {
+    "briefing_data_fingerprint": "090637c4a15c1a65fa443f514c2c5b3a504c64bae8c7ca88d0a08a7c92e364a6",
+    "market_leaders": [
+      "SK하이닉스",
+      "삼성전자"
+    ],
+    "recorded_at": "2026-08-14T01:31:29.595429",
+    "remaining_stocks": [
+      "태양",
+      "현대차",
+      "LS증권",
+      "E1"
+    ],
+    "top_stocks": [
+      "삼성전기",
+      "삼화콘덴서",
+      "SK증권"
+    ]
   }
 }
