@@ -11,7 +11,10 @@ import yaml
 _HERE_DIR = os.path.dirname(os.path.abspath(__file__))
 if _HERE_DIR not in sys.path:
     sys.path.insert(0, _HERE_DIR)
-from assets.korean_numbers import read_decimal_numbers_ko, read_year_numbers_ko, read_won_amounts_ko
+from assets.korean_numbers import (
+    read_decimal_numbers_ko, read_year_numbers_ko, read_won_amounts_ko,
+    read_jeonil_date_ko,
+)
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _AUDIO_PATH = os.path.join(_HERE, "..", "config", "audio.yml")
@@ -61,6 +64,8 @@ def apply_pronunciation_rules(text: str) -> str:
     result = text
     for src, dst in PRONUNCIATION_RULES:
         result = result.replace(src, dst)
+    # 원본 축약 표기("전일(8/19)" 등)를 다른 숫자 변환보다 먼저 정규화한다.
+    result = read_jeonil_date_ko(result)
     result = read_decimal_numbers_ko(result)
     result = read_year_numbers_ko(result)
     # 소수점 변환(위) 뒤에 실행해야 한다 — "1.5억원"처럼 소수부 뒤에 만/억/조

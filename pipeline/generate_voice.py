@@ -103,7 +103,7 @@ def _build_jobs(sections: list, lang: str) -> list:
             # builders.py와 페이지 목록(순서·텍스트)을 공유해 프레임/오디오가
             # 어긋나지 않는다.
             for p, page in enumerate(build_watchlist_pages(section)):
-                text = page["text"]
+                text = page["narration_text"]
                 if text:
                     jobs.append((text, f"{audio_base}/{sid}_{p:02d}.mp3", f"{label} [{page['name']}]"))
         elif sid == "ai_strategy_brief":

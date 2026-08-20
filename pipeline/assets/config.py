@@ -430,6 +430,18 @@ _TITLE_KEYWORDS = {
     "소장", "연구원", "애널리스트", "차장", "과장", "대리", "고문",
 }
 
+# HOST-INTRO-1: 채널 자체의 진행자(호스트)가 스스로 말한 내용을 다룰 때는
+# "{채널}에 출연한 {회사} {이름} {직책}은" 같은 게스트용 문구가 어색하다
+# (예: "김작가TV"의 진행자는 "김작가"인데, v3-1 원본 speaker_name이 채널명과
+# 뒤섞여 "TV김작가"/"김작가TV 김작가"처럼 들어오는 경우가 있어 그대로
+# parse_panelist_identity에 넣으면 "김작가TV에 출연한 TV김작가 김작가
+# 패널은"처럼 뒤섞인 문장이 나온다 — 사용자 피드백). 알려진 채널의 호스트는
+# 여기 등록해두고, 이름이 뒤섞여 들어와도(부분 문자열 매칭) 항상 깨끗한
+# "{채널}에 출연한 {호스트}는" 형태로 소개한다.
+CHANNEL_HOST_MAP = {
+    "김작가TV": "김작가",
+}
+
 
 def parse_panelist_identity(speaker_name: str) -> dict:
     """자유 텍스트 speaker_name에서 이름/직책/소속을 최대한 분리한다. 확신할 수
@@ -477,13 +489,20 @@ def build_panelist_intro(channel: str, speaker_name: str) -> str:
     처리하므로, 표기는 원래 철자 그대로 둔다."""
     from .korean_numbers import pick_eun_neun
 
+    channel = (channel or "").strip()
     identity = parse_panelist_identity(speaker_name)
     name, title, company = identity["name"], identity["title"], identity["company"]
     if not name:
         return ""
+
+    # HOST-INTRO-1: 채널 자신의 호스트를 소개하는 경우 — 위 파싱 결과(직책/
+    # 소속)는 신뢰하지 않고, 채널+깨끗한 호스트 이름만으로 문장을 새로 만든다.
+    host = CHANNEL_HOST_MAP.get(channel)
+    if host and host in name:
+        return f"{channel}에 출연한 {host}{pick_eun_neun(host)}"
+
     person = f"{company} {name} {title}".strip() if company else f"{name} {title}"
     josa = pick_eun_neun(title)
-    channel = (channel or "").strip()
     channel_part = f"{channel}에 출연한 " if channel else ""
     return f"{channel_part}{person}{josa}"
 

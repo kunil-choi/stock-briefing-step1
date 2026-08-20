@@ -355,6 +355,25 @@ def test_build_panelist_intro_uses_company_name_title_order():
           "(실제 발음 교정은 pronunciation_ko.yml이 TTS 직전에 처리)")
 
 
+def test_build_panelist_intro_normalizes_host_self_reference():
+    """HOST-INTRO-1(사용자 피드백): 채널 자신의 호스트가 스스로 말한 내용을
+    다룰 때는 게스트용 "출연한 OOO 패널은" 문구 대신 "채널에 출연한
+    호스트는"으로 소개해야 한다. v3-1 원본 speaker_name이 채널명과 뒤섞여
+    들어와도(예: "TV김작가") 깨끗한 호스트 이름만으로 문장이 만들어져야
+    한다."""
+    from assets.config import build_panelist_intro
+
+    cases = [
+        ("김작가TV", "김작가"),
+        ("김작가TV", "TV김작가"),
+        ("김작가TV", "김작가TV 김작가"),
+    ]
+    for channel, speaker in cases:
+        result = build_panelist_intro(channel, speaker)
+        assert result == "김작가TV에 출연한 김작가는", f"{channel!r}/{speaker!r} → {result!r}"
+    print("✅ build_panelist_intro: 채널 호스트 자기소개는 뒤섞인 원본 표기와 무관하게 정규화됨")
+
+
 if __name__ == "__main__":
     test_build_stock_market_data_formats_real_values()
     test_securities_channel_mentions_not_dropped()
@@ -372,4 +391,5 @@ if __name__ == "__main__":
     test_persisted_stock_classification_invalidated_when_briefing_data_changes()
     test_parse_panelist_identity_matches_real_v3_1_examples()
     test_build_panelist_intro_uses_company_name_title_order()
+    test_build_panelist_intro_normalizes_host_self_reference()
     print("\n✅ generate_script 테스트 전체 통과")
