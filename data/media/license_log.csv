@@ -80,3 +80,6 @@ date,section_id,keyword,provider,url,license,phash,width,height,score
 2026-08-14,conclusion,뉴욕,naver_discovery,https://img2.yna.co.kr/photo/etc/epa/2026/08/13/PEP20260813168901009_P4.jpg,editorial_search,9fbc9c5052ab4e38,1200,799,0.78
 2026-08-14,stock_추가관심종목,하이브,naver_discovery,https://img2.yna.co.kr/etc/inner/KR/2026/08/14/AKR20260814051900005_01_i_P4.jpg,editorial_search,eb2ca4c4c3939eca,500,499,1.02
 2026-08-14,ai_strategy_brief,Samsung Electronics,naver_discovery,https://img1.yna.co.kr/etc/inner/EN/2026/08/14/AEN20260814001451320_02_i_P4.jpg,editorial_search,8df88746700679be,500,206,0.78
+2026-08-20,conclusion,급등,naver_discovery,http://news.kbs.co.kr/data/news/2026/08/20/20260820_WHnpHK.png,editorial_search,a9d516789846d1f9,640,360,0.96
+2026-08-20,stock_추가관심종목,삼성전기,naver_discovery,https://img3.yna.co.kr/photo/yna/YH/2026/08/20/PYH2026082002370001300_P4.jpg,editorial_search,ac5a5655a50abace,1200,741,1.02
+2026-08-20,ai_strategy_brief,Samsung Electronics,naver_discovery,https://img0.yna.co.kr/photo/yna/YH/2026/08/20/PYH2026082002030001300_P4.jpg,editorial_search,dc81f186aef21365,1200,642,0.78
