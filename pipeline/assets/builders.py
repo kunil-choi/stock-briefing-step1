@@ -525,7 +525,7 @@ def build_extra_watchlist(data, out_dir, img_dir=None):
     total = len(pages)
     return [
         _build_watchlist_page(
-            p["name"], p["text"], i, total,
+            p["name"], p["display_text"], i, total,
             os.path.join(out_dir, f"90_extra_watchlist_{i:02d}.png"),
         )
         for i, p in enumerate(pages)

@@ -16,6 +16,7 @@ if _PIPELINE not in sys.path:
 
 from assets.korean_numbers import (  # noqa: E402
     read_integer_ko, read_decimal_numbers_ko, read_year_numbers_ko, read_won_amounts_ko,
+    read_jeonil_date_ko,
 )
 
 
@@ -68,6 +69,16 @@ def test_read_year_numbers_ko():
     print("✅ read_year_numbers_ko: 연도 변환 확인")
 
 
+def test_read_jeonil_date_ko():
+    """LLM 내레이션이 v3-1 원본 가격 라벨의 "전일(M/D)" 축약 표기를 그대로
+    베껴 쓰는 경우가 있다(사용자 피드백) — TTS가 괄호/슬래시를 그대로 읽지
+    않도록 "전일인 M월 D일"로 풀어쓴다."""
+    assert read_jeonil_date_ko("전일(8/19) 종가 기준") == "전일인 8월 19일 종가 기준"
+    assert read_jeonil_date_ko("전일(12/5) 대비") == "전일인 12월 5일 대비"
+    assert read_jeonil_date_ko("변화 없음") == "변화 없음"
+    print("✅ read_jeonil_date_ko: 전일(M/D) → 전일인 M월 D일 변환")
+
+
 if __name__ == "__main__":
     test_read_integer_ko_basic_values()
     test_read_won_amounts_ko_comma_grouped()
@@ -75,4 +86,5 @@ if __name__ == "__main__":
     test_read_won_amounts_ko_leaves_plain_won_untouched()
     test_won_amount_after_decimal_conversion_no_corruption()
     test_read_year_numbers_ko()
+    test_read_jeonil_date_ko()
     print("\n✅ korean_numbers 테스트 전체 통과")
