@@ -74,5 +74,23 @@
       "삼화콘덴서",
       "SK증권"
     ]
+  },
+  "2026-08-20": {
+    "briefing_data_fingerprint": "53c5de91dc2ed4b506d0a4bf883b9511fca98d0260bd4bd5bf5eaae8c6bb9352",
+    "market_leaders": [
+      "삼성전자",
+      "SK하이닉스"
+    ],
+    "recorded_at": "2026-08-20T01:11:54.776830",
+    "remaining_stocks": [
+      "삼성전기",
+      "SK이노베이션",
+      "SK스퀘어"
+    ],
+    "top_stocks": [
+      "한화에어로스페이스",
+      "현대차",
+      "삼성SDI"
+    ]
   }
 }
