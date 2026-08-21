@@ -68,13 +68,17 @@ def test_compose_scene_ken_burns():
         shutil.rmtree(tmp_dir)
 
 
-def test_compose_scene_default_has_no_ken_burns_motion():
-    """사용자 피드백: 이미지가 카드형 텍스트 위주라 확대/팬 중 중요한 내용이
-    화면 밖으로 밀려나는 역효과가 있었다. 기본값(ENABLE_KEN_BURNS=False)에서는
-    zoompan 필터를 전혀 쓰지 않고 정지 화면으로 합성해야 한다."""
+def test_compose_scene_default_is_subtle_no_pan():
+    """영상 모션그래픽 업그레이드(P0-1): 예전엔 ENABLE_KEN_BURNS=False(기본값)면
+    zoompan을 아예 안 썼다(카드 텍스트가 확대/팬으로 잘려나가는 문제 때문).
+    이제는 motion 기본값이 "subtle"이라 zoompan 자체는 항상 켜지지만, 팬이
+    없고(중심 고정) 줌도 아주 미세해서(SUBTLE_ZOOM_MAX=1.02) 예전 문제(팬 중
+    중요한 텍스트가 프레임 밖으로 밀려남)가 재발하지 않는다 — 그래서 zoompan
+    유무가 아니라 "팬 없음 + 줌 상한이 photo보다 훨씬 작음"을 확인한다."""
     import assets.video_renderer as vr
 
-    assert vr.ENABLE_KEN_BURNS is False, "기본값은 Ken Burns 비활성화여야 함"
+    assert vr.ENABLE_KEN_BURNS is False, "기본값은 ENABLE_KEN_BURNS 비활성화여야 함"
+    assert vr.MOTION_DISABLE is False, "기본값은 MOTION_DISABLE 비활성화여야 함"
 
     captured_cmds = []
     real_run = vr.subprocess.run
@@ -87,7 +91,7 @@ def test_compose_scene_default_has_no_ken_burns_motion():
     try:
         frame1, _, audio = _make_test_assets(tmp_dir)
         renderer = vr.FFmpegVideoRenderer(width=640, height=360)
-        out_path = os.path.join(tmp_dir, "scene_static.mp4")
+        out_path = os.path.join(tmp_dir, "scene_subtle.mp4")
         vr.subprocess.run = _spy_run
         result = renderer.compose_scene(frame1, audio, out_path, duration=2.0, scene_index=0)
         vr.subprocess.run = real_run
@@ -95,16 +99,86 @@ def test_compose_scene_default_has_no_ken_burns_motion():
         assert result == out_path
         assert os.path.isfile(out_path) and os.path.getsize(out_path) > 0
         filter_arg = next(a for cmd in captured_cmds for a in cmd if "scale=" in a)
-        assert "zoompan" not in filter_arg, f"기본값인데 zoompan 필터가 사용됨: {filter_arg}"
-        print("✅ compose_scene: 기본값에서는 zoompan(확대/팬) 없이 정지 화면으로 합성됨")
+        assert "zoompan" in filter_arg, f"기본값(subtle)인데 zoompan 필터가 없음: {filter_arg}"
+        assert f"{vr.SUBTLE_ZOOM_MAX}" in filter_arg, "subtle 줌 상한(1.02)이 필터에 없음"
+        assert f"{vr.KEN_BURNS_ZOOM_MAX}" not in filter_arg, "기본값인데 photo 줌 상한(1.08)이 쓰임"
+        assert "iw*0.5-" in filter_arg and "ih*0.5-" in filter_arg, "subtle은 팬 없이 중심 고정이어야 함"
+        print("✅ compose_scene: 기본값(subtle)은 팬 없이 미세한 줌만 적용됨")
+    finally:
+        vr.subprocess.run = real_run
+        shutil.rmtree(tmp_dir)
+
+
+def test_compose_scene_motion_none_is_fully_static():
+    """motion="none"을 명시하면(P1의 실패 폴백 경로 등) 예전처럼 zoompan을
+    전혀 안 쓰는 완전 정지 화면으로 합성돼야 한다."""
+    import assets.video_renderer as vr
+
+    captured_cmds = []
+    real_run = vr.subprocess.run
+
+    def _spy_run(cmd, *args, **kwargs):
+        captured_cmds.append(cmd)
+        return real_run(cmd, *args, **kwargs)
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame1, _, audio = _make_test_assets(tmp_dir)
+        renderer = vr.FFmpegVideoRenderer(width=640, height=360)
+        out_path = os.path.join(tmp_dir, "scene_none.mp4")
+        vr.subprocess.run = _spy_run
+        result = renderer.compose_scene(frame1, audio, out_path, duration=2.0, scene_index=0, motion="none")
+        vr.subprocess.run = real_run
+
+        assert result == out_path
+        filter_arg = next(a for cmd in captured_cmds for a in cmd if "scale=" in a)
+        assert "zoompan" not in filter_arg, f"motion='none'인데 zoompan 필터가 사용됨: {filter_arg}"
+        print("✅ compose_scene: motion='none'은 zoompan 없이 완전 정지로 합성됨")
+    finally:
+        vr.subprocess.run = real_run
+        shutil.rmtree(tmp_dir)
+
+
+def test_compose_scene_motion_disable_killswitch_forces_static():
+    """절대 규칙 7(킬스위치): MOTION_DISABLE=true면 motion="photo"를 명시해도
+    무조건 완전 정지로 렌더링돼야 한다."""
+    import assets.video_renderer as vr
+
+    captured_cmds = []
+    real_run = vr.subprocess.run
+
+    def _spy_run(cmd, *args, **kwargs):
+        captured_cmds.append(cmd)
+        return real_run(cmd, *args, **kwargs)
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame1, _, audio = _make_test_assets(tmp_dir)
+        renderer = vr.FFmpegVideoRenderer(width=640, height=360)
+        out_path = os.path.join(tmp_dir, "scene_killswitch.mp4")
+
+        vr.MOTION_DISABLE = True
+        try:
+            vr.subprocess.run = _spy_run
+            result = renderer.compose_scene(frame1, audio, out_path, duration=2.0,
+                                             scene_index=0, motion="photo")
+            vr.subprocess.run = real_run
+        finally:
+            vr.MOTION_DISABLE = False
+
+        assert result == out_path
+        filter_arg = next(a for cmd in captured_cmds for a in cmd if "scale=" in a)
+        assert "zoompan" not in filter_arg, f"MOTION_DISABLE=true인데 zoompan이 사용됨: {filter_arg}"
+        print("✅ compose_scene: MOTION_DISABLE=true 킬스위치가 motion 인자를 무시하고 완전 정지 강제함")
     finally:
         vr.subprocess.run = real_run
         shutil.rmtree(tmp_dir)
 
 
 def test_compose_scene_ken_burns_when_explicitly_enabled():
-    """향후(연합뉴스/KBS 정식 이미지 확보 시) ENABLE_KEN_BURNS=True로 다시
-    켤 수 있도록 zoompan 경로 자체는 그대로 남아 있어야 한다."""
+    """하위호환: 호출부가 motion을 명시하지 않았는데(기본값 "subtle")
+    ENABLE_KEN_BURNS=True가 이미 켜져 있으면, 이 레거시 스위치를 무력화하지
+    않고 기존 "photo"(줌+팬) 강도로 승격해야 한다."""
     import assets.video_renderer as vr
 
     tmp_dir = tempfile.mkdtemp()
@@ -113,9 +187,18 @@ def test_compose_scene_ken_burns_when_explicitly_enabled():
         renderer = vr.FFmpegVideoRenderer(width=640, height=360)
         out_path = os.path.join(tmp_dir, "scene_kb.mp4")
 
+        captured_cmds = []
+        real_run = vr.subprocess.run
+
+        def _spy_run(cmd, *args, **kwargs):
+            captured_cmds.append(cmd)
+            return real_run(cmd, *args, **kwargs)
+
         vr.ENABLE_KEN_BURNS = True
         try:
+            vr.subprocess.run = _spy_run
             result = renderer.compose_scene(frame1, audio, out_path, duration=2.0, scene_index=0)
+            vr.subprocess.run = real_run
         finally:
             vr.ENABLE_KEN_BURNS = False
 
@@ -123,7 +206,9 @@ def test_compose_scene_ken_burns_when_explicitly_enabled():
         assert os.path.isfile(out_path) and os.path.getsize(out_path) > 0
         dur = _probe_duration(out_path)
         assert abs(dur - 2.0) < 0.2
-        print(f"✅ compose_scene: ENABLE_KEN_BURNS=True로 켜면 Ken Burns 경로가 여전히 동작함 ({dur:.2f}초)")
+        filter_arg = next(a for cmd in captured_cmds for a in cmd if "scale=" in a)
+        assert f"{vr.KEN_BURNS_ZOOM_MAX}" in filter_arg, "ENABLE_KEN_BURNS=True인데 photo 줌 상한(1.08)이 안 쓰임"
+        print(f"✅ compose_scene: ENABLE_KEN_BURNS=True로 켜면 photo(줌+팬)로 승격됨 ({dur:.2f}초)")
     finally:
         shutil.rmtree(tmp_dir)
 
@@ -157,6 +242,28 @@ def test_transition_is_unified_slideleft():
     for scene_index in range(5):
         assert _TRANSITION_CYCLE[scene_index % len(_TRANSITION_CYCLE)] == "slideleft"
     print("✅ 전환 종류: scene_index와 무관하게 항상 slideleft로 통일됨")
+
+
+def test_build_transition_explicit_kind_overrides_cycle():
+    """P0-2(전환 위계): kind를 명시하면 _TRANSITION_CYCLE 순환 대신 그 값을
+    그대로 써야 한다(호출부가 섹션 경계에서 wipeleft를 강제할 수 있어야 함).
+    kind를 안 넘기면(None) 기존 순환 선택 동작이 유지돼야 한다."""
+    from assets.video_renderer import FFmpegVideoRenderer
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame1, frame2, _ = _make_test_assets(tmp_dir)
+        renderer = FFmpegVideoRenderer(width=640, height=360)
+
+        out_path = os.path.join(tmp_dir, "trans_wipe.mp4")
+        result = renderer.build_transition(frame1, frame2, out_path, scene_index=0, kind="wipeleft")
+        assert result == out_path
+        assert os.path.isfile(out_path) and os.path.getsize(out_path) > 0
+        dur = _probe_duration(out_path)
+        assert abs(dur - 0.4) < 0.15
+        print("✅ build_transition: kind='wipeleft' 명시 시 섹션 경계 전환이 정상 생성됨")
+    finally:
+        shutil.rmtree(tmp_dir)
 
 
 def test_concat_scenes_and_transition():
@@ -273,10 +380,13 @@ if __name__ == "__main__":
         sys.exit(0)
 
     test_compose_scene_ken_burns()
-    test_compose_scene_default_has_no_ken_burns_motion()
+    test_compose_scene_default_is_subtle_no_pan()
+    test_compose_scene_motion_none_is_fully_static()
+    test_compose_scene_motion_disable_killswitch_forces_static()
     test_compose_scene_ken_burns_when_explicitly_enabled()
     test_build_transition_duration_is_fixed()
     test_transition_is_unified_slideleft()
+    test_build_transition_explicit_kind_overrides_cycle()
     test_concat_scenes_and_transition()
     test_compose_scene_normalizes_audio_format_regardless_of_source()
     test_build_transition_never_returns_none_even_on_bad_input()

@@ -179,6 +179,30 @@ def run(lang: str = "KO"):
         print(f"📰 하단 티커: {ticker_text}")
 
     asset_map = {"frames": [], "lang": lang}
+    # FIX-MOTION-META-1(영상 모션그래픽 업그레이드 Phase 0): 워크플로우의 video
+    # 잡이 asset_map.json을 generate_assets.py가 아니라 output/KO/frames/의
+    # *.png를 glob으로 훑어 인라인으로 만든다(morning_core.yml) — 그래서
+    # backgroundType/section_type처럼 이 시점에만 알 수 있는 정보가
+    # generate_video.py에는 전혀 전달되지 않았다. asset_map.json 스키마나
+    # 워크플로우의 glob 방식을 건드리는 대신, frames/ 안에 사이드카 파일
+    # (_motion_meta.json)을 추가로 남긴다 — 이 파일도 같은 디렉토리에 있어
+    # 기존 "assets" 아티팩트 업로드(path: output/KO/frames/)에 자동으로
+    # 실려가므로 워크플로우 yml은 안 건드려도 된다. generate_video.py는 이
+    # 파일이 없어도(구버전 캐시 등) 빈 dict로 폴백해 항상 안전하게 동작한다.
+    frame_meta = {}
+
+    def _record_meta(paths, section_type, visual):
+        # backgroundType은 scene_plan.json이 미리 정해둔 "희망사항"이라, 실제로
+        # 배경 사진을 못 구했으면(media_map.json 미매칭/검색 실패 등)
+        # backgroundType="image"여도 화면엔 카드형 텍스트만 나온다. photo
+        # 모션(줌+팬)은 실제로 배경 사진이 있는 장면에만 써야 하므로(카드
+        # 텍스트에 팬을 걸면 예전에 껐던 "텍스트가 프레임 밖으로 밀려나는"
+        # 문제가 재발함), backgroundType 라벨이 아니라 image_path 실존 여부로
+        # 판단한다.
+        has_bg_image = bool((visual or {}).get("image_path"))
+        for p in paths:
+            stem = os.path.splitext(os.path.basename(p))[0]
+            frame_meta[stem] = {"sectionType": section_type, "hasBackgroundImage": has_bg_image}
 
     try:
         stock_idx = 0
@@ -186,40 +210,47 @@ def run(lang: str = "KO"):
             sid = sec.get("id", "")
             section_type = sec.get("section_type", "")
             visual = _resolve_visual(sid, scene_by_id, media_map)
+            new_frames = []
 
             if sid == "hook":
-                asset_map["frames"].extend(build_hook(sec, out_dir, visual=visual))
+                new_frames = build_hook(sec, out_dir, visual=visual)
             elif sid == "conclusion":
-                asset_map["frames"].append(build_conclusion(sec, out_dir))
+                new_frames = [build_conclusion(sec, out_dir)]
             elif sid == "closing":
-                asset_map["frames"].append(build_closing(data, out_dir))
+                new_frames = [build_closing(data, out_dir)]
             elif sid == "market_summary":
-                asset_map["frames"].extend(build_market_summary(data, out_dir, visual=visual))
+                new_frames = build_market_summary(data, out_dir, visual=visual)
             elif sid == "sectors":
-                asset_map["frames"].append(build_sector(data, out_dir, visual=visual))
+                new_frames = [build_sector(data, out_dir, visual=visual)]
             elif sid == "ai_strategy":
-                asset_map["frames"].append(build_ai_strategy(data, out_dir))
+                new_frames = [build_ai_strategy(data, out_dir)]
             elif sid == "ai_strategy_brief":
-                asset_map["frames"].extend(build_ai_strategy_brief(sec, out_dir))
+                new_frames = build_ai_strategy_brief(sec, out_dir)
             elif sid == "stock_추가관심종목":
-                asset_map["frames"].extend(build_extra_watchlist(data, out_dir, img_dir))
+                new_frames = build_extra_watchlist(data, out_dir, img_dir)
             elif sid in _AGGREGATE_BUILDERS:
                 frame = _AGGREGATE_BUILDERS[sid](data, out_dir, img_dir)
-                if frame:
-                    asset_map["frames"].append(frame)
+                new_frames = [frame] if frame else []
             elif section_type == "top_mover" or sid.startswith("stock_") or sid.startswith("hidden_"):
                 name = sid.replace("stock_", "").replace("hidden_", "")
                 prefix = f"{10 + stock_idx:02d}_{name}"
                 stock_idx += 1
-                asset_map["frames"].extend(build_stock_cards(sec, out_dir, img_dir, prefix, visual=visual))
+                new_frames = build_stock_cards(sec, out_dir, img_dir, prefix, visual=visual)
             else:
                 print(f"  ⚠️ 알 수 없는 섹션 — 건너뜀: id={sid} section_type={section_type}")
+
+            asset_map["frames"].extend(new_frames)
+            _record_meta(new_frames, section_type, visual)
     finally:
         close_renderer()
 
     map_path = os.path.join(root, "output", lang, "asset_map.json")
     with open(map_path, "w", encoding="utf-8") as f:
         json.dump(asset_map, f, ensure_ascii=False, indent=2)
+
+    meta_path = os.path.join(out_dir, "_motion_meta.json")
+    with open(meta_path, "w", encoding="utf-8") as f:
+        json.dump(frame_meta, f, ensure_ascii=False, indent=2)
 
     print(f"\n✅ 완료: {len(asset_map['frames'])}개 프레임 → {out_dir}")
     return asset_map

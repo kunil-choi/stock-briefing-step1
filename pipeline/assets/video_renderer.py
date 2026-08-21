@@ -28,7 +28,6 @@ from typing import List, Optional
 
 FPS = 30
 KEN_BURNS_ZOOM_MAX = 1.08
-KEN_BURNS_ZOOM_STEP = 0.0015
 TRANSITION_DURATION = 0.4
 
 # 장면(나레이션 mp3)의 파형이 정확히 0이 아닌 지점에서 시작/끝나는 경우가
@@ -56,24 +55,46 @@ AUDIO_CLICK_FADE = 0.03
 AUDIO_SAMPLE_RATE = 44100
 AUDIO_CHANNELS = 2
 
-# Ken Burns(장면 내 확대/팬) 효과 스위치. 현재 이미지 소스가 연합뉴스/KBS
-# 정식 API가 아니라 텍스트 카드 위주(공개 검색 폴백/섹터 대체 이미지)라, 화면
-# 확대·이동 중 카드의 중요한 텍스트가 프레임 밖으로 밀려나는 역효과가
-# 있었다(사용자 피드백). 실제 보도사진처럼 여백이 넉넉한 편집용 이미지를
-# 안정적으로 확보하게 되면(Phase C의 YONHAP_API_KEY/KBS_API_KEY 정식 연동)
-# 다시 켤 수 있도록 코드는 그대로 두고 기본값만 꺼둔다.
+# Ken Burns(장면 내 확대/팬) 효과 스위치. 예전엔 이 값 하나로 전역 on/off
+# 했었다 — 현재 이미지 소스가 연합뉴스/KBS 정식 API가 아니라 텍스트 카드
+# 위주(공개 검색 폴백/섹터 대체 이미지)라, 화면 확대·이동 중 카드의 중요한
+# 텍스트가 프레임 밖으로 밀려나는 역효과가 있었기 때문이다(사용자 피드백).
+#
+# ★ 영상 모션그래픽 업그레이드(Phase 0, P0-1): 이 판단 자체는 맞았지만
+# 해법은 "끄는" 게 아니라 "슬라이드 종류별로 강도를 다르게" 주는 것이었다.
+# compose_scene()의 motion 인자("none"/"subtle"/"photo")가 이제 그 역할을
+# 대신한다 — "subtle"(줌만 살짝, 팬 없음)은 텍스트가 화면 밖으로 밀려날
+# 여지가 없어 ENABLE_KEN_BURNS 값과 무관하게 항상 적용된다. 이 환경변수는
+# 하위호환으로만 남긴다: 명시적으로 motion을 안 넘긴 호출부가
+# ENABLE_KEN_BURNS=True를 설정해 뒀다면 "subtle" 대신 기존 "photo"(줌+팬)
+# 강도로 승격시키는 데만 쓰인다(운영 중이던 설정을 조용히 무력화하지 않기
+# 위함) — 완전 정지가 필요하면 이제 MOTION_DISABLE=true를 쓴다.
 ENABLE_KEN_BURNS = os.environ.get("ENABLE_KEN_BURNS", "false").strip().lower() == "true"
+
+# 킬스위치(절대 규칙 7): true면 motion 인자가 뭐든 전부 무시하고 완전 정지로
+# 렌더링한다 — 모션 관련 기능에 문제가 생기면 배포 없이 즉시 예전 동작으로
+# 되돌릴 수 있어야 한다.
+MOTION_DISABLE = os.environ.get("MOTION_DISABLE", "false").strip().lower() == "true"
+
+# "subtle" 모션(텍스트 카드 기본값)의 줌 상한. "photo"(KEN_BURNS_ZOOM_MAX=1.08)
+# 보다 훨씬 미세해서 팬 없이 중심 고정으로만 써도 카드 텍스트가 프레임 밖으로
+# 밀려날 걱정이 없다 — 그래서 배경 유무와 무관하게 기본값으로 항상 켜둔다.
+SUBTLE_ZOOM_MAX = 1.02
 
 # 장면마다 살짝 다른 팬(pan) 방향을 순환시켜 매번 같은 방식으로 확대되는 단조로움을
 # 피한다. (cx, cy)는 줌 중심을 이미지의 어느 지점(0~1 비율)에 둘지를 뜻한다.
+# "photo" 모션에서만 쓴다 — "subtle"은 팬 없이 항상 중심 고정.
 _PAN_CYCLE = [(0.5, 0.5), (0.3, 0.4), (0.7, 0.4), (0.5, 0.65)]
 
-# 화면 전환을 하나로 통일한다: 기존 화면이 왼쪽으로 빠지고 새 화면이 오른쪽에서
-# 들어오는 slideleft만 쓴다(사용자 요청 — 예전에는 fade/slideleft/slideright를
-# 번갈아 써서 장면마다 전환 방향/방식이 달라 산만하다는 피드백이 있었다).
-# 이름은 ffmpeg xfade 필터가 기본 제공하는 transition 값이다. 리스트 형태는
-# 그대로 유지해(요소 1개) build_transition()의 순환 인덱싱 코드를 바꾸지 않아도
-# 되게 했다.
+# 화면 전환 기본값: slideleft(기존 화면이 왼쪽으로 빠지고 새 화면이 오른쪽에서
+# 들어옴). 예전엔 fade/slideleft/slideright를 번갈아 써서 장면마다 전환
+# 방향/방식이 달라 산만하다는 피드백이 있어 하나로 통일했다(사용자 요청).
+# 이름은 ffmpeg xfade 필터가 기본 제공하는 transition 값이다.
+#
+# ★ P0-2(전환 위계): build_transition()이 이제 kind 인자를 명시적으로 받는다
+# — 호출부(generate_video.py)가 섹션 경계 여부를 판정해 wipeleft(경계)/
+# slideleft(섹션 내부)를 골라 넘긴다. kind를 안 넘기면(다른 호출부 하위호환)
+# 이 리스트로 순환 선택하던 기존 동작을 그대로 유지한다.
 _TRANSITION_CYCLE = ["slideleft"]
 
 
@@ -92,17 +113,22 @@ class VideoRenderer(ABC):
 
     @abstractmethod
     def compose_scene(self, image_path: str, audio_path: str, out_path: str,
-                       duration: float, scene_index: int = 0) -> Optional[str]:
-        """정지 이미지 + 오디오를 Ken Burns 효과가 적용된 영상 클립으로 만든다.
-        실패하면 None을 반환한다(호출부가 해당 장면을 건너뛸 수 있도록)."""
+                       duration: float, scene_index: int = 0,
+                       motion: str = "subtle") -> Optional[str]:
+        """정지 이미지 + 오디오를 모션 효과가 적용된 영상 클립으로 만든다.
+        motion: "none"(완전 정지) / "subtle"(줌만 살짝, 텍스트 카드 기본값) /
+        "photo"(줌+팬, 배경 사진 전용). 실패하면 None을 반환한다(호출부가
+        해당 장면을 건너뛸 수 있도록)."""
         ...
 
     @abstractmethod
     def build_transition(self, from_frame: str, to_frame: str, out_path: str,
                           scene_index: int = 0,
-                          duration: float = TRANSITION_DURATION) -> str:
+                          duration: float = TRANSITION_DURATION,
+                          kind: Optional[str] = None) -> str:
         """두 장면 사이에 삽입할 짧은(무음) 전환 클립을 만든다. 항상 정확히
-        `duration`초짜리 클립 경로를 반환한다(실패해도 정지 프레임 홀드로 대체)."""
+        `duration`초짜리 클립 경로를 반환한다(실패해도 정지 프레임 홀드로 대체).
+        kind를 안 넘기면 기존 순환 선택(_TRANSITION_CYCLE) 방식을 그대로 쓴다."""
         ...
 
     @abstractmethod
@@ -118,14 +144,31 @@ class FFmpegVideoRenderer(VideoRenderer):
         self.fps = fps
 
     def compose_scene(self, image_path: str, audio_path: str, out_path: str,
-                       duration: float, scene_index: int = 0) -> Optional[str]:
+                       duration: float, scene_index: int = 0,
+                       motion: str = "subtle") -> Optional[str]:
         if duration <= 0:
             duration = 3.0
 
-        if ENABLE_KEN_BURNS:
+        if MOTION_DISABLE:
+            motion = "none"
+        elif motion == "subtle" and ENABLE_KEN_BURNS:
+            # 하위호환: 호출부가 motion을 명시적으로 안 정했는데(기본값
+            # "subtle") 운영 환경이 예전 스위치(ENABLE_KEN_BURNS=True)를 이미
+            # 켜 뒀다면, 그 설정을 조용히 무력화하지 않고 기존 "photo"(줌+팬)
+            # 강도로 승격한다.
+            motion = "photo"
+
+        if motion in ("subtle", "photo"):
+            zoom_max = SUBTLE_ZOOM_MAX if motion == "subtle" else KEN_BURNS_ZOOM_MAX
+            cx, cy = (0.5, 0.5) if motion == "subtle" else _PAN_CYCLE[scene_index % len(_PAN_CYCLE)]
             frames = max(1, int(round(duration * self.fps)))
-            cx, cy = _PAN_CYCLE[scene_index % len(_PAN_CYCLE)]
-            zoom_expr = f"min(zoom+{KEN_BURNS_ZOOM_STEP},{KEN_BURNS_ZOOM_MAX})"
+            # 고정 스텝(예: 초당 일정량) 대신 장면 길이 전체에 걸쳐 딱
+            # zoom_max까지 도달하도록 프레임 수로 나눈 스텝을 쓴다 — 고정
+            # 스텝이면 긴 장면(예: 30초)에서 줌이 1~2초 만에 끝나버리고
+            # 나머지는 그대로 멈춰 있어("subtle"의 취지인 은은한 드리프트가
+            # 아니라 급정지로 보임) 오히려 부자연스럽다.
+            zoom_step = (zoom_max - 1.0) / frames
+            zoom_expr = f"min(zoom+{zoom_step:.6f},{zoom_max})"
             x_expr = f"iw*{cx}-(iw/zoom/2)"
             y_expr = f"ih*{cy}-(ih/zoom/2)"
             vf = (
@@ -133,7 +176,7 @@ class FFmpegVideoRenderer(VideoRenderer):
                 f"zoompan=z='{zoom_expr}':d={frames}:x='{x_expr}':y='{y_expr}':"
                 f"s={self.width}x{self.height}:fps={self.fps}"
             )
-            label = "Ken Burns"
+            label = f"Ken Burns({motion})"
         else:
             # 정지 화면: 카드 텍스트가 확대/팬으로 잘려나가는 문제를 피하기
             # 위해 원본 비율을 유지한 채 캔버스에 맞추기만 한다.
@@ -179,8 +222,10 @@ class FFmpegVideoRenderer(VideoRenderer):
 
     def build_transition(self, from_frame: str, to_frame: str, out_path: str,
                           scene_index: int = 0,
-                          duration: float = TRANSITION_DURATION) -> str:
-        kind = _TRANSITION_CYCLE[scene_index % len(_TRANSITION_CYCLE)]
+                          duration: float = TRANSITION_DURATION,
+                          kind: Optional[str] = None) -> str:
+        if kind is None:
+            kind = _TRANSITION_CYCLE[scene_index % len(_TRANSITION_CYCLE)]
         vf = (
             f"[0:v]scale={self.width}:{self.height},fps={self.fps},setsar=1[v0];"
             f"[1:v]scale={self.width}:{self.height},fps={self.fps},setsar=1[v1];"

@@ -243,34 +243,69 @@ def trim_to_fit_budget(frame_audio_pairs: list, sections: list, target_max: floa
 _renderer = FFmpegVideoRenderer()
 
 
-def build_scene_clips(frame_audio_pairs: list, video_dir: str) -> tuple:
+def _motion_for(frame_stem: str, frame_meta: dict) -> str:
+    """_motion_meta.json 항목으로 이 장면의 모션 강도를 정한다. 메타 정보가
+    없으면(구버전 캐시, 렌더링 실패 등) 안전한 기본값(subtle)으로 폴백한다 —
+    절대 규칙 2번(실패해도 회귀 없음)."""
+    meta = frame_meta.get(frame_stem)
+    if meta is None:
+        return "subtle"
+    return "photo" if meta.get("hasBackgroundImage") else "subtle"
+
+
+def _is_section_boundary(prev_stem: str, cur_stem: str, frame_meta: dict) -> bool:
+    """두 프레임이 서로 다른 section_type에 속하면(시장요약→종목, 종목→AI전략
+    처럼) 경계로 본다. 메타가 없으면 경계 여부를 판단할 수 없으므로 기존
+    동작(slideleft)을 유지한다."""
+    prev_meta = frame_meta.get(prev_stem)
+    cur_meta = frame_meta.get(cur_stem)
+    if not prev_meta or not cur_meta:
+        return False
+    prev_type = prev_meta.get("sectionType")
+    cur_type = cur_meta.get("sectionType")
+    return bool(prev_type) and bool(cur_type) and prev_type != cur_type
+
+
+def build_scene_clips(frame_audio_pairs: list, video_dir: str, frame_meta: dict = None) -> tuple:
     """[(frame_path, mp3_path, duration), ...] → Ken Burns 클립과 전환 클립을
     번갈아 만든 파일 경로 리스트를 반환한다. 장면 합성이 실패하면 그 장면만
     건너뛰고(기존 build_section_video() 실패 시 동작과 동일하게) 계속 진행한다.
+
+    frame_meta: generate_assets.py가 남긴 output/{lang}/frames/_motion_meta.json
+    (프레임 스템 → {sectionType, hasBackgroundImage}) — 장면별 모션 강도(P0-1)와
+    섹션 경계 전환(P0-2)을 결정하는 데 쓴다. 없으면(구버전 캐시 등) 안전한
+    기본값(subtle 모션, slideleft 전환)으로 동작한다.
 
     반환값: (clips, rendered_pairs). rendered_pairs는 실제로 최종 영상에
     포함된 (frame_path, mp3_path, duration)만 담은 부분집합이다 — 호출부가
     자막/BGM 구간 계산을 "계획된 프레임 전체"가 아니라 "실제로 렌더링된
     장면"에 맞춰야, 합성 실패로 빠진 장면 때문에 이후 자막 타임라인 전체가
     밀리는 문제(FIX-SCENE-SUBTITLE-DRIFT-1)를 피할 수 있다."""
+    frame_meta = frame_meta or {}
     clips = []
     rendered_pairs = []
     prev_frame = None
+    prev_stem = None
     for i, (frame_path, mp3_path, duration) in enumerate(frame_audio_pairs):
         frame_stem = os.path.splitext(os.path.basename(frame_path))[0]
 
         transition_added = False
         if prev_frame is not None:
             trans_path = os.path.join(video_dir, f"trans_{i:03d}.mp4")
-            clips.append(_renderer.build_transition(prev_frame, frame_path, trans_path, scene_index=i))
+            kind = "wipeleft" if _is_section_boundary(prev_stem, frame_stem, frame_meta) else "slideleft"
+            clips.append(_renderer.build_transition(prev_frame, frame_path, trans_path,
+                                                      scene_index=i, kind=kind))
             transition_added = True
 
         scene_path = os.path.join(video_dir, f"{frame_stem}.mp4")
-        clip = _renderer.compose_scene(frame_path, mp3_path, scene_path, duration, scene_index=i)
+        motion = _motion_for(frame_stem, frame_meta)
+        clip = _renderer.compose_scene(frame_path, mp3_path, scene_path, duration,
+                                        scene_index=i, motion=motion)
         if clip:
             clips.append(clip)
             rendered_pairs.append((frame_path, mp3_path, duration))
             prev_frame = frame_path
+            prev_stem = frame_stem
         else:
             print(f"  ⚠️ 장면 합성 실패 — 건너뜀: {frame_stem}")
             # 이 장면으로 들어가는 전환은 어차피 갈 곳을 잃었으므로 되돌린다
@@ -482,6 +517,17 @@ def run(lang: str = "KO"):
     frames = asset_map.get("frames", [])
     print(f"📂 프레임 수: {len(frames)}")
 
+    # generate_assets.py가 남긴 사이드카(P0-1/P0-2 — 모션 강도/섹션 경계 전환에
+    # 씀). 없으면(구버전 캐시, 렌더링 실패 등) 빈 dict로 폴백해 기존 동작
+    # (subtle 모션, slideleft 전환)과 동일하게 진행한다(회귀 없음).
+    frame_meta_path = os.path.join(root, "output", lang, "frames", "_motion_meta.json")
+    frame_meta = {}
+    if os.path.isfile(frame_meta_path):
+        with open(frame_meta_path, encoding="utf-8") as f:
+            frame_meta = json.load(f)
+    else:
+        print("  ⚠️ _motion_meta.json 없음 — 기본 모션(subtle)/전환(slideleft)으로 진행")
+
     os.makedirs(os.path.dirname(bgm_path), exist_ok=True)
     download_bgm(bgm_path)
 
@@ -516,7 +562,7 @@ def run(lang: str = "KO"):
         frame_audio_pairs, sections, TARGET_MAX, ATEMPO_MAX_SPEED, TRANSITION_DURATION,
     )
 
-    section_videos, rendered_pairs = build_scene_clips(frame_audio_pairs, video_dir)
+    section_videos, rendered_pairs = build_scene_clips(frame_audio_pairs, video_dir, frame_meta)
 
     if missing_audio:
         print("\n⚠️  누락된 오디오가 있어 해당 섹션을 건너뜁니다.")

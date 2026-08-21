@@ -16,6 +16,7 @@ if _PIPELINE not in sys.path:
 from generate_video import (  # noqa: E402
     resolve_merged_duration, compute_bgm_bounds, TARGET_MIN, TARGET_MAX, TARGET_IDEAL,
     _classify_drop_candidate, _fits_within_target, trim_to_fit_budget,
+    _motion_for, _is_section_boundary,
 )
 from config_schedule import duration_for  # noqa: E402
 
@@ -346,6 +347,36 @@ def test_trim_to_fit_budget_mentions_round_robin_across_stocks():
           "1개씩 라운드로빈으로 빠짐 확인")
 
 
+def test_motion_for_uses_background_image_presence():
+    """P0-1: _motion_meta.json에 hasBackgroundImage=True인 프레임만 photo(줌+팬),
+    나머지는 subtle(카드 텍스트 안전)로 판단해야 한다. 메타가 아예 없는
+    프레임은(구버전 캐시 등) 안전한 기본값 subtle로 폴백한다(회귀 없음)."""
+    frame_meta = {
+        "02_sector": {"sectionType": "sector", "hasBackgroundImage": True},
+        "10_삼성전자_1_summary": {"sectionType": "top_mover", "hasBackgroundImage": False},
+    }
+    assert _motion_for("02_sector", frame_meta) == "photo"
+    assert _motion_for("10_삼성전자_1_summary", frame_meta) == "subtle"
+    assert _motion_for("99_unknown_stem", frame_meta) == "subtle"
+    print("✅ _motion_for: 배경 사진 실존 여부로 photo/subtle 판단, 메타 없으면 subtle 폴백")
+
+
+def test_is_section_boundary_detects_section_type_change():
+    """P0-2: 두 프레임의 section_type이 다르면 경계(wipeleft 대상)로 판단해야
+    한다. 같은 섹션 내부거나 메타가 없으면 경계가 아니어야(slideleft 유지)
+    한다."""
+    frame_meta = {
+        "01_market_00": {"sectionType": "market_summary", "hasBackgroundImage": False},
+        "02_sector": {"sectionType": "sector", "hasBackgroundImage": True},
+        "10_삼성전자_1_summary": {"sectionType": "top_mover", "hasBackgroundImage": False},
+        "10_삼성전자_2_chart": {"sectionType": "top_mover", "hasBackgroundImage": False},
+    }
+    assert _is_section_boundary("01_market_00", "02_sector", frame_meta) is True
+    assert _is_section_boundary("10_삼성전자_1_summary", "10_삼성전자_2_chart", frame_meta) is False
+    assert _is_section_boundary("01_market_00", "99_unknown", frame_meta) is False
+    print("✅ _is_section_boundary: section_type 변경 지점만 경계로 판단, 메타 없으면 False 폴백")
+
+
 if __name__ == "__main__":
     test_trusts_measurement_when_close_to_expected()
     test_falls_back_to_expected_when_measurement_is_way_off()
@@ -366,4 +397,6 @@ if __name__ == "__main__":
     test_trim_to_fit_budget_touches_leader_mentions_only_as_last_resort()
     test_trim_to_fit_budget_never_drops_below_protected_floor()
     test_trim_to_fit_budget_mentions_round_robin_across_stocks()
+    test_motion_for_uses_background_image_presence()
+    test_is_section_boundary_detects_section_type_change()
     print("\n✅ generate_video 테스트 전체 통과")
