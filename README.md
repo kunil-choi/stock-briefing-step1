@@ -28,18 +28,14 @@ V3_1에는 증권사 리포트 데이터가 애초에 없으므로, 이 레포�
 뒤, 이 레포 Actions 탭에서 수동으로 `workflow_dispatch`를 실행하세요. 자체 cron도
 없습니다.
 
-## 썸네일 문구 수정 (관리자 페이지)
+## 썸네일
 
-`morning_core.yml`이 끝나면 발언형/뉴스형 썸네일 PNG 2장과 선정된 후보 원본을
-`docs/thumbnails/latest_{1,2}.png` + `latest_meta.json`으로 커밋합니다.
-[`stock-briefing-v3-1`의 통합 관리자 페이지](https://kunil-choi.github.io/stock-briefing-v3-1/admin/)
-"STEP-1" 탭 → "🖼️ 썸네일 수정"에서 이 이미지를 보고 문구를 고쳐 "재생성"을 누르면,
-이 레포의 `.github/workflows/regenerate_thumbnail.yml`이 `latest_meta.json`에 저장된
-candidate(선정된 발언/종목 원본)를 그대로 재사용해 OpenAI/TTS 재호출 없이 1~2분
-안에 새 문구로 다시 그려 같은 경로에 커밋합니다. 후보 자체(어떤 발언/종목을 쓸지)를
-바꾸려면 `morning_core.yml`을 다시 돌려야 합니다 — 이 경로는 "문구만" 다듬는 용도입니다.
-로컬에서 같은 걸 하고 싶으면 `pipeline/regenerate_thumbnail.py`(script.json 기준으로
-후보를 다시 선정)를 쓰세요.
+썸네일은 자동 생성하지 않고 수동으로 만듭니다 (THUMBNAIL-REMOVED-1). 예전에는
+`morning_core.yml`이 발언형/뉴스형 후보 PNG를 자동 생성해 관리자 페이지에서
+문구를 고쳐 재생성할 수 있었지만, 그 기능(`pipeline/generate_thumbnails.py`,
+`apply_thumbnail_edit.py`, `regenerate_thumbnail.py`, `assets/thumbnail_select.py`,
+`assets/thumbnail_bg.py`, `.github/workflows/regenerate_thumbnail.yml`,
+`stock-briefing-v3-1` 관리자 페이지의 "STEP-1" 탭)는 모두 삭제했습니다.
 
 ## 신규 구성 요소 (`stock-briefing-video` 대비 추가/변경)
 
@@ -48,8 +44,7 @@ candidate(선정된 발언/종목 원본)를 그대로 재사용해 OpenAI/TTS �
 | `config/schedule.yml` | `briefing_type: morning_core`, 실행 창(07:10~08:20), longform 길이 목표 |
 | `pipeline/config_schedule.py` | 위 yaml 로더 |
 | `pipeline/generate_script.py` | Playwright 스크래핑 제거 → V3_1 JSON 직접 소비로 변경 |
-| `pipeline/generate_metadata.py` | 제목/설명/태그/썸네일 생성 + `output/YYYY-MM-DD/metadata.json` 작성 |
-| `pipeline/assets/builders.py`의 `build_thumbnail()` | 1920x1080 YouTube 썸네일 렌더링(추가된 함수) |
+| `pipeline/generate_metadata.py` | 제목/설명/태그 생성 + `output/YYYY-MM-DD/metadata.json` 작성 |
 | `pipeline/quality_gate.py`의 `check_metadata()` | metadata.json 필수 필드 + 길이 범위 검증(추가된 함수) |
 | `.github/workflows/morning_core.yml` | `daily_broadcast.yml` 대체, `workflow_dispatch`만 사용 |
 | `pipeline/assets/scene_plan.py` / `pipeline/generate_scene_plan.py` | 개체명 추출 + `scene_plan.json` 생성 (Phase B, 아래 참고) |
@@ -66,8 +61,6 @@ candidate(선정된 발언/종목 원본)를 그대로 재사용해 OpenAI/TTS �
 | `pipeline/assets/audio_post.py` | atempo/loudnorm 후처리 + BGM 사이드체인 덕킹 + 과장 표현 탐지 (Phase H, 아래 참고) |
 | `pipeline/generate_voice.py` | OpenAI 단일 호출 → provider 폴백 체인 + loudnorm 후처리 + `audio_report.json` 생성으로 교체 (Phase H, 변경) |
 | `pipeline/generate_video.py`의 `compute_bgm_bounds()` / BGM 믹싱 단계 | 상수 볼륨 `amix` → intro/body/outro 구간별 볼륨 + 사이드체인 덕킹으로 교체 (Phase H, 변경) |
-| `pipeline/assets/thumbnail_bg.py` / `pipeline/regenerate_thumbnail.py` / `pipeline/apply_thumbnail_edit.py` | 발언형/뉴스형 썸네일: 캔들차트+거래소 장식 배경 합성, 로컬 문구 재편집 CLI, 관리자 페이지 전용 경량 재생성 스크립트 (추가) |
-| `.github/workflows/regenerate_thumbnail.yml` | 관리자 페이지가 트리거하는 썸네일 문구 전용 재생성 워크플로우 (추가) |
 
 그 외 `generate_assets.py`/`build_asset_map.py`/
 `pipeline/assets/chart.py`/`update_voice_id.py`는
@@ -493,7 +486,6 @@ data/media/license_log.csv    # Phase C: 이미지 사용 이력(7일 중복 감
 output/YYYY-MM-DD/
   metadata.json                # 아래 스키마
   final_YYMMDD.mp4              # output/KO/video/final.mp4 사본, 파일명에 날짜 포함(예: final_260801.mp4)
-  thumbnail.png
   script.json                  # output/KO/scripts/script.json 사본
   scene_plan.json              # Phase D: output/KO/scripts/scene_plan.json 사본(렌더링 결과물과 함께 보관)
   audio_report.json            # Phase H: output/KO/audio_report.json 사본
@@ -515,7 +507,6 @@ output/YYYY-MM-DD/
   "status": "success | partial | failed",
   "warnings": ["..."],
   "title": "...", "description": "...", "tags": ["..."],
-  "thumbnail_path": "thumbnail.png",
   "video_path": "final_260801.mp4",
   "script_path": "script.json",
   "scene_plan_path": "scene_plan.json",

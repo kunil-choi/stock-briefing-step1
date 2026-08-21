@@ -1,11 +1,11 @@
 # pipeline/generate_metadata.py
 """
-YouTube 업로드 메타데이터(제목/썸네일/설명문/태그) + output/YYYY-MM-DD/metadata.json 생성.
+YouTube 업로드 메타데이터(제목/설명문/태그) + output/YYYY-MM-DD/metadata.json 생성.
 
 script.json + config/schedule.yml(briefing_type/video_format)을 입력으로 받아
 결정적 템플릿으로 제목/설명/태그를 만든다(LLM 호출 없음 — 비용/복잡도 최소화,
-필요시 후속 단계에서 LLM 기반으로 고도화 가능). 썸네일은
-pipeline/assets/builders.build_thumbnail()로 렌더링한다.
+필요시 후속 단계에서 LLM 기반으로 고도화 가능). 썸네일은 수동으로 만들기로 해서
+이 모듈은 더 이상 썸네일을 생성하지 않는다 (THUMBNAIL-REMOVED-1).
 
 fallback: script.json이 없거나 비어있으면 status="failed"로 최소한의
 metadata.json만 남기고 종료한다(빈 배포 폴더가 아예 없는 것보다, 왜 실패했는지
@@ -172,16 +172,6 @@ def run(lang: str = "KO"):
     description = build_description(script)
     tags        = build_tags(script)
 
-    # 썸네일
-    from assets.builders import build_thumbnail
-    thumbnail_path = os.path.join(out_dir, "thumbnail.png")
-    try:
-        build_thumbnail(script, title, thumbnail_path)
-    except Exception as e:
-        print(f"⚠️ 썸네일 생성 실패: {e}")
-        warnings.append(f"썸네일 생성 실패: {e}")
-        thumbnail_path = None
-
     # 영상/스크립트 사본
     video_src = os.path.join(root, "output", lang, "video", "final.mp4")
     video_dst_rel = None
@@ -235,7 +225,6 @@ def run(lang: str = "KO"):
         "title":           title,
         "description":     description,
         "tags":            tags,
-        "thumbnail_path":  "thumbnail.png" if thumbnail_path else None,
         "video_path":      video_dst_rel,
         "script_path":     "script.json",
         "scene_plan_path": scene_plan_dst_rel,
