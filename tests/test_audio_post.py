@@ -158,6 +158,57 @@ def test_mix_bgm_with_ducking_produces_valid_output():
         shutil.rmtree(tmp_dir)
 
 
+def _make_mismatched_track_video(path: str, video_seconds: float, audio_seconds: float):
+    """비디오 트랙과 오디오 트랙의 길이가 서로 다른 mp4를 만든다 —
+    adjust_to_target_duration()의 setpts 재인코딩 등에서 비디오 트랙이
+    오디오보다 프레임 단위로 짧아질 수 있는 실제 상황을 흉내낸다."""
+    subprocess.run(
+        ["ffmpeg", "-y",
+         "-f", "lavfi", "-i", f"color=c=blue:s=320x240:r=30:d={video_seconds}",
+         "-f", "lavfi", "-i", f"sine=frequency=440:duration={audio_seconds}",
+         "-map", "0:v", "-map", "1:a",
+         "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+         path],
+        capture_output=True, check=True,
+    )
+
+
+def test_mix_bgm_with_ducking_does_not_truncate_audio_when_video_track_is_shorter():
+    """FIX-CLOSING-AUDIO-CUTOFF-1 회귀 가드. 비디오 스트림을 [aout](사이드체인
+    덕킹 필터그래프 결과)과 같은 ffmpeg 실행에서 함께 매핑하면 "-shortest" 유무와
+    무관하게 오디오가 실제 길이보다 짧게 잘리는 ffmpeg 자체의 동작이 실측으로
+    확인됐다(클로징 멘트 "감사합니다"가 "감"에서 끊기는 사용자 보고 버그의
+    원인) — 두 단계(오디오만 먼저 믹싱 → 원본 비디오와 단순 remux)로 나눠
+    우회했다. 비디오 트랙이 오디오보다 짧은 입력으로도 최종 오디오가 안 잘리고
+    끝까지 나오는지 확인한다."""
+    from assets.audio_post import mix_bgm_with_ducking, measure_duration
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        video = os.path.join(tmp_dir, "mismatched.mp4")
+        bgm = os.path.join(tmp_dir, "bgm.mp3")
+        out = os.path.join(tmp_dir, "mixed.mp4")
+        _make_mismatched_track_video(video, video_seconds=4.5, audio_seconds=5.0)
+        _make_test_bgm(bgm, seconds=10.0)
+
+        ok = mix_bgm_with_ducking(
+            video, bgm, out,
+            intro_end=0.5, outro_start=4.0, total_duration=5.0,
+            intro_volume=0.08, body_volume=0.045, outro_volume=0.08,
+        )
+        assert ok and os.path.isfile(out)
+
+        out_audio_dur = measure_duration(out)
+        assert out_audio_dur > 4.9, (
+            f"오디오가 비디오 트랙 길이(4.5s)에 맞춰 잘려나감 — 실측 {out_audio_dur:.2f}s "
+            f"(나레이션 원래 길이 5.0s가 온전히 나와야 함)"
+        )
+        print(f"✅ mix_bgm_with_ducking: 비디오 트랙이 짧아도 오디오는 끝까지 잘리지 않음 "
+              f"({out_audio_dur:.2f}s)")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
 def test_mix_bgm_with_ducking_falls_back_when_bgm_missing():
     from assets.audio_post import mix_bgm_with_ducking
 
@@ -250,6 +301,7 @@ if __name__ == "__main__":
     test_apply_post_processing_no_speed_change_when_speed_is_one()
     test_measure_duration_missing_file_returns_zero()
     test_mix_bgm_with_ducking_produces_valid_output()
+    test_mix_bgm_with_ducking_does_not_truncate_audio_when_video_track_is_shorter()
     test_mix_bgm_with_ducking_falls_back_when_bgm_missing()
     test_detect_advice_language_finds_hits_without_mutating_text()
     test_detect_advice_language_clean_text_has_no_hits()
