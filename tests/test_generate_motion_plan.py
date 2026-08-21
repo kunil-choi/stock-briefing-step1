@@ -28,7 +28,7 @@ if _PIPELINE not in sys.path:
 import generate_motion_plan  # noqa: E402
 from generate_motion_plan import (  # noqa: E402
     _mock_emphasis, _mock_plan_for_section, _validate_plan, _display_text,
-    build_motion_plan,
+    _narration_text, _emphasis_timing, _lead_seconds_for, build_motion_plan,
 )
 
 
@@ -74,8 +74,12 @@ def test_mock_plan_for_section_falls_back_to_chart_focus():
     print("✅ _mock_plan_for_section: 강조 후보가 없으면 chart_focus로 폴백")
 
 
+def _src(display, narration=None):
+    return {"display": display, "narration": narration if narration is not None else display}
+
+
 def test_validate_plan_drops_hallucinated_emphasis_text():
-    source_by_id = {"stock_삼성전자": "영업이익 12조원 달성"}
+    source_by_id = {"stock_삼성전자": _src("영업이익 12조원 달성")}
     raw = [{
         "id": "stock_삼성전자",
         "template": "big_number",
@@ -88,12 +92,13 @@ def test_validate_plan_drops_hallucinated_emphasis_text():
     }]
     result = _validate_plan(raw, source_by_id)
     assert len(result) == 1
-    assert result[0]["emphasis"] == [{"text": "12조원", "style": "pop_highlight"}]
+    texts = [e["text"] for e in result[0]["emphasis"]]
+    assert texts == ["12조원"], texts
     print("✅ _validate_plan: 섹션 텍스트에 실제로 없는 emphasis 문구만 조용히 버림")
 
 
 def test_validate_plan_drops_unknown_section_id():
-    source_by_id = {"stock_삼성전자": "영업이익 12조원 달성"}
+    source_by_id = {"stock_삼성전자": _src("영업이익 12조원 달성")}
     raw = [{"id": "stock_없는섹션", "template": "big_number", "emphasis": [],
             "camera": "static", "tone": "neutral"}]
     assert _validate_plan(raw, source_by_id) == []
@@ -101,7 +106,7 @@ def test_validate_plan_drops_unknown_section_id():
 
 
 def test_validate_plan_replaces_invalid_enum_values_with_safe_defaults():
-    source_by_id = {"market_summary": "오늘 증시는 혼조세로 마감했습니다"}
+    source_by_id = {"market_summary": _src("오늘 증시는 혼조세로 마감했습니다")}
     raw = [{
         "id": "market_summary",
         "template": "존재하지않는템플릿",
@@ -117,7 +122,7 @@ def test_validate_plan_replaces_invalid_enum_values_with_safe_defaults():
 
 
 def test_validate_plan_caps_emphasis_at_three_even_from_llm():
-    source_by_id = {"s1": "1% 2% 3% 4%"}
+    source_by_id = {"s1": _src("1% 2% 3% 4%")}
     raw = [{
         "id": "s1", "template": "big_number",
         "emphasis": [{"text": "1%"}, {"text": "2%"}, {"text": "3%"}, {"text": "4%"}],
@@ -126,6 +131,19 @@ def test_validate_plan_caps_emphasis_at_three_even_from_llm():
     result = _validate_plan(raw, source_by_id)
     assert len(result[0]["emphasis"]) == 3
     print("✅ _validate_plan: LLM이 3개 넘게 반환해도 최대 3개까지만 채택")
+
+
+def test_validate_plan_attaches_at_and_lead_seconds():
+    narration = "오늘 주요 지수는 혼조세로 마감했습니다. 이 분기 영업이익은 십이조원으로 늘었습니다."
+    display = "오늘 주요 지수는 혼조세로 마감했습니다. 이 분기 영업이익은 12조원으로 늘었습니다."
+    source_by_id = {"s1": _src(display, narration)}
+    raw = [{"id": "s1", "template": "big_number",
+            "emphasis": [{"text": "12조원", "style": "pop_highlight"}],
+            "camera": "static", "tone": "neutral"}]
+    result = _validate_plan(raw, source_by_id)
+    assert result[0]["emphasis"][0]["at"] > 0, result[0]["emphasis"][0]
+    assert "lead_seconds" in result[0]
+    print("✅ _validate_plan: emphasis 항목에 at(P2-2 타이밍), 섹션에 lead_seconds를 채워 넣음")
 
 
 def test_display_text_prefers_subtitle_over_narration():
@@ -142,6 +160,50 @@ def test_display_text_falls_back_through_summary_fields():
     assert _display_text({"narration": "본문 나레이션"}) == "본문 나레이션"
     assert _display_text({}) == ""
     print("✅ _display_text: subtitle 계열이 없으면 narration 계열로, 전부 없으면 빈 문자열로 폴백")
+
+
+def test_narration_text_prefers_summary_for_stock_sections():
+    assert _narration_text({"narration_summary": "요약", "narration": "본문"}) == "요약"
+    assert _narration_text({"narration": "본문"}) == "본문"
+    assert _narration_text({}) == ""
+    print("✅ _narration_text: 종목 섹션은 narration_summary 우선, 없으면 narration으로 폴백")
+
+
+def test_emphasis_timing_returns_later_at_for_later_phrase():
+    narration = ("오늘 주요 지수는 혼조세로 마감했습니다. 코스피는 전일 대비 "
+                 "소폭 상승해 삼천백오십이 포인트를 기록했습니다. 반도체 업종이 "
+                 "강세를 보이며 지수를 견인했습니다. 이 분기 영업이익은 "
+                 "십이조원으로 전년 대비 늘었습니다.")
+    subtitle = ("오늘 주요 지수는 혼조세로 마감했습니다. 코스피는 전일 대비 "
+                "소폭 상승해 3,152포인트를 기록했습니다. 반도체 업종이 강세를 "
+                "보이며 지수를 견인했습니다. 이 분기 영업이익은 12조원으로 "
+                "전년 대비 늘었습니다.")
+    at_by = _emphasis_timing(narration, subtitle, ["3,152포인트", "12조원"])
+    assert at_by["3,152포인트"] > 0, at_by
+    assert at_by["12조원"] > at_by["3,152포인트"], at_by
+    print("✅ _emphasis_timing: 나중에 등장하는 문구일수록 더 늦은 at을 반환")
+
+
+def test_emphasis_timing_falls_back_to_zero_when_phrase_not_found():
+    at_by = _emphasis_timing("십이조원을 기록했습니다", "12조원을 기록했습니다", ["없는문구"])
+    assert at_by["없는문구"] == 0.0
+    print("✅ _emphasis_timing: 청크에서 못 찾은 문구는 0.0(장면 시작)으로 폴백")
+
+
+def test_lead_seconds_stays_at_default_when_no_emphasis_or_early_at():
+    assert _lead_seconds_for([]) == generate_motion_plan.MOTION_LEAD_SECONDS
+    early = [{"text": "a", "style": "x", "at": 0.5}]
+    assert _lead_seconds_for(early) == generate_motion_plan.MOTION_LEAD_SECONDS
+    print("✅ _lead_seconds_for: emphasis가 없거나 MOTION_LEAD_SECONDS 이내면 기본 lead 유지")
+
+
+def test_lead_seconds_extends_and_caps_at_max():
+    late = [{"text": "a", "style": "x", "at": generate_motion_plan.MOTION_LEAD_SECONDS + 2}]
+    extended = _lead_seconds_for(late)
+    assert extended == generate_motion_plan.MOTION_LEAD_SECONDS + 3
+    very_late = [{"text": "a", "style": "x", "at": 999}]
+    assert _lead_seconds_for(very_late) == generate_motion_plan.MOTION_MAX_LEAD_SECONDS
+    print("✅ _lead_seconds_for: at+1.0초까지 lead를 연장하되 MOTION_MAX_LEAD_SECONDS를 넘지 않음")
 
 
 def test_build_motion_plan_skips_sections_without_display_text():
@@ -169,14 +231,18 @@ def test_build_motion_plan_mock_mode_never_calls_llm():
         plan = build_motion_plan(reordered)
     finally:
         generate_motion_plan.MOTION_PLAN_MOCK = False
-    assert plan == {"sections": [{
-        "id": "stock_삼성전자",
-        "template": "big_number",
-        "emphasis": [{"text": "12조원", "style": "pop_highlight"}],
-        "camera": "static",
-        "tone": "neutral",
-    }]}
-    print("✅ build_motion_plan: MOTION_PLAN_MOCK=True면 LLM 없이 규칙 기반으로만 동작")
+    assert len(plan["sections"]) == 1
+    section = plan["sections"][0]
+    assert section["id"] == "stock_삼성전자"
+    assert section["template"] == "big_number"
+    assert section["camera"] == "static"
+    assert section["tone"] == "neutral"
+    assert len(section["emphasis"]) == 1
+    assert section["emphasis"][0]["text"] == "12조원"
+    assert section["emphasis"][0]["style"] == "pop_highlight"
+    assert "at" in section["emphasis"][0]
+    assert section["lead_seconds"] == generate_motion_plan.MOTION_LEAD_SECONDS
+    print("✅ build_motion_plan: MOTION_PLAN_MOCK=True면 LLM 없이 규칙 기반 + P2-2 타이밍까지 동작")
 
 
 def test_build_motion_plan_empty_sections_returns_empty_plan():
@@ -194,8 +260,14 @@ if __name__ == "__main__":
     test_validate_plan_drops_unknown_section_id()
     test_validate_plan_replaces_invalid_enum_values_with_safe_defaults()
     test_validate_plan_caps_emphasis_at_three_even_from_llm()
+    test_validate_plan_attaches_at_and_lead_seconds()
     test_display_text_prefers_subtitle_over_narration()
     test_display_text_falls_back_through_summary_fields()
+    test_narration_text_prefers_summary_for_stock_sections()
+    test_emphasis_timing_returns_later_at_for_later_phrase()
+    test_emphasis_timing_falls_back_to_zero_when_phrase_not_found()
+    test_lead_seconds_stays_at_default_when_no_emphasis_or_early_at()
+    test_lead_seconds_extends_and_caps_at_max()
     test_build_motion_plan_skips_sections_without_display_text()
     test_build_motion_plan_mock_mode_never_calls_llm()
     test_build_motion_plan_empty_sections_returns_empty_plan()
