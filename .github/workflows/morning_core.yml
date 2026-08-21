@@ -44,6 +44,11 @@ jobs:
         run: python pipeline/generate_scene_plan.py KO
       - name: 🧭 reordered_script.json 생성 (장전 의사결정형 플롯)
         run: python pipeline/generate_reordered_script.py KO
+      - name: 🎬 motion_plan.json 생성 (LLM 연출 감독 — 강조/템플릿/카메라/톤)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MOTION_PLAN_MOCK: ${{ inputs.dry_run && '1' || '' }}
+        run: python pipeline/generate_motion_plan.py KO
       - name: 🗂️ stock_selection_log.json 커밋 (같은 날짜 재실행 시 종목 라인업 고정)
         if: ${{ !inputs.dry_run }}
         run: |

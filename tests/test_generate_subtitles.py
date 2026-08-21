@@ -211,6 +211,78 @@ def test_format_ass_text_skips_emphasis_spanning_line_break():
     print("✅ _format_ass_text: 줄 경계를 가로지르는 강조는 안전하게 건너뜀")
 
 
+def test_emphasis_for_audio_id_matches_general_section_directly():
+    from generate_subtitles import _emphasis_for_audio_id
+
+    emphasis_by_section_id = {"market_summary": ["3,152포인트"]}
+    assert _emphasis_for_audio_id("market_summary", emphasis_by_section_id) == ["3,152포인트"]
+    print("✅ _emphasis_for_audio_id: 일반 섹션은 audio_id == 섹션 id로 바로 매칭")
+
+
+def test_emphasis_for_audio_id_strips_summary_suffix_for_stock_sections():
+    from generate_subtitles import _emphasis_for_audio_id
+
+    # _build_subtitle_map()은 종목 섹션의 audio_id를 "{sid}_summary"로 만드는데
+    # motion_plan.json의 emphasis는 원본 섹션 id("stock_삼성전자") 기준으로
+    # 기록돼 있다 — 접미사를 벗겨서도 조회해야 매칭된다.
+    emphasis_by_section_id = {"stock_삼성전자": ["12조원"]}
+    assert _emphasis_for_audio_id("stock_삼성전자_summary", emphasis_by_section_id) == ["12조원"]
+    print("✅ _emphasis_for_audio_id: 종목 섹션은 '_summary' 접미사를 벗겨서 원본 id로 매칭")
+
+
+def test_emphasis_for_audio_id_returns_empty_when_no_motion_plan():
+    from generate_subtitles import _emphasis_for_audio_id
+
+    assert _emphasis_for_audio_id("market_summary", {}) == []
+    assert _emphasis_for_audio_id("market_summary", None) == []
+    print("✅ _emphasis_for_audio_id: motion_plan이 없으면 빈 리스트(강조 태그 없이 기존과 동일하게 동작)")
+
+
+def test_generate_ass_accepts_emphasis_by_section_id_without_error():
+    """generate_ass()가 emphasis_by_section_id를 실제로 받아 예외 없이
+    강조 태그가 포함된 ASS 이벤트를 만들어내는지 end-to-end로 확인한다
+    (기존 테스트들은 _make_dialogue_events 등 하위 함수만 직접 검증했으므로,
+    generate_ass()의 새 파라미터 배선 자체가 끊겨 있어도 잡아내지 못했다)."""
+    import glob
+    import subprocess
+    from generate_subtitles import generate_ass
+
+    tmp_dir = os.path.join(_HERE, "_tmp_generate_ass_emphasis_test")
+    audio_dir = os.path.join(tmp_dir, "output", "KO", "audio")
+    os.makedirs(audio_dir, exist_ok=True)
+    mp3_path = os.path.join(audio_dir, "market_summary.mp3")
+    subprocess.run(
+        ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+         "-t", "5", mp3_path],
+        check=True,
+    )
+
+    sections = [{"id": "market_summary", "narration": "코스피는 3152포인트를 기록했습니다.",
+                 "subtitle": "코스피는 3,152포인트를 기록했습니다."}]
+
+    cwd = os.getcwd()
+    os.chdir(tmp_dir)
+    try:
+        generate_ass(sections, "KO", "output/KO/subtitles/subtitle.ass",
+                     emphasis_by_section_id={"market_summary": ["3,152포인트"]})
+    finally:
+        os.chdir(cwd)
+
+    with open(os.path.join(tmp_dir, "output", "KO", "subtitles", "subtitle.ass"), encoding="utf-8-sig") as f:
+        content = f.read()
+    assert r"\c&H0066E0FF&" in content, "generate_ass()가 emphasis_by_section_id를 받았는데 강조 태그가 안 붙음"
+    assert "3,152포인트" in content
+
+    for p in glob.glob(os.path.join(tmp_dir, "**", "*"), recursive=True):
+        if os.path.isfile(p):
+            os.remove(p)
+    for root, dirs, _files in os.walk(tmp_dir, topdown=False):
+        for d in dirs:
+            os.rmdir(os.path.join(root, d))
+    os.rmdir(tmp_dir)
+    print("✅ generate_ass: emphasis_by_section_id가 실제로 ASS 강조 태그까지 이어짐(배선 확인)")
+
+
 def test_generate_video_reuses_shared_mapping_function():
     """generate_video.py가 _frame_stem_to_audio_id를 독립적으로 재구현하지
     않고 generate_subtitles.py의 것을 그대로 import해 쓰는지 확인한다
@@ -235,5 +307,9 @@ if __name__ == "__main__":
     test_export_subtitle_timeline_gives_scene_relative_seconds()
     test_format_ass_text_wraps_before_inserting_emphasis_tags()
     test_format_ass_text_skips_emphasis_spanning_line_break()
+    test_emphasis_for_audio_id_matches_general_section_directly()
+    test_emphasis_for_audio_id_strips_summary_suffix_for_stock_sections()
+    test_emphasis_for_audio_id_returns_empty_when_no_motion_plan()
+    test_generate_ass_accepts_emphasis_by_section_id_without_error()
     test_generate_video_reuses_shared_mapping_function()
     print("\n✅ generate_subtitles 매핑 테스트 전체 통과")

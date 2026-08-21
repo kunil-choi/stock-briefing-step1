@@ -551,9 +551,28 @@ def export_subtitle_timeline(sections: list, lang: str) -> dict:
     return timeline
 
 
+def _emphasis_for_audio_id(audio_id: str, emphasis_by_section_id: dict) -> list:
+    """motion_plan.json의 emphasis는 원본 섹션 id(예: "stock_삼성전자") 기준으로
+    기록돼 있는데, 여기서는 _build_subtitle_map()이 만든 audio_id(종목 섹션은
+    "stock_삼성전자_summary"처럼 접미사가 붙음)만 갖고 있다. 접미사를 벗겨
+    원본 id로도 조회한다 — 둘 다 없으면(motion_plan 없음/이 섹션에 emphasis
+    없음) 빈 리스트를 반환해 _apply_emphasis_tags()가 조용히 아무 것도 안
+    하게 한다."""
+    if not emphasis_by_section_id:
+        return []
+    if audio_id in emphasis_by_section_id:
+        return emphasis_by_section_id[audio_id]
+    if audio_id.endswith("_summary"):
+        base = audio_id[:-len("_summary")]
+        if base in emphasis_by_section_id:
+            return emphasis_by_section_id[base]
+    return []
+
+
 def generate_ass(sections: list, lang: str, out_path: str,
                  frame_order: list = None, time_scale: float = 1.0,
-                 transition_duration: float = 0.0):
+                 transition_duration: float = 0.0,
+                 emphasis_by_section_id: dict = None):
     """
     ASS 자막 파일을 생성합니다.
 
@@ -571,6 +590,9 @@ def generate_ass(sections: list, lang: str, out_path: str,
                      않고 "삽입"하므로(오디오 타임라인 불변), 자막 누적 시간도
                      장면과 장면 "사이"마다 이 값만큼만 더해주면 정확히 맞는다
                      (뺄셈 보정이 필요 없다 — video_renderer.py 모듈 docstring 참고).
+        emphasis_by_section_id: P2-4. motion_plan.json의 섹션 id → emphasis[].text
+                     리스트. None/빈 dict면(motion_plan.json 없음) 기존과 동일하게
+                     강조 태그 없이 생성된다.
     """
     subtitle_map = _build_subtitle_map(sections, lang)
     audio_base   = os.path.join("output", lang, "audio")
@@ -595,7 +617,9 @@ def generate_ass(sections: list, lang: str, out_path: str,
             mp3_path = os.path.join(audio_base, f"{audio_id}.mp3")
             duration = _get_audio_duration(mp3_path) * time_scale
             style    = "Warning" if "closing" in audio_id else "Default"
-            slide_events = _make_dialogue_events(narration_text, subtitle_text, current_time, duration, style)
+            emphasis_texts = _emphasis_for_audio_id(audio_id, emphasis_by_section_id)
+            slide_events = _make_dialogue_events(narration_text, subtitle_text, current_time, duration,
+                                                  style, emphasis_texts=emphasis_texts)
             events.extend(slide_events)
             print(f"    {audio_id}: {duration:.1f}s, {len(slide_events)}개 이벤트")
             current_time += duration
@@ -613,7 +637,9 @@ def generate_ass(sections: list, lang: str, out_path: str,
             style = "Warning" if "closing" in audio_id else "Default"
 
             if subtitle_text:
-                slide_events = _make_dialogue_events(narration_text, subtitle_text, current_time, duration, style)
+                emphasis_texts = _emphasis_for_audio_id(audio_id, emphasis_by_section_id)
+                slide_events = _make_dialogue_events(narration_text, subtitle_text, current_time, duration,
+                                                      style, emphasis_texts=emphasis_texts)
                 events.extend(slide_events)
                 print(f"  [subtitle] {stem} → {audio_id}: {duration:.1f}s, {len(slide_events)}개 이벤트")
             else:
@@ -659,7 +685,23 @@ def run(lang: str = "KO"):
     else:
         print(f"⚠️ asset_map.json 없음: {asset_map_path} — 섹션 순서로 처리")
 
-    generate_ass(sections, lang, out_path, frame_order, transition_duration=TRANSITION_DURATION)
+    # P2-4: motion_plan.json(없으면 조용히 무시 — 기존과 동일하게 강조 태그
+    # 없이 생성)의 섹션별 emphasis를 자막 인라인 강조 태그에 반영한다.
+    motion_plan_path = f"output/{lang}/scripts/motion_plan.json"
+    emphasis_by_section_id = {}
+    if os.path.isfile(motion_plan_path):
+        with open(motion_plan_path, encoding="utf-8") as f:
+            motion_plan = json.load(f)
+        emphasis_by_section_id = {
+            s.get("id", ""): [e.get("text", "") for e in s.get("emphasis", [])]
+            for s in motion_plan.get("sections", []) if s.get("id")
+        }
+        print(f"🎯 motion_plan.json 로드: {len(emphasis_by_section_id)}개 섹션")
+    else:
+        print(f"⚠️ motion_plan.json 없음: {motion_plan_path} — 자막 인라인 강조 없이 생성")
+
+    generate_ass(sections, lang, out_path, frame_order, transition_duration=TRANSITION_DURATION,
+                 emphasis_by_section_id=emphasis_by_section_id)
 
 
 if __name__ == "__main__":
