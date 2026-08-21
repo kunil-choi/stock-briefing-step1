@@ -53,11 +53,26 @@ Title: KBS 머니올라 자막
 
 ; MarginV=40 는 슬라이드 하단 190px 고정 자막 영역(pipeline/assets/config.py의
 ; SUBTITLE_ZONE_TOP)과 맞춰 카드/차트 등 콘텐츠와 겹치지 않도록 배치한 값입니다.
+;
+; FIX-SUBTITLE-FONT-1: Fontname이 "NotoSansCJK"였는데, 레포에 번들된
+; assets/fonts/NotoSansKR-Bold.ttf의 실제 폰트 패밀리명은 "Noto Sans KR"이다
+; (fontTools name table로 확인: nameID 1 = "Noto Sans KR"). 러너에
+; "NotoSansCJK"라는 이름의 폰트가 따로 설치돼 있지 않으면 libass가 조용히
+; 기본 폰트로 폴백하므로, 지금까지 나오던 자막이 의도한 서체가 아니었을
+; 가능성이 높다. 세 스타일 모두 실제 패밀리명으로 바로잡는다(burn_subtitles()의
+; -vf도 ass= 대신 fontsdir을 지원하는 subtitles=로 함께 바꿔야 번들 폰트를
+; 실제로 찾는다 — generate_video.py 참고).
+;
+; Highlight 색상은 html_theme.PALETTE["highlight"](#FFE066)와 톤을 맞춰
+; &H0000FFFF(순노랑) → &H0066E0FF로 바꾼다(ASS는 AABBGGRR 순서).
+; Outline/Shadow는 목업처럼 딱딱한 외곽선 대신 부드러운 그림자 위주로
+; 가독성을 유지하되(libass는 블러 그림자 미지원이라 최소 외곽선은 남김),
+; 배경 사진 위에서 가독성이 떨어지면 Outline을 1.5로 되돌릴 것.
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,NotoSansCJK,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,20,20,40,1
-Style: Highlight,NotoSansCJK,42,&H0000FFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,2,1,2,20,20,40,1
-Style: Warning,NotoSansCJK,36,&H004040FF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,1,2,1,2,20,20,40,1
+Style: Default,Noto Sans KR,42,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,1,2,2,20,20,40,1
+Style: Highlight,Noto Sans KR,42,&H0066E0FF,&H000000FF,&H00000000,&H80000000,-1,0,0,0,100,100,0,0,1,1,2,2,20,20,40,1
+Style: Warning,Noto Sans KR,36,&H004040FF,&H000000FF,&H00000000,&HAA000000,-1,0,0,0,100,100,0,0,1,1,2,2,20,20,40,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text

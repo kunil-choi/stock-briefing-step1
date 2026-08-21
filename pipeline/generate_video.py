@@ -369,17 +369,27 @@ def adjust_to_target_duration(input_path: str, output_path: str,
 
 # ── ASS 자막 burn-in ──────────────────────────────────────────────────────
 
+# FIX-SUBTITLE-FONT-1: assets/fonts에 번들된 Noto Sans KR을 실제로 찾게
+# fontsdir로 명시한다(아래 burn_subtitles() 참고).
+_FONTS_DIR = os.path.join(_HERE, "..", "assets", "fonts")
+
+
 def burn_subtitles(video_path: str, ass_path: str, out_path: str) -> bool:
     if not os.path.isfile(ass_path):
         print(f"  ⚠️ ASS 자막 파일 없음: {ass_path}")
         return False
 
     ass_escaped = ass_path.replace("\\", "/").replace(":", "\\:")
+    # FIX-SUBTITLE-FONT-1: ass= 필터는 fontsdir 옵션을 지원하지 않아 번들
+    # 폰트(assets/fonts/NotoSansKR-Bold.ttf)를 못 찾고 러너의 시스템 폰트로
+    # 조용히 폴백한다 — subtitles= 필터로 바꿔 fontsdir을 명시한다. 경로
+    # 이스케이프(: → \:)는 ass_path와 동일하게 적용한다.
+    fonts_dir_escaped = os.path.abspath(_FONTS_DIR).replace("\\", "/").replace(":", "\\:")
 
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
-        "-vf", f"ass={ass_escaped}",
+        "-vf", f"subtitles={ass_escaped}:fontsdir={fonts_dir_escaped}",
         "-c:v", "libx264", "-crf", "20", "-preset", "medium",
         "-c:a", "copy",
         out_path
