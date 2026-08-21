@@ -118,6 +118,18 @@ def mix_bgm_with_ducking(video_path: str, bgm_path: str, out_path: str,
         f"attack=5:release=200[bgm_ducked];"
         f"[0:a][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[aout]"
     )
+    # FIX-CLOSING-AUDIO-CUTOFF-1: 예전에는 여기 "-shortest"가 있었다 —
+    # 마지막 클로징 멘트("...감사합니다.")가 "감"에서 끊기고 영상이 그대로
+    # 끝나버린다는 사용자 보고 버그. "-shortest"는 매핑된 두 출력 스트림
+    # (0:v 원본 비디오 스트림 복사, [aout] amix 결과) 중 더 짧은 쪽에서 인코딩을
+    # 끝내는데, amix는 duration=first로 [aout] 길이를 0:a(나레이션 오디오)에
+    # 정확히 맞추는 반면, 0:v는 앞 단계(adjust_to_target_duration의 setpts
+    # 재인코딩)에서 프레임 단위로 반올림돼 오디오보다 몇 프레임 짧아질 수
+    # 있다 — 그 미세한 차이만큼 "-shortest"가 오디오의 꼬리(가장 마지막에
+    # 나오는 클로징 멘트)를 잘라냈다. "-shortest"를 빼면 amix가 이미 보장하는
+    # 정확한 오디오 길이를 그대로 쓰고, 비디오가 아주 살짝 짧더라도 마지막
+    # 프레임이 잠깐 더 유지될 뿐(발화가 잘리는 것보다 훨씬 낫다) 오디오는
+    # 끝까지 온전히 재생된다.
     cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
@@ -125,7 +137,6 @@ def mix_bgm_with_ducking(video_path: str, bgm_path: str, out_path: str,
         "-filter_complex", filter_complex,
         "-map", "0:v", "-map", "[aout]",
         "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
         out_path,
     ]
     return _run(cmd, "BGM 사이드체인 덕킹 믹싱")
