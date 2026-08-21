@@ -650,6 +650,60 @@ def sector_heatmap(sector_list: list) -> str:
     return f'<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">{tiles}</div>'
 
 
+# ── 영상 모션그래픽 업그레이드 P1-3(b): 섹터 랭킹 바 성장 ─────────────────────
+
+def sector_rank_bars(sector_list: list) -> str:
+    """섹터 리스트를 순위 배지 + 성장 막대 리스트로 표시합니다(목업 04번
+    프레임 참고 — docs/motion_mockup_reference.py의 scene_sector()). 각 막대에
+    data-anim="grow"를 걸어 순번마다 0.12초씩 늦게 순차적으로 자라나게 한다.
+
+    sector_heatmap()(타일 그리드)과 같은 이유로 momentum 문자열(상승/하락/
+    보합)만 근거로 막대 길이를 3단계로 근사한다 — script.json의 sector_list엔
+    숫자 등락폭이 없다(narration이 LLM 생성이라 정밀한 수치를 붙이면 없는
+    데이터를 지어내는 셈이 되므로 일부러 안 붙임). 그래서 목업처럼 "+3.81%"
+    같은 정밀 수치 대신 momentum 라벨(상승/하락/보합)을 그대로 보여준다.
+    desc(섹터 설명)는 sector_heatmap()엔 있었는데 막대 1줄짜리 레이아웃엔
+    자리가 없어, 막대 아래 작은 보조 텍스트로 남겨 정보 손실을 막는다."""
+    mom_colors = {"상승": PALETTE["up"], "하락": PALETTE["down"], "보합": "#f2a341"}
+    mom_bar_pct = {"상승": 78, "하락": 45, "보합": 30}
+    mom_arrows = {"상승": "▲", "하락": "▼", "보합": "―"}
+    rows = ""
+    for i, sector in enumerate(sector_list):
+        if isinstance(sector, dict):
+            name     = sector.get("name", "")
+            desc     = sector.get("desc", sector.get("description", ""))
+            momentum = sector.get("momentum", "")
+        else:
+            name, desc, momentum = str(sector), "", ""
+        color = mom_colors.get(momentum, PALETTE["muted"])
+        pct = mom_bar_pct.get(momentum, 20)
+        arrow = mom_arrows.get(momentum, "")
+        delay = i * 0.12
+        desc_html = (
+            f'<div style="margin:6px 0 0 90px;font-size:19px;color:{PALETTE["muted"]};'
+            f'font-weight:600;line-height:1.4;">{esc(desc)}</div>' if desc else ""
+        )
+        rows += f"""
+<div style="margin-bottom:22px;">
+  <div style="display:flex;align-items:center;gap:26px;">
+    <div class="badge-num" style="width:64px;height:64px;font-size:30px;
+      background:{PALETTE['accent_soft']};color:{PALETTE['accent']};flex-shrink:0;">{i + 1}</div>
+    <div style="width:200px;font-size:36px;font-weight:800;flex-shrink:0;">{esc(name)}</div>
+    <div style="flex:1;height:56px;background:#f2f1ec;border-radius:12px;overflow:hidden;">
+      <div data-anim="grow" data-to="{pct}" data-delay="{delay:.2f}" data-dur="0.85"
+           style="height:56px;width:0%;background:linear-gradient(90deg,{color}cc,{color});
+           border-radius:12px;"></div>
+    </div>
+    <div style="width:130px;text-align:right;font-size:32px;font-weight:800;color:{color};
+      flex-shrink:0;">{arrow} {esc(momentum)}</div>
+  </div>
+  {desc_html}
+</div>"""
+    return f"""<div class="card" style="padding:38px 44px;">
+  <div style="font-size:30px;font-weight:700;color:{PALETTE['muted']};margin-bottom:26px;">
+    업종별 등락 흐름</div>{rows}</div>"""
+
+
 # ── Phase F: 주도주 랭킹 카드 ─────────────────────────────────────────────────
 
 def _score_bar(label: str, value: float, bar_color: str) -> str:

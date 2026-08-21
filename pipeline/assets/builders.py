@@ -7,12 +7,12 @@ generate_assets.py가 기대하는 함수 시그니처/반환값/출력 파일�
 import os
 
 from .config import BROKERAGE_FIRMS
-from .render import render_html_to_png
+from .render import render_html_to_png, render_html_to_frames
 from .html_theme import (
     esc, nl2br, file_uri, shell, centered_shell, kbs_badge, stat_table,
     point_card, point_card_img, bullet_column, chat_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
-    headline_card, report_card, risk_card, sector_heatmap,
+    headline_card, report_card, risk_card, sector_rank_bars,
     autofit_text, text_plate, HEADLINE_FONT_FAMILY,
 )
 from .chart import build_chart_with_insight, build_week_chart
@@ -35,6 +35,19 @@ def _find_section(sections, id_prefix):
         if s.get("id", "").startswith(id_prefix):
             return s
     return {}
+
+
+# 영상 모션그래픽 업그레이드(P1-3): 정지 PNG와 별도로 애니메이션 프레임
+# 시퀀스를 만드는 빌더가 이 컨벤션을 쓴다 — frames/{stem}.png(정지, 워크플로우
+# glob 대상)는 그대로 두고, frames/_motion/{stem}/(애니메이션 프레임)만
+# 추가한다. 이 서브디렉토리는 이름이 "*.png"가 아니라 워크플로우의
+# glob.glob('output/KO/frames/*.png')(morning_core.yml, 비재귀)가 절대
+# 건드리지 않는다 — asset_map.json 스키마도, 워크플로우도 안 바꿔도 되는
+# 이유. generate_video.py가 frame_stem으로 이 디렉토리 존재 여부를 찾아
+# compose_scene()에 넘긴다(build_scene_clips._motion_source_for() 참고).
+def _capture_motion_frames(html: str, out_dir: str, stem: str) -> list:
+    motion_dir = os.path.join(out_dir, "_motion", stem)
+    return render_html_to_frames(html, motion_dir)
 
 
 # ── 오프닝 ─────────────────────────────────────────────────────────────────
@@ -177,10 +190,16 @@ def build_sector(data, out_dir, visual=None):
         )
 
     content = f"""{headline_html}
-{sector_heatmap(sector_list)}"""
+{sector_rank_bars(sector_list)}"""
 
     html = shell("핵심 업종 분석", content, background_image=image_path, credit=visual.get("credit", ""))
-    return render_html_to_png(html, os.path.join(out_dir, "02_sector.png"))
+    out_path = os.path.join(out_dir, "02_sector.png")
+    png_path = render_html_to_png(html, out_path)
+    # P1-3(b): 이 화면부터 우선 적용(문서 지시) — 성장 막대(data-anim="grow")
+    # 애니메이션 프레임을 정지 PNG와 별도로 남긴다. data-anim이 없는 다른
+    # 빌더는 아직 이 호출이 없으므로 기존과 완전히 동일하게 정지 PNG만 만든다.
+    _capture_motion_frames(html, out_dir, "02_sector")
+    return png_path
 
 
 # ── 종목 요약 슬라이드 ──────────────────────────────────────────────────────

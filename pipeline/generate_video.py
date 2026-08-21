@@ -253,6 +253,22 @@ def _motion_for(frame_stem: str, frame_meta: dict) -> str:
     return "photo" if meta.get("hasBackgroundImage") else "subtle"
 
 
+def _motion_source_for(frame_path: str, frame_stem: str) -> str:
+    """P1-3/P1-4: builders.py의 _capture_motion_frames()가 남긴
+    frames/_motion/{stem}/ 애니메이션 프레임 시퀀스가 있으면 그 디렉토리
+    경로를, 없으면(대부분의 빌더는 아직 모션을 안 씀) 기존 정지 PNG 경로를
+    그대로 반환한다. 디렉토리가 있어도 비어 있으면(캡처 실패 등) 정지 PNG로
+    본다 — compose_scene()이 os.path.isdir()로만 분기하므로 빈 디렉토리를
+    넘기면 프레임 시퀀스 경로를 타면서도 처리할 프레임이 없어 실패하기
+    때문이다."""
+    motion_dir = os.path.join(os.path.dirname(frame_path), "_motion", frame_stem)
+    if os.path.isdir(motion_dir) and any(
+        fn.endswith(".png") for fn in os.listdir(motion_dir)
+    ):
+        return motion_dir
+    return frame_path
+
+
 def _is_section_boundary(prev_stem: str, cur_stem: str, frame_meta: dict) -> bool:
     """두 프레임이 서로 다른 section_type에 속하면(시장요약→종목, 종목→AI전략
     처럼) 경계로 본다. 메타가 없으면 경계 여부를 판단할 수 없으므로 기존
@@ -299,8 +315,16 @@ def build_scene_clips(frame_audio_pairs: list, video_dir: str, frame_meta: dict 
 
         scene_path = os.path.join(video_dir, f"{frame_stem}.mp4")
         motion = _motion_for(frame_stem, frame_meta)
-        clip = _renderer.compose_scene(frame_path, mp3_path, scene_path, duration,
+        motion_source = _motion_source_for(frame_path, frame_stem)
+        clip = _renderer.compose_scene(motion_source, mp3_path, scene_path, duration,
                                         scene_index=i, motion=motion)
+        if not clip and motion_source != frame_path:
+            # 절대 규칙 2번: 프레임 시퀀스 합성이 실패하면(ffmpeg 오류 등)
+            # 기존 정지 PNG 경로로 즉시 재시도한다 — 애니메이션이 안 되더라도
+            # 지금과 동일한 결과가 나와야 한다(장면을 통째로 잃으면 안 됨).
+            print(f"  ⚠️ 프레임 시퀀스 합성 실패 → 정지 프레임으로 재시도: {frame_stem}")
+            clip = _renderer.compose_scene(frame_path, mp3_path, scene_path, duration,
+                                            scene_index=i, motion=motion)
         if clip:
             clips.append(clip)
             rendered_pairs.append((frame_path, mp3_path, duration))

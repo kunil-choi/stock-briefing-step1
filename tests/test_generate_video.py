@@ -16,7 +16,7 @@ if _PIPELINE not in sys.path:
 from generate_video import (  # noqa: E402
     resolve_merged_duration, compute_bgm_bounds, TARGET_MIN, TARGET_MAX, TARGET_IDEAL,
     _classify_drop_candidate, _fits_within_target, trim_to_fit_budget,
-    _motion_for, _is_section_boundary,
+    _motion_for, _is_section_boundary, _motion_source_for,
 )
 from config_schedule import duration_for  # noqa: E402
 
@@ -377,6 +377,36 @@ def test_is_section_boundary_detects_section_type_change():
     print("✅ _is_section_boundary: section_type 변경 지점만 경계로 판단, 메타 없으면 False 폴백")
 
 
+def test_motion_source_for_uses_motion_dir_when_present_and_nonempty():
+    """P1-3/P1-4: frames/_motion/{stem}/에 실제 프레임(.png)이 있으면 그
+    디렉토리를 쓰고, 없거나 비어 있으면 기존 정지 PNG 경로를 그대로 쓴다."""
+    import tempfile
+    import os as _os
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame_path = _os.path.join(tmp_dir, "02_sector.png")
+        with open(frame_path, "w") as f:
+            f.write("fake png")
+
+        # 모션 디렉토리가 아예 없음
+        assert _motion_source_for(frame_path, "02_sector") == frame_path
+
+        # 모션 디렉토리는 있는데 비어 있음(캡처 실패 등)
+        empty_motion = _os.path.join(tmp_dir, "_motion", "02_sector")
+        _os.makedirs(empty_motion)
+        assert _motion_source_for(frame_path, "02_sector") == frame_path
+
+        # 모션 디렉토리에 실제 프레임이 있음
+        with open(_os.path.join(empty_motion, "f_00000.png"), "w") as f:
+            f.write("fake frame")
+        assert _motion_source_for(frame_path, "02_sector") == empty_motion
+        print("✅ _motion_source_for: 모션 프레임이 실제로 있을 때만 그 디렉토리를 씀")
+    finally:
+        import shutil
+        shutil.rmtree(tmp_dir)
+
+
 if __name__ == "__main__":
     test_trusts_measurement_when_close_to_expected()
     test_falls_back_to_expected_when_measurement_is_way_off()
@@ -399,4 +429,5 @@ if __name__ == "__main__":
     test_trim_to_fit_budget_mentions_round_robin_across_stocks()
     test_motion_for_uses_background_image_presence()
     test_is_section_boundary_detects_section_type_change()
+    test_motion_source_for_uses_motion_dir_when_present_and_nonempty()
     print("\n✅ generate_video 테스트 전체 통과")
