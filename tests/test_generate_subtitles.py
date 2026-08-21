@@ -147,6 +147,70 @@ def test_make_dialogue_events_total_duration_unchanged():
     print("✅ _make_dialogue_events: 가중치 방식이 바뀌어도 총 duration은 정확히 보존됨")
 
 
+def test_export_subtitle_timeline_gives_scene_relative_seconds():
+    """P2-2: export_subtitle_timeline()은 오디오 파일이 없어도(이 테스트는
+    ffmpeg/실제 오디오 없이 순수 로직만 검증) SILENT_DURATION 폴백으로
+    안전하게 동작하고, 각 청크의 start가 0초부터 시작하는 "장면 상대 시각"
+    이어야 한다(영상 전체 누적 시각이 아님)."""
+    from generate_subtitles import export_subtitle_timeline, SILENT_DURATION
+
+    sections = [{
+        "id": "market_summary", "section_type": "market_background",
+        "narration": "코스피 지수는 오늘 상승 마감했습니다.",
+        "subtitle": "코스피 지수는 오늘 상승 마감했습니다.",
+    }]
+    timeline = export_subtitle_timeline(sections, "KO")
+    assert "market_summary" in timeline
+    segs = timeline["market_summary"]
+    assert segs, "타임라인 청크가 비어 있음"
+    assert segs[0]["start"] == 0.0, f"첫 청크는 장면 시작(0초) 기준이어야 함: {segs[0]}"
+    assert segs[-1]["end"] <= SILENT_DURATION, "끝 시각이 오디오 길이(폴백값) 안에 있어야 함"
+    print("✅ export_subtitle_timeline: 장면 상대 시각(0초 시작) 타임라인 확인")
+
+
+def test_format_ass_text_wraps_before_inserting_emphasis_tags():
+    """FIX-EMPHASIS-WRAP-1(P2-4) 회귀 가드: 태그를 넣기 전에 줄바꿈을
+    먼저 계산해야 한다. 순수 텍스트만으로는 한 줄(45자 이내)에 들어가지만,
+    색상 태그(약 30자)를 먼저 심으면 CHARS_PER_LINE을 넘겨 불필요하게
+    두 줄로 쪼개지는 게 실제로 재현되는 버그였다."""
+    from generate_subtitles import _format_ass_text, CHARS_PER_LINE
+
+    text = "코스피는 3,152포인트로 강하게 상승 마감했습니다"
+    assert len(text) <= CHARS_PER_LINE, "테스트 전제: 순수 텍스트는 한 줄에 들어가야 함"
+
+    plain = _format_ass_text(text)
+    assert r"\N" not in plain, "순수 텍스트는 한 줄이어야 함(대조군)"
+
+    emphasized = _format_ass_text(text, emphasis_texts=["3,152포인트"])
+    assert r"\N" not in emphasized, (
+        f"태그 삽입 때문에 불필요하게 줄바꿈됨(태그 길이가 줄바꿈 계산에 새어 들어감): {emphasized}"
+    )
+    assert r"{\c&H0066E0FF&}3,152포인트{\c&H00FFFFFF&}" in emphasized, "강조 태그가 정확히 삽입되지 않음"
+    print("✅ _format_ass_text: 태그 삽입이 줄바꿈 판단에 영향을 주지 않음(줄바꿈 먼저, 태그는 나중)")
+
+
+def test_format_ass_text_skips_emphasis_spanning_line_break():
+    """강조 문구가 줄 경계를 가로지르면(단어 경계 줄바꿈이 문구 내부의
+    공백에서 일어나 앞부분/뒷부분이 서로 다른 줄에 나뉘면) 그 문구는 어느
+    줄에도 통째로 없으므로 태그가 안 붙는다 — 원문이 깨지는 것보다 강조를
+    포기하는 게 안전하다."""
+    from generate_subtitles import _format_ass_text, _wrap_words, CHARS_PER_LINE
+
+    # "가"*42 + " 나다"가 정확히 45자(CHARS_PER_LINE)라 1번째 줄로, 그 다음
+    # " 라마바사"는 넘쳐서 2번째 줄로 밀린다 — "나다 라마바사"라는 문구가
+    # 두 줄에 걸쳐 쪼개지는 상황을 그대로 재현한다.
+    text = "가" * 42 + " 나다 라마바사"
+    lines = _wrap_words(text, CHARS_PER_LINE)
+    assert len(lines) >= 2 and lines[0].endswith("나다") and lines[1] == "라마바사", (
+        f"테스트 전제(줄바꿈이 문구 중간에서 일어남)가 깨짐: {lines}"
+    )
+
+    result = _format_ass_text(text, emphasis_texts=["나다 라마바사"])
+    assert r"\c&H0066E0FF&" not in result, "줄을 가로지르는 강조 문구인데 태그가 삽입됨(원문 손상 위험)"
+    assert "나다" in result and "라마바사" in result, "태그를 안 붙이더라도 원문 텍스트 자체는 그대로 남아야 함"
+    print("✅ _format_ass_text: 줄 경계를 가로지르는 강조는 안전하게 건너뜀")
+
+
 def test_generate_video_reuses_shared_mapping_function():
     """generate_video.py가 _frame_stem_to_audio_id를 독립적으로 재구현하지
     않고 generate_subtitles.py의 것을 그대로 import해 쓰는지 확인한다
@@ -168,5 +232,8 @@ if __name__ == "__main__":
     test_speech_weight_estimates_number_reading_length()
     test_make_dialogue_events_gives_number_heavy_chunk_more_time()
     test_make_dialogue_events_total_duration_unchanged()
+    test_export_subtitle_timeline_gives_scene_relative_seconds()
+    test_format_ass_text_wraps_before_inserting_emphasis_tags()
+    test_format_ass_text_skips_emphasis_spanning_line_break()
     test_generate_video_reuses_shared_mapping_function()
     print("\n✅ generate_subtitles 매핑 테스트 전체 통과")

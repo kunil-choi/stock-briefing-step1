@@ -427,18 +427,41 @@ def _split_subtitle_text(text: str) -> list:
     return final if final else _wrap_words(text, max_len)
 
 
-def _format_ass_text(text: str) -> str:
-    """ASS 텍스트: 긴 줄을 단어 경계에서 \\N 으로 분리합니다(단어 중간 절단 금지)."""
-    lines = _wrap_words(text, CHARS_PER_LINE)
-    return r"\N".join(lines[:MAX_LINES])
+_EMPHASIS_COLOR = r"{\c&H0066E0FF&}"
+_EMPHASIS_RESET = r"{\c&H00FFFFFF&}"
 
 
-def _make_dialogue_events(narration_text: str, subtitle_text: str,
-                           start_time: float,
-                           duration: float,
-                           style: str = "Default") -> list:
-    """
-    자막 텍스트를 duration에 맞게 분할하여 ASS Dialogue 이벤트 리스트를 반환합니다.
+def _format_ass_text(text: str, emphasis_texts: list = None) -> str:
+    """ASS 텍스트: 긴 줄을 단어 경계에서 \\N 으로 분리합니다(단어 중간 절단 금지).
+
+    emphasis_texts가 있으면(영상 모션그래픽 업그레이드 P2-4 — motion_plan.json의
+    emphasis[].text) 그 문구를 노란색 인라인 태그로 감싼다. ★ 줄바꿈(_wrap_words)은
+    반드시 태그를 넣기 "전"의 순수 텍스트로 먼저 계산해야 한다 — 태그 문자열
+    ("{\\c&H0066E0FF&}" 등, 약 20자)을 먼저 심어두면 _wrap_words()가 그 길이까지
+    글자 수에 포함시켜 줄바꿈이 엉뚱한 곳에서 끊긴다(실제 코드 검증 결과 확인된
+    위험). 그래서 줄 단위로 나뉜 "이후"에 각 줄 안에서만 태그를 삽입한다 — 강조
+    문구가 두 줄에 걸쳐 있으면(줄 경계를 가로지르면) 그 줄에서는 태그를 생략하고
+    원문 그대로 둔다(강조가 안 될 뿐 자막 자체가 깨지지는 않음)."""
+    lines = _wrap_words(text, CHARS_PER_LINE)[:MAX_LINES]
+    if emphasis_texts:
+        lines = [_apply_emphasis_tags(line, emphasis_texts) for line in lines]
+    return r"\N".join(lines)
+
+
+def _apply_emphasis_tags(line: str, emphasis_texts: list) -> str:
+    for phrase in emphasis_texts:
+        if phrase and phrase in line:
+            line = line.replace(phrase, f"{_EMPHASIS_COLOR}{phrase}{_EMPHASIS_RESET}")
+    return line
+
+
+def _compute_dialogue_segments(narration_text: str, subtitle_text: str,
+                                start_time: float, duration: float) -> list:
+    """자막을 duration에 맞게 분할해 (청크 텍스트, 시작 시각, 끝 시각) 튜플
+    리스트를 반환합니다 — _make_dialogue_events()(ASS 문자열 생성)와
+    export_subtitle_timeline()(P2-2, JSON 타임라인 내보내기) 둘 다 이 공통
+    타이밍 계산을 그대로 재사용한다(로직 중복 방지, 두 출력이 서로 어긋날
+    위험을 원천 차단).
 
     자막 표출 시간은 subtitle 문장 길이가 아니라 실제로 낭독되는 narration 문장의
     길이에 비례해 배분합니다. narration/subtitle은 표기만 다를 뿐(숫자·영문 표기 차이)
@@ -467,7 +490,7 @@ def _make_dialogue_events(narration_text: str, subtitle_text: str,
         pairs = [(_speech_weight(s), s) for s in (sub_sentences or [subtitle_text])]
 
     total_weight = sum(w for w, _ in pairs) or 1
-    events = []
+    segments = []
     t_cursor = start_time
 
     for weight, sub_sentence in pairs:
@@ -481,13 +504,51 @@ def _make_dialogue_events(narration_text: str, subtitle_text: str,
             chunk_duration = seg_duration * (_speech_weight(chunk) / chunk_total_len)
             t_start  = t_cursor
             t_end    = t_start + chunk_duration - 0.08
-            ass_text = _format_ass_text(chunk)
-            events.append(
-                f"Dialogue: 0,{_ts(t_start)},{_ts(t_end)},{style},,0,0,0,,{ass_text}"
-            )
+            segments.append((chunk, t_start, t_end))
             t_cursor += chunk_duration
 
-    return events
+    return segments
+
+
+def _make_dialogue_events(narration_text: str, subtitle_text: str,
+                           start_time: float,
+                           duration: float,
+                           style: str = "Default",
+                           emphasis_texts: list = None) -> list:
+    """자막 텍스트를 duration에 맞게 분할하여 ASS Dialogue 이벤트 리스트를
+    반환합니다(타이밍 계산은 _compute_dialogue_segments() 참고).
+    emphasis_texts가 있으면 해당 문구를 인라인 색상 태그로 감싼다(P2-4)."""
+    segments = _compute_dialogue_segments(narration_text, subtitle_text, start_time, duration)
+    return [
+        f"Dialogue: 0,{_ts(t_start)},{_ts(t_end)},{style},,0,0,0,,"
+        f"{_format_ass_text(chunk, emphasis_texts)}"
+        for chunk, t_start, t_end in segments
+    ]
+
+
+def export_subtitle_timeline(sections: list, lang: str) -> dict:
+    """P2-2: 섹션(오디오 ID)별 자막 청크의 (텍스트, 시작, 끝) 타임라인을
+    JSON으로 직렬화 가능한 구조로 내보낸다. 시각은 그 오디오 파일 하나가
+    "0초에 시작한다"고 가정한 상대 시각이다 — generate_ass()처럼 영상
+    전체 누적 시각을 쓰지 않는 이유는, motion_plan.json이 필요로 하는 게
+    "이 문구가 이 장면 나레이션이 시작되고 몇 초 뒤에 나오는가"(장면
+    상대 시각)이지 영상 전체에서 몇 분 몇 초냐가 아니기 때문이다 — 장면
+    상대 시각은 전환 삽입/배속 보정과 무관하게 항상 유효하다.
+
+    기존 ASS 생성 로직(generate_ass/_make_dialogue_events)은 그대로 두고
+    이 함수는 순수하게 부산물만 추가한다(문서 지시)."""
+    subtitle_map = _build_subtitle_map(sections, lang)
+    audio_base = os.path.join("output", lang, "audio")
+    timeline = {}
+    for audio_id, (narration_text, subtitle_text) in subtitle_map.items():
+        mp3_path = os.path.join(audio_base, f"{audio_id}.mp3")
+        duration = _get_audio_duration(mp3_path)
+        segments = _compute_dialogue_segments(narration_text, subtitle_text, 0.0, duration)
+        timeline[audio_id] = [
+            {"text": chunk, "start": round(t_start, 3), "end": round(t_end, 3)}
+            for chunk, t_start, t_end in segments
+        ]
+    return timeline
 
 
 def generate_ass(sections: list, lang: str, out_path: str,
