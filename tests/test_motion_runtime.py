@@ -42,6 +42,8 @@ _TEST_HTML = """
      style="opacity:0;transform:scale(0.6);"></div>
 <svg><path id="d" data-anim="draw" data-delay="0" data-dur="1.0"
      d="M0,0 L100,0 L100,100" /></svg>
+<svg><circle id="dot" data-anim="dot" data-points="0,0;50,10;100,100" data-delay="0" data-dur="1.0"
+     cx="100" cy="100" r="5" /></svg>
 """
 
 
@@ -145,6 +147,31 @@ def test_draw_dashoffset_reaches_zero():
     print("✅ draw: dashoffset이 path 길이→0으로 진행(선이 그려지는 효과)")
 
 
+def test_dot_tracks_draw_progress_not_final_point():
+    """svg_line_chart()의 광점: 선이 그려지는 진행률(p)에 따라 방금 그려진
+    지점으로 cx/cy가 옮겨가야 한다 — 처음부터 최종 지점에 고정돼 있으면
+    안 된다(육안 검증에서 실제로 발견한 버그의 회귀 가드)."""
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        page = b.new_page()
+        _load_page(page)
+
+        page.evaluate("() => window.__setT(0.0)")
+        cx0 = float(page.eval_on_selector("#dot", "el => el.getAttribute('cx')"))
+        assert cx0 == 0.0, f"t=0이면 첫 점(0,0)에 있어야 함: cx={cx0}"
+
+        page.evaluate("() => window.__setT(0.5)")
+        cx_mid = float(page.eval_on_selector("#dot", "el => el.getAttribute('cx')"))
+        assert cx_mid == 50.0, f"진행률 50%면 가운데 점(50,10)에 있어야 함: cx={cx_mid}"
+
+        page.evaluate("() => window.__setT(1.0)")
+        cx_end = float(page.eval_on_selector("#dot", "el => el.getAttribute('cx')"))
+        assert cx_end == 100.0, f"완료 시 마지막 점(100,100)에 있어야 함: cx={cx_end}"
+        b.close()
+    print("✅ dot: 최종 지점에 고정되지 않고 draw 진행률을 따라 이동")
+
+
 def test_setT_is_pure_and_idempotent():
     """같은 t를 여러 번(임의 순서로) 넣어도 항상 같은 DOM 상태가 나와야 한다
     — render_html_to_frames()가 프레임을 다시 캡처하거나 순서를 바꿔도
@@ -184,5 +211,6 @@ if __name__ == "__main__":
     test_fadeup_opacity_and_translate()
     test_pop_scale_and_opacity()
     test_draw_dashoffset_reaches_zero()
+    test_dot_tracks_draw_progress_not_final_point()
     test_setT_is_pure_and_idempotent()
     print("\n✅ motion_runtime 테스트 전체 통과")

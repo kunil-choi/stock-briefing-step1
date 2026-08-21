@@ -6,16 +6,16 @@ generate_assets.py가 기대하는 함수 시그니처/반환값/출력 파일�
 """
 import os
 
-from .config import BROKERAGE_FIRMS
+from .config import BROKERAGE_FIRMS, normalize_stock_name
 from .render import render_html_to_png, render_html_to_frames
 from .html_theme import (
-    esc, nl2br, file_uri, shell, centered_shell, kbs_badge, stat_table,
+    esc, nl2br, file_uri, shell, centered_shell, kbs_badge,
     point_card, point_card_img, bullet_column, chat_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
-    headline_card, report_card, risk_card, sector_rank_bars,
-    autofit_text, text_plate, HEADLINE_FONT_FAMILY,
+    headline_card, report_card, risk_card, sector_rank_bars, market_index_cards,
+    svg_line_chart, autofit_text, text_plate, HEADLINE_FONT_FAMILY,
 )
-from .chart import build_chart_with_insight, build_week_chart
+from .chart import build_chart_with_insight, build_week_chart, fetch_ohlcv
 from .panel_avatars import get_avatar_path
 from .watchlist_pages import build_watchlist_pages
 
@@ -149,7 +149,16 @@ def build_market_summary(data, out_dir, visual=None):
         ("원달러환율", sec.get("usdkrw_value", ""), sec.get("usdkrw_change", ""), sec.get("usdkrw_positive", False)),
     ]
 
-    corner_html = headline_card(headline_text) if headline_text else ""
+    # P1-3(a): 카드가 순번마다 0.18초씩 늦게 등장하므로(market_index_cards()),
+    # 마지막 카드가 다 자리잡은 뒤에 헤드라인이 fadeup하도록 그만큼 딜레이를
+    # 준다(목업 요구사항 — "마지막에 헤드라인이 fadeup 한다").
+    visible_row_count = sum(1 for _, v, _, _ in rows if v)
+    headline_delay = visible_row_count * 0.18 + 0.85
+    corner_html = (
+        f'<div data-anim="fadeup" data-delay="{headline_delay:.2f}" data-dur="0.5" '
+        f'style="opacity:0;">{headline_card(headline_text)}</div>'
+        if headline_text else ""
+    )
     points_html = ""
     if points:
         cards = "".join(point_card(i + 1, p, _ACCENT_CYCLE[i % len(_ACCENT_CYCLE)])
@@ -158,14 +167,15 @@ def build_market_summary(data, out_dir, visual=None):
 <div style="font-size:30px;font-weight:800;margin:28px 0 16px;color:{PALETTE['accent']};">오늘의 핵심 포인트</div>
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">{cards}</div>"""
 
-    content = f"""{corner_html}
-<div style="display:flex;gap:32px;align-items:flex-start;">
-  <div style="flex:1;">{stat_table(rows)}</div>
-</div>
+    content = f"""{market_index_cards(rows)}
+{corner_html}
 {points_html}"""
 
     html = shell("주요 지표", content, background_image=image_path, credit=visual.get("credit", ""))
-    return [render_html_to_png(html, os.path.join(out_dir, "01_market_00.png"))]
+    out_path = os.path.join(out_dir, "01_market_00.png")
+    png_path = render_html_to_png(html, out_path)
+    _capture_motion_frames(html, out_dir, "01_market_00")
+    return [png_path]
 
 
 # ── 업종 분석 ───────────────────────────────────────────────────────────────
@@ -328,8 +338,35 @@ def _build_stock_chart(sec, out_path, img_dir):
                 f'justify-content:center;font-size:34px;color:{PALETTE["muted"]};">'
                 f'{esc(stock_name)} 차트 데이터 준비 중</div>')
 
-    html = shell(f"2주간 주가 차트: {stock_name}", body, stock_tag=stock_name)
-    return render_html_to_png(html, out_path)
+    # 영상 모션그래픽 업그레이드 P1-3(c): matplotlib 캔들 차트(위)는 그대로
+    # 두고, 같은 종가 데이터로 그려지는(draw) SVG 라인 차트를 병행 제공한다
+    # (문서 지시 — "chart.py의 matplotlib 경로를 제거하지 말 것"). insight
+    # 계산에 쓴 df를 재사용하지 않고 별도로 fetch_ohlcv를 다시 호출하는 건
+    # 낭비이지만, build_chart_with_insight()가 df를 밖으로 노출하지 않아
+    # (기존 계약을 그대로 유지하기 위해 시그니처를 안 바꿈) 불가피하다.
+    line_chart_html = ""
+    try:
+        df = fetch_ohlcv(normalize_stock_name(stock_name), days=14)
+        if df is not None and len(df) >= 2:
+            prices = df["Close"].astype(float).tolist()
+            positive = prices[-1] >= prices[0]
+            chart_svg = svg_line_chart(prices, color=PALETTE["up"] if positive else PALETTE["down"])
+            if chart_svg:
+                line_chart_html = (
+                    f'<div class="card" style="padding:28px 32px;margin-top:20px;">'
+                    f'<div style="font-size:22px;font-weight:700;color:{PALETTE["muted"]};'
+                    f'margin-bottom:12px;">📈 2주간 추이(라인)</div>{chart_svg}</div>'
+                )
+    except Exception as e:
+        print(f"  [chart] SVG 라인 차트 생성 실패({stock_name}): {e}")
+
+    html = shell(f"2주간 주가 차트: {stock_name}", body + line_chart_html, stock_tag=stock_name)
+    out_dir = os.path.dirname(out_path)
+    stem = os.path.splitext(os.path.basename(out_path))[0]
+    png_path = render_html_to_png(html, out_path)
+    if line_chart_html:
+        _capture_motion_frames(html, out_dir, stem)
+    return png_path
 
 
 # ── 언급(mention) 슬라이드 — 채널 카테고리별 종합 분석 ──────────────────────

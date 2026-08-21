@@ -6,8 +6,10 @@ NotebookLM 스타일 참고: 밝은 배경 + 점그리드, 민트/틸 액센트 
 """
 import os
 import re
+import math
 import base64
 import mimetypes
+import itertools
 import html as _he
 from datetime import date
 from .config import SUBTITLE_ZONE_TOP
@@ -310,6 +312,25 @@ MOTION_JS = r"""
           path.style.strokeDasharray = String(len);
           path.style.strokeDashoffset = String(len * (1 - p));
         }
+      } else if (type === 'dot') {
+        // svg_line_chart()의 광점(선 끝을 따라가는 원) 전용 — data-points에
+        // "x1,y1;x2,y2;..."로 인코딩된 좌표 목록 중 진행률에 해당하는 점으로
+        // cx/cy를 옮긴다. 목업(scene_stock())의
+        // "idx = min(len(pts)-1, int(p*(len(pts)-1)))"과 동일하게 정점 사이를
+        // 매끄럽게 보간하지 않고 그대로 건너뛴다(라인 자체가 이미 매끄럽게
+        // 그려지므로 점은 방금 그려진 지점만 가리키면 충분).
+        var raw = el.dataset.points || '';
+        if (raw) {
+          var pts = raw.split(';').map(function (pair) {
+            var xy = pair.split(',');
+            return [parseFloat(xy[0]), parseFloat(xy[1])];
+          });
+          if (pts.length) {
+            var idx = Math.min(pts.length - 1, Math.floor(p * (pts.length - 1)));
+            el.setAttribute('cx', pts[idx][0]);
+            el.setAttribute('cy', pts[idx][1]);
+          }
+        }
       }
     });
   };
@@ -402,6 +423,65 @@ def stat_table(rows: list) -> str:
         f'<table class="card" style="width:100%;border-collapse:collapse;'
         f'font-size:26px;">{header}{body}</table>'
     )
+
+
+# ── 영상 모션그래픽 업그레이드 P1-3(a): 시장 지표 카운트업 ────────────────────
+
+def market_index_cards(rows: list) -> str:
+    """rows: [(label, value, change_str, positive_bool), ...]. stat_table()
+    (표 형태)의 카운트업 카드 버전 — 목업(scene_market())의 3분할 카드를
+    그대로 따르되, 이 화면은 기존처럼 지수 5개(코스피/코스닥/나스닥/S&P500/
+    원달러)를 유지한다(사용자 확인 — 목업은 3개만 예시로 보여줌). 카드마다
+    0.18초씩 늦게 등장(fadeup)하고, 숫자가 0→실제값으로 굴러가며(count),
+    진행 게이지 바가 차오르고(grow, 값 크기와 무관하게 항상 100%까지 —
+    "로딩 중" 느낌의 장식용 리빌), 등락률 배지가 숫자가 다 굴러간 뒤 팝
+    (pop)으로 등장한다.
+
+    value가 숫자로 못 읽히면(빈 문자열 등 — 데이터 누락) 카운트업 없이
+    정적 텍스트로 폴백한다(회귀 없음). stat_table()은 지우지 않는다(다른
+    빌더가 표 형태 그대로 쓸 수 있으므로 남겨둠)."""
+    cards = ""
+    idx = 0
+    for label, value, change_str, positive in rows:
+        if not value:
+            continue
+        color = PALETTE["up"] if positive else PALETTE["down"]
+        arrow = "▲" if positive else "▼"
+        delay = idx * 0.18
+        idx += 1
+
+        numeric = re.sub(r"[^\d.\-]", "", value)
+        try:
+            target = float(numeric)
+            decimals = len(numeric.split(".")[-1]) if "." in numeric else 0
+            number_html = (
+                f'<div data-anim="count" data-to="{target}" data-decimals="{decimals}" '
+                f'data-delay="{delay:.2f}" data-dur="0.9" style="font-size:52px;font-weight:800;'
+                f'letter-spacing:-.02em;line-height:1.1;">0</div>'
+            )
+        except ValueError:
+            number_html = (
+                f'<div style="font-size:52px;font-weight:800;letter-spacing:-.02em;'
+                f'line-height:1.1;">{esc(value)}</div>'
+            )
+        change_html = (
+            f'<div data-anim="pop" data-delay="{delay + 0.75:.2f}" data-dur="0.35" '
+            f'style="display:inline-flex;align-items:center;gap:8px;background:{color};color:#fff;'
+            f'border-radius:99px;padding:6px 18px;font-size:22px;font-weight:800;opacity:0;">'
+            f'{arrow} {esc(change_str)}</div>' if change_str else ""
+        )
+        cards += f"""
+<div class="card" data-anim="fadeup" data-delay="{delay:.2f}" data-dur="0.55"
+     style="flex:1;padding:26px 22px;opacity:0;min-width:0;">
+  <div style="font-size:22px;font-weight:700;color:{PALETTE['muted']};">{esc(label)}</div>
+  {number_html}
+  <div style="height:6px;background:{PALETTE['border']};border-radius:99px;margin:12px 0 14px;">
+    <div data-anim="grow" data-to="100" data-delay="{delay + 0.1:.2f}" data-dur="0.8"
+         style="height:6px;width:0%;background:{color};border-radius:99px;"></div>
+  </div>
+  {change_html}
+</div>"""
+    return f'<div style="display:flex;gap:14px;">{cards}</div>'
 
 
 def point_card(num: int, text: str, color: str, font_size: int = 25) -> str:
@@ -702,6 +782,69 @@ def sector_rank_bars(sector_list: list) -> str:
     return f"""<div class="card" style="padding:38px 44px;">
   <div style="font-size:30px;font-weight:700;color:{PALETTE['muted']};margin-bottom:26px;">
     업종별 등락 흐름</div>{rows}</div>"""
+
+
+# ── 영상 모션그래픽 업그레이드 P1-3(c): 차트 드로잉 ────────────────────────────
+
+_chart_id_seq = itertools.count()
+
+
+def svg_line_chart(prices: list, width: int = 1000, height: int = 420,
+                    color: str = None) -> str:
+    """종가 시계열을 "그려지는"(draw) SVG 라인 차트로 만듭니다(목업 05번
+    프레임 참고 — docs/motion_mockup_reference.py의 scene_stock() 중 차트
+    부분). chart.py의 draw_candle_chart()(matplotlib PNG, 캔들 차트)를
+    대체하지 않고 병행 제공하는 라인 차트 버전이다 — 호출부가 chart.py의
+    fetch_ohlcv()로 받은 df["Close"] 시계열을 그대로 넘기면 된다.
+
+    data-anim="draw"로 path의 stroke-dashoffset을 선 전체 길이→0으로 진행시켜
+    선이 그려지는 효과를 낸다. 영역 그라디언트는 clipPath 안 <rect>의 CSS
+    width를 0%→100%로 키워(data-anim="grow") 선을 따라 차오르게 한다 — SVG
+    rect에 CSS 퍼센트 width가 실제로 클리핑에 반영되는지 Chromium에서 직접
+    확인함(픽셀 샘플링으로 60% 클립이 정확히 60% 지점에서 잘리는 것을 검증).
+    두 애니메이션 모두 같은 dur(1.6초)를 써서 "선이 그려지는 만큼 아래
+    영역도 함께 차오르는" 것처럼 보이게 한다.
+
+    prices가 2개 미만이면(차트를 그릴 수 없음) 빈 문자열을 반환한다 —
+    호출부가 기존처럼 "차트 없음" 폴백을 그대로 쓸 수 있다(회귀 없음)."""
+    if not prices or len(prices) < 2:
+        return ""
+    color = color or PALETTE["up"]
+    cid = next(_chart_id_seq)
+    grad_id, clip_id = f"chartGrad{cid}", f"chartClip{cid}"
+
+    lo, hi = min(prices) * 0.99, max(prices) * 1.01
+    span = (hi - lo) or 1
+    pts = []
+    for i, v in enumerate(prices):
+        x = i / (len(prices) - 1) * width
+        y = height - (v - lo) / span * height
+        pts.append((x, y))
+    path = "M " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+    area = f"M 0,{height} L " + " L ".join(f"{x:.1f},{y:.1f}" for x, y in pts) + f" L {width},{height} Z"
+    ex, ey = pts[-1]
+    points_attr = ";".join(f"{x:.1f},{y:.1f}" for x, y in pts)
+
+    return f"""
+<svg viewBox="0 0 {width} {height}" width="{width}" height="{height}" style="overflow:visible;">
+  <defs>
+    <linearGradient id="{grad_id}" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="{color}" stop-opacity=".28"/>
+      <stop offset="100%" stop-color="{color}" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="{clip_id}">
+      <rect data-anim="grow" data-to="100" data-delay="0" data-dur="1.6"
+            x="0" y="-40" width="0%" height="{height + 80}"/>
+    </clipPath>
+  </defs>
+  <g clip-path="url(#{clip_id})"><path d="{area}" fill="url(#{grad_id})"/></g>
+  <path data-anim="draw" data-delay="0" data-dur="1.6" d="{path}" fill="none"
+        stroke="{color}" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle data-anim="dot" data-points="{points_attr}" data-delay="0" data-dur="1.6"
+          cx="{ex:.1f}" cy="{ey:.1f}" r="16" fill="{color}" opacity=".22"/>
+  <circle data-anim="dot" data-points="{points_attr}" data-delay="0" data-dur="1.6"
+          cx="{ex:.1f}" cy="{ey:.1f}" r="9" fill="{color}" stroke="#fff" stroke-width="4"/>
+</svg>"""
 
 
 # ── Phase F: 주도주 랭킹 카드 ─────────────────────────────────────────────────
