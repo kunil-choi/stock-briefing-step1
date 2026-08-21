@@ -118,17 +118,49 @@ def mix_bgm_with_ducking(video_path: str, bgm_path: str, out_path: str,
         f"attack=5:release=200[bgm_ducked];"
         f"[0:a][bgm_ducked]amix=inputs=2:duration=first:dropout_transition=2[aout]"
     )
-    cmd = [
+
+    # FIX-CLOSING-AUDIO-CUTOFF-1: 마지막 클로징 멘트("...감사합니다.")가
+    # "감"에서 끊기고 영상이 그대로 끝나버린다는 사용자 보고 버그를 재현해
+    # 원인을 찾았다 — "-map 0:v"(원본 비디오 스트림)와 사이드체인
+    # 필터그래프([aout])를 같은 ffmpeg 실행에서 함께 매핑하면, "-shortest"를
+    # 빼도 sidechaincompress/amix 출력이 실제 나레이션 길이보다 짧게(수백ms~
+    # 1초 가까이) 잘리는 게 실측으로 확인됐다(ffmpeg 6.1.1, 비디오 스트림
+    # 유무만 바꿔가며 재현·격리함 — 비디오를 안 섞고 오디오만 출력하면 항상
+    # 정확한 길이가 나오고, 비디오를 같이 매핑하는 순간 매번 잘림). "-shortest"
+    # 문제가 아니라 필터그래프 스케줄러가 여러 출력을 동시에 다룰 때 생기는
+    # ffmpeg 자체의 동작이라 커맨드 옵션만으로는 못 고친다 — 그래서 아예 두
+    # 단계로 나눈다: 1) 비디오를 전혀 매핑하지 않고 사이드체인 덕킹 믹싱만
+    # 해서 오디오 파일 하나를 만들고(이 경로는 항상 정확한 길이가 나옴이
+    # 확인됨), 2) 그 오디오를 원본 비디오와 단순 스트림 복사로 합친다(필터
+    # 없는 단순 remux라 길이가 틀어질 이유가 없음).
+    mixed_audio_path = out_path + ".mixed_audio.m4a"
+    audio_cmd = [
         "ffmpeg", "-y",
         "-i", video_path,
         "-stream_loop", "-1", "-i", bgm_path,
         "-filter_complex", filter_complex,
-        "-map", "0:v", "-map", "[aout]",
-        "-c:v", "copy", "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
+        "-map", "[aout]",
+        "-t", f"{total_duration:.3f}",
+        "-c:a", "aac", "-b:a", "192k",
+        mixed_audio_path,
+    ]
+    if not _run(audio_cmd, "BGM 사이드체인 덕킹 믹싱(오디오)"):
+        return False
+
+    mux_cmd = [
+        "ffmpeg", "-y",
+        "-i", video_path,
+        "-i", mixed_audio_path,
+        "-map", "0:v", "-map", "1:a",
+        "-c:v", "copy", "-c:a", "copy",
         out_path,
     ]
-    return _run(cmd, "BGM 사이드체인 덕킹 믹싱")
+    ok = _run(mux_cmd, "BGM 사이드체인 덕킹 믹싱(합치기)")
+    try:
+        os.remove(mixed_audio_path)
+    except OSError:
+        pass
+    return ok
 
 
 # ─────────────────────────────────────────────────────────────────────────────

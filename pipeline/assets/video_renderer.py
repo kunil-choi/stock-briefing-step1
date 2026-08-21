@@ -31,6 +31,16 @@ KEN_BURNS_ZOOM_MAX = 1.08
 KEN_BURNS_ZOOM_STEP = 0.0015
 TRANSITION_DURATION = 0.4
 
+# 장면(나레이션 mp3)의 파형이 정확히 0이 아닌 지점에서 시작/끝나는 경우가
+# 대부분이라(TTS 합성 특성), 이전 장면 오디오가 뚝 끊기고 곧바로 다음 장면
+# 오디오가 뚝 시작되는 지점에서 파형이 갑자기 튀는 클릭/팝 잡음이 난다 —
+# 종목이 바뀔 때마다 매번 똑같은 짧은 "뿡" 소리가 들린다는 사용자 피드백과
+# 일치한다(전환 구간 자체는 무음 클립이라 소리가 날 수 없고, 그 앞뒤로
+# 붙는 실제 나레이션 클립의 시작/끝 경계가 원인). 아주 짧은 페이드(30ms)로
+# 각 장면 오디오의 시작/끝을 0으로 부드럽게 만들면 내용은 들리지 않을
+# 만큼 짧으면서 파형 불연속(클릭음)은 없앨 수 있다.
+AUDIO_CLICK_FADE = 0.03
+
 # 모든 장면/전환 클립의 오디오 스트림을 이 스펙으로 강제 통일한다(사용자
 # 피드백, 2026-08-13 — 특정 장면 전환 지점 직후부터 배경에 "지지직" 하는
 # 잡음이 깔리는 문제 재현·확인됨). compose_scene()의 오디오는 나레이션
@@ -130,12 +140,16 @@ class FFmpegVideoRenderer(VideoRenderer):
             vf = f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={self.fps}"
             label = "정지 화면"
 
+        fade = min(AUDIO_CLICK_FADE, duration / 2)
+        fade_out_start = max(duration - fade, 0.0)
+        af = f"afade=t=in:st=0:d={fade:.3f},afade=t=out:st={fade_out_start:.3f}:d={fade:.3f}"
+
         cmd = [
             "ffmpeg", "-y",
             "-loop", "1", "-i", image_path,
             "-i", audio_path,
-            "-filter_complex", f"[0:v]{vf}[v]",
-            "-map", "[v]", "-map", "1:a",
+            "-filter_complex", f"[0:v]{vf}[v];[1:a]{af}[a]",
+            "-map", "[v]", "-map", "[a]",
             "-c:v", "libx264", "-tune", "stillimage",
             "-c:a", "aac", "-b:a", "192k",
             "-ar", str(AUDIO_SAMPLE_RATE), "-ac", str(AUDIO_CHANNELS),

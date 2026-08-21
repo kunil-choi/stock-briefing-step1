@@ -53,10 +53,37 @@ def test_ikwonhui_pronunciation():
     print("✅ '이권희 대표' → '이궈니 대표' 확인(기존 규칙 이미 정상)")
 
 
+def test_ingyeo_hyeongeum_heureum():
+    assert apply_pronunciation_rules("잉여현금흐름이 증가했다") == "잉여 현금 흐름이 증가했다"
+    print("✅ '잉여현금흐름' → '잉여 현금 흐름' 확인")
+
+
+def test_alteogen_pronunciation():
+    assert apply_pronunciation_rules("알테오젠 관련 뉴스") == "알테오 젠 관련 뉴스"
+    print("✅ '알테오젠' → '알테오 젠' 확인")
+
+
+def test_im_sunjae_daepyo_pronunciation():
+    """공백을 넣어 분리했더니 이름이 부자연스럽게 끊긴다는 재발 피드백
+    (2026-08-21) — 치환 없이 원문 "임순재"를 공백 없는 한 덩어리로 그대로
+    둬야 한다(순차적으로 자연스럽게 읽힘)."""
+    assert apply_pronunciation_rules("임순재 대표는") == "임순재 대표는"
+    print("✅ '임순재 대표' → 원문 그대로(공백 삽입 없음) 확인")
+
+
+def test_ai_it_pronunciation():
+    assert apply_pronunciation_rules("AI와 IT 서비스") == "에이아이와 아이티 서비스"
+    print("✅ 'AI'/'IT' → '에이아이'/'아이티' 확인")
+
+
 if __name__ == "__main__":
     test_dangi_jeogin_and_banghyangseong()
     test_dangi_generic_rule_unaffected()
     test_gukchae_geumni()
     test_gukchae_alone_still_tensified()
     test_ikwonhui_pronunciation()
+    test_ingyeo_hyeongeum_heureum()
+    test_alteogen_pronunciation()
+    test_im_sunjae_daepyo_pronunciation()
+    test_ai_it_pronunciation()
     print("\n✅ pronunciation_rules 테스트 전체 통과")

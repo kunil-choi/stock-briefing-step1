@@ -623,7 +623,14 @@ def _build_ai_strategy_points(sec, out_dir):
         _ai_strategy_header("오늘의 주목 포인트")
         + f'<div style="display:flex;flex-direction:column;gap:14px;">{cards}</div>'
     )
-    html = shell("AI 투자 전략", content)
+    # FIX-TICKER-OVERLAP-3: 이 화면은 포인트 카드가 보통 4개 이상이라
+    # .content 영역을 거의 다 채우는데, 하단 뉴스 티커(news_ticker, .content
+    # 하단에 absolute 도킹)가 그 위에 겹쳐 그려져 마지막 카드의 둘째 줄
+    # 텍스트를 가렸다(사용자 보고 버그, 스크린샷 확인). _build_aggregate_stock_slide
+    # (FIX-TICKER-OVERLAP-2)와 동일하게 티커를 꺼서 카드 개수와 무관하게
+    # 겹침을 없앤다 — 이 화면은 상단 헤더가 이미 코너 요약 역할을 하므로
+    # 티커가 없어도 정보 손실이 없다.
+    html = shell("AI 투자 전략", content, suppress_ticker=True)
     return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_2_points.png"))
 
 
