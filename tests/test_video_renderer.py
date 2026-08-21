@@ -50,6 +50,133 @@ def _make_test_assets(tmp_dir: str):
     return frame1, frame2, audio
 
 
+def _make_frame_sequence(tmp_dir: str, name: str, n_frames: int, fps: int) -> str:
+    """P1-4 테스트용 합성 프레임 시퀀스. render_html_to_frames()가 실제로
+    만드는 산출물(f_00000.png... + _fps.txt)과 같은 구조를 ffmpeg만으로
+    빠르게 흉내낸다(Playwright 불필요 — 이 파일의 다른 테스트와 동일하게
+    ffmpeg 의존성만 유지)."""
+    frames_dir = os.path.join(tmp_dir, name)
+    os.makedirs(frames_dir, exist_ok=True)
+    for i in range(n_frames):
+        # 프레임마다 색을 살짝 바꿔 "무언가 움직인다"는 걸 시각적으로도 알 수
+        # 있게 한다(정적 회귀 확인 시 유용).
+        shade = 0x20 + (i * 15) % 0xd0
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", f"color=c=#{shade:02x}{shade:02x}{shade:02x}:s=320x240",
+             "-frames:v", "1", os.path.join(frames_dir, f"f_{i:05d}.png")],
+            capture_output=True, check=True,
+        )
+    with open(os.path.join(frames_dir, "_fps.txt"), "w", encoding="utf-8") as f:
+        f.write(str(fps))
+    return frames_dir
+
+
+def _make_test_audio(tmp_dir: str, name: str, seconds: float) -> str:
+    path = os.path.join(tmp_dir, name)
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+         "-t", f"{seconds}", "-q:a", "9", path],
+        capture_output=True, check=True,
+    )
+    return path
+
+
+def test_compose_scene_from_frames_exact_duration_with_hold():
+    """P1-4: 오디오가 lead보다 길면 lead 클립(프레임 시퀀스) + hold 클립
+    (마지막 프레임 정지)을 이어붙이고, 최종 길이는 반드시 정확히 오디오
+    길이와 같아야 한다(자막 타임라인 불변식의 근거)."""
+    from assets.video_renderer import FFmpegVideoRenderer
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        # 6장/12fps = lead 0.5초. 오디오 3.0초 → hold 2.5초가 필요.
+        frames_dir = _make_frame_sequence(tmp_dir, "motion", n_frames=6, fps=12)
+        audio = _make_test_audio(tmp_dir, "narration.mp3", seconds=3.0)
+        renderer = FFmpegVideoRenderer(width=320, height=240)
+        out_path = os.path.join(tmp_dir, "scene.mp4")
+
+        result = renderer.compose_scene(frames_dir, audio, out_path, duration=3.0)
+        assert result == out_path
+        dur = _probe_duration(out_path)
+        assert abs(dur - 3.0) < 0.05, f"프레임 시퀀스 장면 길이가 오디오 길이와 안 맞음: {dur}"
+        print(f"✅ compose_scene(프레임 시퀀스+홀드): 길이가 오디오와 정확히 일치 ({dur:.3f}초)")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
+def test_compose_scene_from_frames_no_hold_needed():
+    """P1-4: 오디오가 lead보다 짧거나 같으면 홀드 클립 없이 프레임 시퀀스만
+    쓰고, 마지막 단계에서 오디오 길이에 맞춰 잘라낸다."""
+    from assets.video_renderer import FFmpegVideoRenderer
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        # 12장/12fps = lead 1.0초. 오디오 0.4초 → lead보다 짧아 홀드 불필요.
+        frames_dir = _make_frame_sequence(tmp_dir, "motion", n_frames=12, fps=12)
+        audio = _make_test_audio(tmp_dir, "narration_short.mp3", seconds=0.4)
+        renderer = FFmpegVideoRenderer(width=320, height=240)
+        out_path = os.path.join(tmp_dir, "scene.mp4")
+
+        result = renderer.compose_scene(frames_dir, audio, out_path, duration=0.4)
+        assert result == out_path
+        dur = _probe_duration(out_path)
+        assert abs(dur - 0.4) < 0.05, f"짧은 오디오인데 길이가 안 맞음: {dur}"
+        print(f"✅ compose_scene(프레임 시퀀스, 홀드 없음): 길이가 오디오와 정확히 일치 ({dur:.3f}초)")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
+def test_compose_scene_from_frames_uses_fps_sidecar_not_module_default():
+    """FIX-MOTION-FPS-MISMATCH-1 회귀 가드: render_html_to_frames()가
+    MOTION_FPS 기본값(24)과 다른 fps로 캡처했을 수 있다(호출부가 fps를
+    오버라이드). video_renderer.py의 자체 MOTION_FPS 상수를 그냥 신뢰하면
+    lead 길이 계산이 어긋난다는 걸 실측으로 확인한 버그 — _fps.txt 사이드카를
+    읽어야 한다. 이 테스트는 모듈 기본 fps(24)와 다른 fps(10)로 시퀀스를
+    만들어, 그래도 정확한 길이가 나오는지 확인한다."""
+    import assets.video_renderer as vr
+
+    assert vr.MOTION_FPS != 10, "테스트 전제 조건: 모듈 기본 fps가 10이면 안 됨(구분이 안 됨)"
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        # 5장/10fps(모듈 기본값 24와 다름) = lead 0.5초.
+        frames_dir = _make_frame_sequence(tmp_dir, "motion", n_frames=5, fps=10)
+        audio = _make_test_audio(tmp_dir, "narration.mp3", seconds=0.5)
+        renderer = vr.FFmpegVideoRenderer(width=320, height=240)
+        out_path = os.path.join(tmp_dir, "scene.mp4")
+
+        result = renderer.compose_scene(frames_dir, audio, out_path, duration=0.5)
+        assert result == out_path
+        dur = _probe_duration(out_path)
+        assert abs(dur - 0.5) < 0.05, (
+            f"_fps.txt(10)를 안 쓰고 모듈 기본값({vr.MOTION_FPS})으로 계산했다면 "
+            f"길이가 어긋났을 것: {dur}"
+        )
+        print(f"✅ compose_scene(프레임 시퀀스): fps 사이드카를 우선 사용해 정확한 길이 계산 ({dur:.3f}초)")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
+def test_compose_scene_from_frames_empty_dir_returns_none():
+    """비어 있는 프레임 시퀀스 디렉토리는 None을 반환해야 한다(호출부가
+    대표 정지 PNG로 재시도할 수 있도록 — 절대 규칙 2번)."""
+    from assets.video_renderer import FFmpegVideoRenderer
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        empty_dir = os.path.join(tmp_dir, "empty_motion")
+        os.makedirs(empty_dir)
+        audio = _make_test_audio(tmp_dir, "narration.mp3", seconds=1.0)
+        renderer = FFmpegVideoRenderer(width=320, height=240)
+        out_path = os.path.join(tmp_dir, "scene.mp4")
+
+        result = renderer.compose_scene(empty_dir, audio, out_path, duration=1.0)
+        assert result is None, "빈 프레임 디렉토리인데 None이 아닌 결과를 반환함"
+        print("✅ compose_scene(빈 프레임 디렉토리): None 반환 확인(호출부 폴백 가능)")
+    finally:
+        shutil.rmtree(tmp_dir)
+
+
 def test_compose_scene_ken_burns():
     from assets.video_renderer import FFmpegVideoRenderer
 
@@ -379,6 +506,10 @@ if __name__ == "__main__":
         print("⚠️  ffmpeg가 PATH에 없어 video_renderer 테스트를 스킵합니다.")
         sys.exit(0)
 
+    test_compose_scene_from_frames_exact_duration_with_hold()
+    test_compose_scene_from_frames_no_hold_needed()
+    test_compose_scene_from_frames_uses_fps_sidecar_not_module_default()
+    test_compose_scene_from_frames_empty_dir_returns_none()
     test_compose_scene_ken_burns()
     test_compose_scene_default_is_subtle_no_pan()
     test_compose_scene_motion_none_is_fully_static()

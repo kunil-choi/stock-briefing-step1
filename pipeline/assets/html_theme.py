@@ -244,6 +244,76 @@ body{{
   width:52px; height:52px; border-radius:50%; font-weight:800; font-size:24px;
   flex-shrink:0;
 }}
+/* 숫자 카운트업 도중 자릿수가 바뀌어도 글자폭이 흔들리지 않게 고정폭 숫자를
+   강제한다(영상 모션그래픽 업그레이드 P1-2 — MOTION_JS의 data-anim="count"). */
+[data-anim="count"]{{font-variant-numeric:tabular-nums;}}
+"""
+
+# ── 영상 모션그래픽 업그레이드(Phase 1) — 프레임 시퀀스 애니메이션 런타임 ────
+#
+# render.py의 render_html_to_frames()가 한 페이지를 한 번만 로드한 뒤
+# window.__setT(t)를 여러 번 호출해 상태만 바꿔가며 스크린샷을 찍는다(매
+# 프레임 set_content()를 다시 부르면 HTML 파싱/폰트 로딩이 반복돼 수십 배
+# 느려짐 — 문서 P1-1 참고). __setT(t)는 반드시 순수 함수여야 한다: 같은 t를
+# 두 번 넣으면 항상 같은 화면이 나와야 하고(프레임 캡처를 임의 순서/여러 번
+# 다시 호출해도 안전), 내부에 setInterval/requestAnimationFrame 같은 자체
+# 타이머를 두지 않는다 — 상태는 오직 인자로 받은 t와 DOM의 data-* 속성만으로
+# 결정한다.
+#
+# docs/motion_mockup_reference.py의 ease()(easeOutCubic)를 JS로 그대로
+# 옮겼다 — 파이썬 목업과 실제 렌더링이 같은 커브를 쓰게 하기 위함.
+MOTION_JS = r"""
+(function () {
+  function ease(t) {
+    t = Math.max(0, Math.min(1, t));
+    return 1 - Math.pow(1 - t, 3);
+  }
+
+  function fmtNum(v, decimals, suffix) {
+    var sign = v < 0 ? '-' : '';
+    var s = Math.abs(v).toFixed(decimals);
+    var parts = s.split('.');
+    parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    return sign + parts.join('.') + (suffix || '');
+  }
+
+  function progressFor(el, t) {
+    var delay = parseFloat(el.dataset.delay || '0');
+    var dur = parseFloat(el.dataset.dur || '0.6');
+    if (dur <= 0) dur = 0.001;
+    return ease((t - delay) / dur);
+  }
+
+  window.__setT = function (t) {
+    document.querySelectorAll('[data-anim]').forEach(function (el) {
+      var type = el.dataset.anim;
+      var p = progressFor(el, t);
+
+      if (type === 'count') {
+        var to = parseFloat(el.dataset.to || '0');
+        var decimals = parseInt(el.dataset.decimals || '0', 10);
+        var suffix = el.dataset.suffix || '';
+        el.textContent = fmtNum(to * p, decimals, suffix);
+      } else if (type === 'grow') {
+        var toPct = parseFloat(el.dataset.to || '100');
+        el.style.width = (toPct * p) + '%';
+      } else if (type === 'fadeup') {
+        el.style.opacity = Math.min(1, p * 1.6);
+        el.style.transform = 'translateY(' + ((1 - p) * 26) + 'px)';
+      } else if (type === 'pop') {
+        el.style.opacity = Math.min(1, p * 2);
+        el.style.transform = 'scale(' + (0.6 + 0.4 * p) + ')';
+      } else if (type === 'draw') {
+        var path = el.tagName.toLowerCase() === 'path' ? el : el.querySelector('path');
+        if (path) {
+          var len = path.getTotalLength();
+          path.style.strokeDasharray = String(len);
+          path.style.strokeDashoffset = String(len * (1 - p));
+        }
+      }
+    });
+  };
+})();
 """
 
 
@@ -278,7 +348,7 @@ def shell(topbar_label: str, content_html: str, stock_tag: str = "",
   </div>
   <div class="content">{content_html}{ticker_html}</div>
   <div class="subtitle-zone">{tag_html}</div>
-</div></body></html>"""
+</div><script>{MOTION_JS}</script></body></html>"""
 
 
 def centered_shell(content_html: str, background_image=None, credit: str = "",
@@ -302,7 +372,7 @@ def centered_shell(content_html: str, background_image=None, credit: str = "",
   {bg_html}
   <div class="center-wrap">{content_html}</div>
   <div class="subtitle-zone"></div>
-</div></body></html>"""
+</div><script>{MOTION_JS}</script></body></html>"""
 
 
 def kbs_badge() -> str:

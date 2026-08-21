@@ -26,6 +26,15 @@ import subprocess
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
+# render.py의 MOTION_FPS와 반드시 같은 값이어야 한다(프레임 시퀀스를 캡처한
+# fps와 여기서 -framerate로 읽는 fps가 어긋나면 lead 클립 길이가 틀어짐).
+# render.py를 import하지 않고 값만 동일한 방식(같은 환경변수/기본값)으로
+# 다시 읽는 이유는, 이 모듈이 순수 ffmpeg 래퍼라 Playwright에 의존하지 않게
+# 하기 위함이다(render.py는 playwright를 모듈 최상단에서 import함 —
+# video_renderer.py의 테스트는 ffmpeg만 있으면 되고 Playwright는 필요 없어야
+# 한다는 기존 관례를 유지).
+MOTION_FPS = int(os.environ.get("MOTION_FPS", "24"))
+
 FPS = 30
 KEN_BURNS_ZOOM_MAX = 1.08
 TRANSITION_DURATION = 0.4
@@ -149,6 +158,16 @@ class FFmpegVideoRenderer(VideoRenderer):
         if duration <= 0:
             duration = 3.0
 
+        # P1-4: image_path가 단일 PNG가 아니라 프레임 시퀀스 디렉토리
+        # (render.render_html_to_frames()가 만든 f_00000.png...)면 별도
+        # 경로로 처리한다. 실패하면(그 경로 안에서 이미 재시도/정리까지 마치고)
+        # 그냥 None을 반환한다 — 기존 단일 PNG 실패와 동일한 계약이라, 호출부
+        # (generate_video.py)가 대표 정지 PNG로 재시도하는 폴백을 그대로 재사용할
+        # 수 있다(절대 규칙 2번). MOTION_DISABLE이면 호출부가 애초에 디렉토리를
+        # 안 넘기고 항상 단일 PNG를 넘기지만, 방어적으로 여기서도 한 번 더 끈다.
+        if not MOTION_DISABLE and os.path.isdir(image_path):
+            return self._compose_scene_from_frames(image_path, audio_path, out_path, duration)
+
         if MOTION_DISABLE:
             motion = "none"
         elif motion == "subtle" and ENABLE_KEN_BURNS:
@@ -180,7 +199,7 @@ class FFmpegVideoRenderer(VideoRenderer):
         else:
             # 정지 화면: 카드 텍스트가 확대/팬으로 잘려나가는 문제를 피하기
             # 위해 원본 비율을 유지한 채 캔버스에 맞추기만 한다.
-            vf = f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={self.fps}"
+            vf = self._scale_pad_vf()
             label = "정지 화면"
 
         fade = min(AUDIO_CLICK_FADE, duration / 2)
@@ -203,6 +222,120 @@ class FFmpegVideoRenderer(VideoRenderer):
         if not _run(cmd, f"장면 합성 ({os.path.basename(out_path)})"):
             return None
         print(f"  ✅ {os.path.basename(out_path)} ({duration:.1f}초, {label})")
+        return out_path
+
+    @staticmethod
+    def _cleanup(paths: List[Optional[str]]) -> None:
+        for p in paths:
+            if p:
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+
+    def _scale_pad_vf(self) -> str:
+        return (f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,"
+                f"pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={self.fps}")
+
+    def _compose_scene_from_frames(self, frames_dir: str, audio_path: str, out_path: str,
+                                    duration: float) -> Optional[str]:
+        """P1-4: 프레임 시퀀스(f_00000.png...)로 "등장" 구간(lead)을 만들고,
+        오디오가 더 길면 마지막 프레임을 그만큼 정지 홀드해 이어붙인다. 절대
+        규칙 1번(자막 타임라인 불변식)을 지키려면 최종 클립 길이가 어떤
+        경우에도 정확히 duration초여야 한다 — 프레임 수/fps에서 몇 ms 오차가
+        나더라도 마지막 단계(오디오 부착)의 "-t {duration:.3f}"가 항상 정확히
+        절단한다.
+
+        lead(캡처된 프레임 수/fps)는 render.render_html_to_frames()가 실제로
+        캡처한 프레임 수로부터 역산한다 — 이때 fps는 이 모듈의 MOTION_FPS
+        상수를 그냥 신뢰하지 않고, 프레임 디렉토리에 같이 남겨진 _fps.txt
+        (render_html_to_frames()가 실제로 사용한 fps)를 우선 읽는다.
+        render_html_to_frames()의 fps 인자가 호출부에서 오버라이드될 수 있어,
+        두 모듈이 같은 환경변수만 믿고 있으면 값이 어긋날 수 있기 때문이다
+        (실측으로 재현: fps를 다르게 넘긴 테스트에서 lead가 절반 가까이
+        잘못 계산됨). _fps.txt가 없으면(구버전 캐시 등) 이 모듈의 기본값으로
+        폴백한다."""
+        frame_files = sorted(
+            fn for fn in os.listdir(frames_dir) if fn.startswith("f_") and fn.endswith(".png")
+        )
+        if not frame_files:
+            print(f"  ⚠️ 프레임 시퀀스 디렉토리가 비어 있음: {frames_dir}")
+            return None
+
+        fps = MOTION_FPS
+        fps_sidecar = os.path.join(frames_dir, "_fps.txt")
+        if os.path.isfile(fps_sidecar):
+            try:
+                with open(fps_sidecar, encoding="utf-8") as f:
+                    fps = int(f.read().strip())
+            except (ValueError, OSError):
+                pass
+
+        n_frames = len(frame_files)
+        lead = n_frames / fps
+        pattern = os.path.join(frames_dir, "f_%05d.png")
+        last_frame = os.path.join(frames_dir, frame_files[-1])
+        vf = self._scale_pad_vf()
+
+        lead_clip = out_path.replace(".mp4", "_lead.mp4")
+        cmd_lead = [
+            "ffmpeg", "-y",
+            "-framerate", str(fps), "-i", pattern,
+            "-t", f"{lead:.3f}",
+            "-vf", vf,
+            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+            lead_clip,
+        ]
+        if not _run(cmd_lead, f"프레임 시퀀스 lead 클립 ({os.path.basename(out_path)})"):
+            return None
+
+        clips = [lead_clip]
+        hold_clip = None
+        if duration > lead:
+            hold_duration = duration - lead
+            hold_clip = out_path.replace(".mp4", "_hold.mp4")
+            cmd_hold = [
+                "ffmpeg", "-y",
+                "-loop", "1", "-t", f"{hold_duration:.3f}", "-i", last_frame,
+                "-vf", vf,
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                hold_clip,
+            ]
+            if not _run(cmd_hold, f"프레임 시퀀스 홀드 클립 ({os.path.basename(out_path)})"):
+                self._cleanup([lead_clip])
+                return None
+            clips.append(hold_clip)
+
+        if len(clips) == 1:
+            silent_video = lead_clip
+        else:
+            silent_video = out_path.replace(".mp4", "_silent.mp4")
+            if not self.concat(clips, silent_video):
+                self._cleanup(clips)
+                return None
+
+        fade = min(AUDIO_CLICK_FADE, duration / 2)
+        fade_out_start = max(duration - fade, 0.0)
+        af = f"afade=t=in:st=0:d={fade:.3f},afade=t=out:st={fade_out_start:.3f}:d={fade:.3f}"
+        cmd_final = [
+            "ffmpeg", "-y",
+            "-i", silent_video,
+            "-i", audio_path,
+            "-filter_complex", f"[1:a]{af}[a]",
+            "-map", "0:v", "-map", "[a]",
+            "-c:v", "libx264",
+            "-c:a", "aac", "-b:a", "192k",
+            "-ar", str(AUDIO_SAMPLE_RATE), "-ac", str(AUDIO_CHANNELS),
+            "-pix_fmt", "yuv420p",
+            "-shortest", "-t", f"{duration:.3f}",
+            out_path,
+        ]
+        ok = _run(cmd_final, f"프레임 시퀀스 장면 합성 ({os.path.basename(out_path)})")
+        self._cleanup([lead_clip, hold_clip, silent_video if silent_video != lead_clip else None])
+        if not ok:
+            return None
+        print(f"  ✅ {os.path.basename(out_path)} ({duration:.1f}초, 프레임 시퀀스: "
+              f"lead {lead:.1f}s + hold {max(0.0, duration - lead):.1f}s)")
         return out_path
 
     def _static_hold(self, frame_path: str, out_path: str, duration: float) -> bool:
