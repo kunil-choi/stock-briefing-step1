@@ -41,7 +41,7 @@ if _HERE not in sys.path:
 
 from openai import OpenAI
 
-from generate_subtitles import _compute_dialogue_segments
+from generate_subtitles import _compute_dialogue_segments, AGGREGATE_STOCK_SECTION_IDS
 
 # generate_script.py가 대본 분량("320자/분 기준 15분 분량")을 산정할 때 쓰는
 # 페이스와 동일 — narration 글자 수만으로 발화 길이를 추정하는 데 재사용한다.
@@ -65,8 +65,25 @@ _VALID_TONES = {"bullish", "bearish", "neutral"}
 _MAX_EMPHASIS_PER_SECTION = 3
 
 
+def _is_stock_section(section: dict) -> bool:
+    """generate_subtitles._build_subtitle_map()의 is_stock 판정과 동일 기준
+    (summary+chart+mention 개별 카드가 아니라 집계 슬라이드 한 장으로 렌더되는
+    stock_추가관심종목/stock_증권사리포트는 제외)."""
+    sid = section.get("id", "")
+    return (sid.startswith("stock_") or sid.startswith("hidden_")) and sid not in AGGREGATE_STOCK_SECTION_IDS
+
+
 def _display_text(section: dict) -> str:
-    """섹션의 화면 표시 텍스트(숫자가 실제 자릿수로 적힌 쪽)를 반환한다."""
+    """섹션의 화면 표시 텍스트(숫자가 실제 자릿수로 적힌 쪽)를 반환한다.
+
+    종목 섹션은 builders._build_stock_summary()가 화면 큰 헤드라인으로
+    corner_summary(~25자 한줄 요약)를 쓰지, 바닥 자막(subtitle_summary, 훨씬
+    긴 문단)을 쓰지 않는다 — 그 둘은 표현이 달라 문자열이 일치하지 않으므로
+    emphasis 검증·타이밍 기준을 실제 화면에 뜨는 corner_summary로 맞춘다
+    (사용자 결정, 2026-08-21). 일반 섹션은 subtitle이 곧 화면 텍스트라
+    기존 기준을 그대로 쓴다."""
+    if _is_stock_section(section) and section.get("corner_summary"):
+        return section["corner_summary"]
     return (
         section.get("subtitle_summary")
         or section.get("subtitle")
@@ -77,9 +94,15 @@ def _display_text(section: dict) -> str:
 
 
 def _narration_text(section: dict) -> str:
-    """_display_text()와 짝을 이루는 나레이션(발화) 텍스트. 종목 섹션은 화면에
-    요약(summary) 카드가 뜨므로 narration_summary를 우선한다 — narration_summary가
-    없으면 일반 섹션이라는 뜻이라 narration으로 자연히 폴백된다."""
+    """_display_text()와 짝을 이루는 나레이션(발화) 텍스트.
+
+    종목 섹션은 corner_summary 자체를 그대로 쓴다 — corner_summary는 실제
+    나레이션 문장이 아니라 화면용 한줄 요약이지만, 정밀한 실제 음성 동기화
+    대신 글자 수 추정 방식을 쓰기로 한 이상(P2-2 주석 참고) narration/subtitle을
+    동일 텍스트로 맞추는 게(ai_strategy_brief가 이미 쓰는 방식과 동일) at 계산과
+    검증 기준을 일치시키는 가장 단순한 방법이다."""
+    if _is_stock_section(section) and section.get("corner_summary"):
+        return section["corner_summary"]
     return section.get("narration_summary") or section.get("narration") or ""
 
 

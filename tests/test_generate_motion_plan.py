@@ -169,6 +169,36 @@ def test_narration_text_prefers_summary_for_stock_sections():
     print("✅ _narration_text: 종목 섹션은 narration_summary 우선, 없으면 narration으로 폴백")
 
 
+def test_display_and_narration_text_prefer_corner_summary_for_stock_sections():
+    # _build_stock_summary()가 화면 헤드라인으로 실제로 쓰는 텍스트는
+    # corner_summary(짧은 한줄 요약)이지 subtitle_summary(긴 바닥 자막
+    # 문단)가 아니다 — emphasis 검증/타이밍 기준을 corner_summary로 맞춰야
+    # builders.py에서 그대로 매칭된다(사용자 결정, 2026-08-21).
+    section = {
+        "id": "stock_삼성전자",
+        "corner_summary": "영업이익 12조원 달성",
+        "subtitle_summary": "이 문단은 훨씬 길고 다른 표현을 씁니다" * 3,
+        "narration_summary": "이 문단은 훨씬 길고 다른 표현을 씁니다" * 3,
+    }
+    assert _display_text(section) == "영업이익 12조원 달성"
+    assert _narration_text(section) == "영업이익 12조원 달성"
+    print("✅ _display_text/_narration_text: 종목 섹션은 corner_summary를 최우선으로 씀(화면·타이밍 기준 일치)")
+
+
+def test_display_and_narration_text_fall_back_when_no_corner_summary():
+    # 집계형 섹션(stock_추가관심종목 등)은 is_stock 판정에서 제외되므로
+    # corner_summary가 있어도 일반 섹션 기준(subtitle/narration)을 그대로 쓴다.
+    section = {
+        "id": "stock_추가관심종목",
+        "corner_summary": "집계 한줄 요약",
+        "subtitle": "일반 섹션 자막",
+        "narration": "일반 섹션 나레이션",
+    }
+    assert _display_text(section) == "일반 섹션 자막"
+    assert _narration_text(section) == "일반 섹션 나레이션"
+    print("✅ _display_text/_narration_text: 집계형 종목 섹션(AGGREGATE_STOCK_SECTION_IDS)은 corner_summary를 쓰지 않음")
+
+
 def test_emphasis_timing_returns_later_at_for_later_phrase():
     narration = ("오늘 주요 지수는 혼조세로 마감했습니다. 코스피는 전일 대비 "
                  "소폭 상승해 삼천백오십이 포인트를 기록했습니다. 반도체 업종이 "
@@ -264,6 +294,8 @@ if __name__ == "__main__":
     test_display_text_prefers_subtitle_over_narration()
     test_display_text_falls_back_through_summary_fields()
     test_narration_text_prefers_summary_for_stock_sections()
+    test_display_and_narration_text_prefer_corner_summary_for_stock_sections()
+    test_display_and_narration_text_fall_back_when_no_corner_summary()
     test_emphasis_timing_returns_later_at_for_later_phrase()
     test_emphasis_timing_falls_back_to_zero_when_phrase_not_found()
     test_lead_seconds_stays_at_default_when_no_emphasis_or_early_at()

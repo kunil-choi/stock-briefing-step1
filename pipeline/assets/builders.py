@@ -13,7 +13,7 @@ from .html_theme import (
     point_card, point_card_img, bullet_column, chat_bubble, page_dots,
     numbered_bullets_from_text, PALETTE, _ACCENT_CYCLE,
     headline_card, report_card, risk_card, sector_rank_bars, market_index_cards,
-    svg_line_chart, autofit_text, text_plate, HEADLINE_FONT_FAMILY,
+    svg_line_chart, autofit_text, text_plate, HEADLINE_FONT_FAMILY, wrap_emphasis_pop,
 )
 from .chart import build_chart_with_insight, build_week_chart, fetch_ohlcv
 from .panel_avatars import get_avatar_path
@@ -292,8 +292,13 @@ def _build_stock_summary(sec, out_path, img_dir, visual=None):
 
     # 사용자 요청(2번): 연합뉴스/KBS에서 긁어온 종목 관련 사진을 배경/로고로
     # 쓰지 않는다 — 데이터로 생성된 이미지(차트)와 텍스트만으로 구성한다.
+    # 영상 모션그래픽 업그레이드 P2-3: motion_plan.json의 emphasis(corner_summary
+    # 기준으로 검증됨 — generate_motion_plan.py의 _display_text/_narration_text
+    # 참고)를 이 헤드라인 텍스트 안에서 찾아 팝 강조로 감싼다. 등록된 게 없거나
+    # 못 찾으면 wrap_emphasis_pop이 원문을 그대로 반환한다(조용히 무시).
     summary_html = (
-        f'<div class="corner-summary" style="margin-top:24px;white-space:pre-line;">{esc(summary_text)}</div>'
+        f'<div class="corner-summary" style="margin-top:24px;white-space:pre-line;">'
+        f'{wrap_emphasis_pop(sec.get("id", ""), esc(summary_text))}</div>'
         if summary_text else ""
     )
     content = f"""
@@ -326,8 +331,14 @@ def _build_stock_chart(sec, out_path, img_dir):
         chart_path, insight = build_chart_with_insight(stock_name, img_dir)
 
     if chart_path:
+        # 영상 모션그래픽 업그레이드 P2-3: 문서가 예시로 든 화면(목업 프레임 06,
+        # "12조원" 팝)이 이 차트 화면이라 여기도 wrap_emphasis_pop을 적용한다.
+        # insight는 build_chart_with_insight()가 OHLCV로부터 별도로 생성하는
+        # 텍스트라 motion_plan의 emphasis(corner_summary 기준으로 검증됨)와
+        # 문구가 우연히 겹칠 때만 강조가 붙는다 — 못 찾으면 조용히 원문 그대로.
         insight_html = (
-            f'<div class="corner-summary" style="margin-top:18px;">📈 {esc(insight)}</div>'
+            f'<div class="corner-summary" style="margin-top:18px;">'
+            f'📈 {wrap_emphasis_pop(sec.get("id", ""), esc(insight))}</div>'
             if insight else ""
         )
         body = (f'<div class="card" style="padding:20px;text-align:center;">'
@@ -660,7 +671,7 @@ def _build_ai_strategy_core(sec, out_dir):
     content = (
         _ai_strategy_header("핵심 시나리오")
         + f'<div class="card" style="padding:28px 32px;font-size:36px;line-height:1.6;font-weight:600;">'
-        f'{esc(sec.get("core_scenario", ""))}</div>'
+        f'{wrap_emphasis_pop(sec.get("id", ""), esc(sec.get("core_scenario", "")))}</div>'
     )
     html = shell("AI 투자 전략", content)
     return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_1_core.png"))
@@ -694,7 +705,7 @@ def _build_ai_strategy_analyst(sec, out_dir):
     content = (
         _ai_strategy_header("애널리스트 종합 시각")
         + f'<div class="card" style="padding:28px 32px;font-size:36px;line-height:1.6;font-weight:600;">'
-        f'{esc(sec.get("analyst_consensus", ""))}</div>'
+        f'{wrap_emphasis_pop(sec.get("id", ""), esc(sec.get("analyst_consensus", "")))}</div>'
     )
     html = shell("AI 투자 전략", content)
     return render_html_to_png(html, os.path.join(out_dir, "95_ai_strategy_3_analyst.png"))

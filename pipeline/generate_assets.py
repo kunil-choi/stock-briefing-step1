@@ -41,7 +41,7 @@ _AGGREGATE_BUILDERS = {
     "stock_증권사리포트": build_brokerage_report,
 }
 from assets.render import close_renderer
-from assets.html_theme import set_briefing_date, set_ticker_text
+from assets.html_theme import set_briefing_date, set_ticker_text, set_motion_plan
 
 
 def _kdate_to_dotted(date_str: str) -> str:
@@ -177,6 +177,20 @@ def run(lang: str = "KO"):
     if ticker_text:
         set_ticker_text(ticker_text, ticker_tone)
         print(f"📰 하단 티커: {ticker_text}")
+
+    # 영상 모션그래픽 업그레이드 P2-3: motion_plan.json(generate_motion_plan.py,
+    # script 잡에서 reordered_script.json 직후 생성)이 없으면(문서 지시대로)
+    # 조용히 무시하고 팝 강조 없이 기존과 동일하게 렌더링한다 — 신규 실패
+    # 지점을 만들지 않는다.
+    motion_plan_path = os.path.join(root, "output", lang, "scripts", "motion_plan.json")
+    motion_plan = _load_json_or_default(motion_plan_path, {"sections": []})
+    motion_plan_sections = motion_plan.get("sections") or []
+    if motion_plan_sections:
+        set_motion_plan(motion_plan_sections)
+        total_emphasis = sum(len(s.get("emphasis", [])) for s in motion_plan_sections)
+        print(f"🎯 motion_plan.json 로드 완료 (섹션 {len(motion_plan_sections)}개, 강조 {total_emphasis}개)")
+    else:
+        print("  ⚠️ motion_plan.json 없음 — 강조 팝 없이 기존 방식으로 렌더링")
 
     asset_map = {"frames": [], "lang": lang}
     # FIX-MOTION-META-1(영상 모션그래픽 업그레이드 Phase 0): 워크플로우의 video

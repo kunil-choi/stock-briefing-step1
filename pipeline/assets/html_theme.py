@@ -45,6 +45,46 @@ def set_ticker_text(text: str, tone: str = "neutral") -> None:
     _TICKER_TEXT = text or ""
     _TICKER_TONE = tone
 
+
+# 영상 모션그래픽 업그레이드 P2-3: generate_assets.py가 motion_plan.json(P2-1/
+# P2-2, 없으면 호출하지 않음 — set_briefing_date/set_ticker_text와 동일한
+# "전역 1회 설정" 패턴)을 읽어 섹션 id별 계획을 등록해 두면, 이후 빌더가
+# wrap_emphasis_pop()으로 조회해 쓴다.
+_MOTION_PLAN_BY_ID = {}
+
+
+def set_motion_plan(sections: list) -> None:
+    global _MOTION_PLAN_BY_ID
+    _MOTION_PLAN_BY_ID = {s.get("id", ""): s for s in (sections or []) if s.get("id")}
+
+
+def wrap_emphasis_pop(section_id: str, escaped_text: str) -> str:
+    """motion_plan.json에 등록된 section_id의 emphasis[]를 escaped_text 안에서
+    찾아 data-anim="pop" 스팬으로 감싼다(목업처럼 발화 시점에 확대+하이라이트).
+
+    escaped_text는 반드시 esc()로 이미 이스케이프된 문자열이어야 한다(그
+    위에 태그를 심어야 안전) — phrase도 동일하게 esc()해 비교한다. 이 섹션에
+    motion_plan이 없거나, phrase가 이 특정 텍스트 필드 안에서 발견되지
+    않으면(다른 화면 텍스트 필드 기준으로 검증된 phrase일 수 있음) 그
+    항목만 조용히 건너뛴다 — 사고가 아니라 정상적인 미스매치."""
+    plan = _MOTION_PLAN_BY_ID.get(section_id)
+    if not plan:
+        return escaped_text
+    for item in plan.get("emphasis", []):
+        phrase = esc(item.get("text", ""))
+        if not phrase or phrase not in escaped_text:
+            continue
+        at = item.get("at", 0)
+        span = (
+            f'<span data-anim="pop" data-delay="{at}" data-dur="0.4" '
+            f'style="display:inline-block;background:{PALETTE["highlight"]}55;'
+            f'color:#5c4a00;border-radius:6px;padding:0 8px;font-weight:800;">'
+            f'{phrase}</span>'
+        )
+        escaped_text = escaped_text.replace(phrase, span, 1)
+    return escaped_text
+
+
 PALETTE = {
     "bg":           "#faf9f6",
     "dot":          "#e6e4dc",
