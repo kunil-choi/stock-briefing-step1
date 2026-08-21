@@ -64,8 +64,11 @@ def test_alteogen_pronunciation():
 
 
 def test_im_sunjae_daepyo_pronunciation():
-    assert apply_pronunciation_rules("임순재 대표는") == "임순 재 대표는"
-    print("✅ '임순재 대표' → '임순 재 대표' 확인")
+    """공백을 넣어 분리했더니 이름이 부자연스럽게 끊긴다는 재발 피드백
+    (2026-08-21) — 치환 없이 원문 "임순재"를 공백 없는 한 덩어리로 그대로
+    둬야 한다(순차적으로 자연스럽게 읽힘)."""
+    assert apply_pronunciation_rules("임순재 대표는") == "임순재 대표는"
+    print("✅ '임순재 대표' → 원문 그대로(공백 삽입 없음) 확인")
 
 
 def test_ai_it_pronunciation():
