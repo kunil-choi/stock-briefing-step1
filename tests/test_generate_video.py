@@ -407,6 +407,101 @@ def test_motion_source_for_uses_motion_dir_when_present_and_nonempty():
         shutil.rmtree(tmp_dir)
 
 
+def test_motion_max_scenes_caps_scenes_using_frame_sequence():
+    """성능 가드: MOTION_MAX_SCENES를 넘는 장면은 모션 프레임 디렉토리가
+    있어도 정지 PNG로 합성해야 한다. 실제 ffmpeg를 부르지 않도록 렌더러를
+    스파이로 바꿔 build_scene_clips()의 제어 흐름만 검증한다(이 파일의
+    다른 테스트와 동일하게 ffmpeg 불필요)."""
+    import tempfile
+    import os as _os
+    import shutil as _shutil
+    import generate_video as gv
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame_audio_pairs = []
+        for i in range(3):
+            frame_path = _os.path.join(tmp_dir, f"scene{i}.png")
+            with open(frame_path, "w") as f:
+                f.write("fake")
+            motion_dir = _os.path.join(tmp_dir, "_motion", f"scene{i}")
+            _os.makedirs(motion_dir)
+            with open(_os.path.join(motion_dir, "f_00000.png"), "w") as f:
+                f.write("fake frame")
+            frame_audio_pairs.append((frame_path, f"{frame_path}.mp3", 2.0))
+
+        composed_with = []
+
+        class _SpyRenderer:
+            def build_transition(self, *a, **k):
+                return _os.path.join(tmp_dir, "trans.mp4")
+
+            def compose_scene(self, image_path, *a, **k):
+                # build_scene_clips()가 성공한 장면의 모션 디렉토리를 인코딩
+                # 직후 지우므로(성능 가드), 디렉토리였는지 여부는 호출 시점에
+                # 바로 기록해야 한다(나중에 os.path.isdir()로 다시 확인하면
+                # 이미 지워진 뒤라 항상 False가 나옴).
+                composed_with.append((image_path, _os.path.isdir(image_path)))
+                return _os.path.join(tmp_dir, "scene_out.mp4")
+
+        real_renderer = gv._renderer
+        real_cap = gv.MOTION_MAX_SCENES
+        gv._renderer = _SpyRenderer()
+        gv.MOTION_MAX_SCENES = 1
+        try:
+            gv.build_scene_clips(frame_audio_pairs, tmp_dir, frame_meta={})
+        finally:
+            gv._renderer = real_renderer
+            gv.MOTION_MAX_SCENES = real_cap
+
+        motion_used = [p for p, was_dir in composed_with if was_dir]
+        static_used = [p for p, was_dir in composed_with if not was_dir]
+        assert len(motion_used) == 1, f"MOTION_MAX_SCENES=1인데 모션 디렉토리를 {len(motion_used)}번 씀"
+        assert len(static_used) == 2, f"나머지 2개 장면은 정지 PNG로 폴백해야 함: {static_used}"
+        print("✅ MOTION_MAX_SCENES: 상한을 넘는 장면은 모션 디렉토리가 있어도 정지 PNG로 합성됨")
+    finally:
+        _shutil.rmtree(tmp_dir)
+
+
+def test_motion_frames_dir_cleaned_up_after_successful_compose():
+    """성능 가드: 장면 클립 합성이 성공하면 그 장면의 모션 프레임 디렉토리는
+    바로 지워져야 한다(러너 디스크 용량 절약). 합성이 실패한 장면은
+    호출부가 재시도할 수도 있으니 지우지 않는다."""
+    import tempfile
+    import os as _os
+    import shutil as _shutil
+    import generate_video as gv
+
+    tmp_dir = tempfile.mkdtemp()
+    try:
+        frame_path = _os.path.join(tmp_dir, "scene0.png")
+        with open(frame_path, "w") as f:
+            f.write("fake")
+        motion_dir = _os.path.join(tmp_dir, "_motion", "scene0")
+        _os.makedirs(motion_dir)
+        with open(_os.path.join(motion_dir, "f_00000.png"), "w") as f:
+            f.write("fake frame")
+
+        class _SpyRenderer:
+            def build_transition(self, *a, **k):
+                return _os.path.join(tmp_dir, "trans.mp4")
+
+            def compose_scene(self, image_path, *a, **k):
+                return _os.path.join(tmp_dir, "scene_out.mp4")
+
+        real_renderer = gv._renderer
+        gv._renderer = _SpyRenderer()
+        try:
+            gv.build_scene_clips([(frame_path, f"{frame_path}.mp3", 2.0)], tmp_dir, frame_meta={})
+        finally:
+            gv._renderer = real_renderer
+
+        assert not _os.path.isdir(motion_dir), "합성 성공 후에도 모션 프레임 디렉토리가 안 지워짐"
+        print("✅ 모션 프레임 디렉토리: 장면 합성 성공 후 바로 정리됨")
+    finally:
+        _shutil.rmtree(tmp_dir)
+
+
 if __name__ == "__main__":
     test_trusts_measurement_when_close_to_expected()
     test_falls_back_to_expected_when_measurement_is_way_off()
@@ -430,4 +525,6 @@ if __name__ == "__main__":
     test_motion_for_uses_background_image_presence()
     test_is_section_boundary_detects_section_type_change()
     test_motion_source_for_uses_motion_dir_when_present_and_nonempty()
+    test_motion_max_scenes_caps_scenes_using_frame_sequence()
+    test_motion_frames_dir_cleaned_up_after_successful_compose()
     print("\n✅ generate_video 테스트 전체 통과")

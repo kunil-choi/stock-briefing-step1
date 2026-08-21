@@ -112,7 +112,10 @@ jobs:
   assets:
     needs: [script]
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # 영상 모션그래픽 업그레이드: 애니메이션 프레임 시퀀스 캡처(빌더당 최대
+    # MOTION_LEAD_SECONDS*MOTION_FPS장)가 이 잡에서 실행되는 generate_assets.py에
+    # 추가된 만큼 여유를 늘렸다(실측: 장면 1개당 약 10~12초).
+    timeout-minutes: 50
     # media 잡 스텝이 7일 중복 감지용 data/media/license_log.csv를 레포에
     # 커밋해야 하므로 이 잡에 한해 write 권한이 필요하다(워크플로우 전체
     # 기본값은 read로 유지).
@@ -179,7 +182,9 @@ jobs:
   video:
     needs: [script, voice, assets]
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 영상 모션그래픽 업그레이드: 프레임 시퀀스 lead/hold 클립 생성 + concat이
+    # 장면당 ffmpeg 호출을 몇 번 더 추가한다.
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

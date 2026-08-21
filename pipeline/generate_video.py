@@ -45,6 +45,15 @@ TARGET_IDEAL = (TARGET_MIN + TARGET_MAX) / 2
 # BGM 다운로드 URL. 실제 볼륨/덕킹 파라미터는 config/audio.yml(config_audio.py)에서 관리한다.
 BGM_URL = os.environ.get("BGM_URL", "")
 
+# 성능 가드(영상 모션그래픽 업그레이드): 애니메이션 프레임 시퀀스를 실제로
+# 합성에 쓸 장면 수 상한. 프레임 캡처 자체는 builders.py 쪽에서 이미 끝난
+# 뒤라(빌더가 몇 개를 만들지는 이 값과 무관), 상한을 넘는 장면은 캡처된
+# 프레임을 버리고 기존 정지 PNG로 합성한다 — ffmpeg lead/hold 클립 생성
+# 비용(가장 무거운 부분)만이라도 상한 안으로 묶어 예상 밖으로 애니메이션
+# 대상이 늘어나도(예: 여러 빌더가 한꺼번에 data-anim을 쓰게 되는 경우)
+# 영상 잡이 시간 초과로 실패하지 않게 한다.
+MOTION_MAX_SCENES = int(os.environ.get("MOTION_MAX_SCENES", "999"))
+
 
 # ── BGM 다운로드 ──────────────────────────────────────────────────────────
 
@@ -302,6 +311,7 @@ def build_scene_clips(frame_audio_pairs: list, video_dir: str, frame_meta: dict 
     rendered_pairs = []
     prev_frame = None
     prev_stem = None
+    motion_scene_count = 0
     for i, (frame_path, mp3_path, duration) in enumerate(frame_audio_pairs):
         frame_stem = os.path.splitext(os.path.basename(frame_path))[0]
 
@@ -316,6 +326,14 @@ def build_scene_clips(frame_audio_pairs: list, video_dir: str, frame_meta: dict 
         scene_path = os.path.join(video_dir, f"{frame_stem}.mp4")
         motion = _motion_for(frame_stem, frame_meta)
         motion_source = _motion_source_for(frame_path, frame_stem)
+        if motion_source != frame_path:
+            # 성능 가드(MOTION_MAX_SCENES): 프레임 시퀀스 자체는 이미
+            # 빌더 단계에서 캡처됐지만, 합성 대상은 상한 안으로 제한한다 —
+            # 상한을 넘기면 캡처된 프레임을 버리고 기존 정지 PNG로 합성한다.
+            if motion_scene_count >= MOTION_MAX_SCENES:
+                motion_source = frame_path
+            else:
+                motion_scene_count += 1
         clip = _renderer.compose_scene(motion_source, mp3_path, scene_path, duration,
                                         scene_index=i, motion=motion)
         if not clip and motion_source != frame_path:
@@ -330,6 +348,12 @@ def build_scene_clips(frame_audio_pairs: list, video_dir: str, frame_meta: dict 
             rendered_pairs.append((frame_path, mp3_path, duration))
             prev_frame = frame_path
             prev_stem = frame_stem
+            # 성능 가드: 프레임 PNG(장면당 최대 MOTION_FPS*MOTION_LEAD_SECONDS장)는
+            # 이 장면 클립 인코딩이 끝나면 더 이상 필요 없다 — 바로 지워 러너
+            # 디스크 용량을 아낀다(GitHub Actions 러너는 용량 제한이 있음).
+            if motion_source != frame_path and os.path.isdir(motion_source):
+                import shutil
+                shutil.rmtree(motion_source, ignore_errors=True)
         else:
             print(f"  ⚠️ 장면 합성 실패 — 건너뜀: {frame_stem}")
             # 이 장면으로 들어가는 전환은 어차피 갈 곳을 잃었으므로 되돌린다
