@@ -92,5 +92,25 @@
       "현대차",
       "삼성SDI"
     ]
+  },
+  "2026-08-21": {
+    "briefing_data_fingerprint": "d088ad101f2d2d344b9f54674152485f11af5d3ad5a3186e0b5d37b72b5d9766",
+    "market_leaders": [
+      "SK하이닉스",
+      "삼성전자"
+    ],
+    "recorded_at": "2026-08-21T01:39:53.029604",
+    "remaining_stocks": [
+      "삼성SDI",
+      "HPSP",
+      "한미반도체",
+      "SK스퀘어",
+      "아이티센글로벌"
+    ],
+    "top_stocks": [
+      "알테오젠",
+      "에스티팜",
+      "SK증권"
+    ]
   }
 }
