@@ -83,3 +83,5 @@ date,section_id,keyword,provider,url,license,phash,width,height,score
 2026-08-20,conclusion,급등,naver_discovery,http://news.kbs.co.kr/data/news/2026/08/20/20260820_WHnpHK.png,editorial_search,a9d516789846d1f9,640,360,0.96
 2026-08-20,stock_추가관심종목,삼성전기,naver_discovery,https://img3.yna.co.kr/photo/yna/YH/2026/08/20/PYH2026082002370001300_P4.jpg,editorial_search,ac5a5655a50abace,1200,741,1.02
 2026-08-20,ai_strategy_brief,Samsung Electronics,naver_discovery,https://img0.yna.co.kr/photo/yna/YH/2026/08/20/PYH2026082002030001300_P4.jpg,editorial_search,dc81f186aef21365,1200,642,0.78
+2026-08-21,stock_추가관심종목,에너지,naver_discovery,https://img3.yna.co.kr/etc/inner/KR/2026/08/21/AKR20260821060200030_01_i_P4.jpg,editorial_search,ebc773b09438e1c8,1200,955,0.78
+2026-08-21,ai_strategy_brief,올리고 대표,naver_discovery,https://img5.yna.co.kr/photo/reuters/2026/08/21/PRU20260821091601009_P4.jpg,editorial_search,c0661bf3b1037fc4,1200,771,0.78
